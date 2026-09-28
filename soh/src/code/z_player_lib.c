@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/gameplay_field_keep/gameplay_field_keep.h"
 #include "objects/object_link_boy/object_link_boy.h"
@@ -1080,6 +1081,12 @@ void Player_DrawImpl(PlayState* play, void** skeleton, Vec3s* jointTable, s32 dL
     } else if (tunic == PLAYER_TUNIC_ZORA && CVarGetInteger(CVAR_COSMETIC("Link.ZoraTunic.Changed"), 0)) {
         sTemp = CVarGetColor24(CVAR_COSMETIC("Link.ZoraTunic.Value"), sTunicColors[PLAYER_TUNIC_ZORA]);
         color = &sTemp;
+    }
+
+    // ZMP: in multiplayer every player's tunic has its own tone (cosmetic, local; the drawn player is the context)
+    Color_RGB8 zmpTunic;
+    if (Zmp_TunicColor(tunic, color, &zmpTunic)) {
+        color = &zmpTunic;
     }
 
     if (GameInteractor_Should(VB_APPLY_TUNIC_COLOR, true, data, color)) {

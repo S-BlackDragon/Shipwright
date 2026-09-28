@@ -3533,6 +3533,12 @@ void func_80836448(PlayState* play, Player* this, LinkAnimationHeader* anim) {
     func_80832224(this);
     Player_PlayVoiceSfx(this, NA_SE_VO_LI_DOWN);
 
+    // ZMP: in multiplayer a player with no fairy and a partner still standing is only downed (a partner can revive
+    // it); the game over is for when everybody is down (PLAN.md 2.8)
+    if (this->actor.category == ACTORCAT_PLAYER && Zmp_OnPlayerDeath(play, this)) {
+        return;
+    }
+
     if (this->actor.category == ACTORCAT_PLAYER) {
         Audio_SetBgmVolumeOffDuringFanfare();
 
@@ -3547,9 +3553,26 @@ void func_80836448(PlayState* play, Player* this, LinkAnimationHeader* anim) {
             gSaveContext.natureAmbienceId = NATURE_ID_DISABLED;
         }
 
-        OnePointCutscene_Init(play, 9806, cond ? 120 : 60, &this->actor, CAM_ID_MAIN);
-        Letterbox_SetSizeTarget(32);
+        if (Zmp_AllowDeathCamera()) { // ZMP: a personal death camera must not take the other players' view
+            OnePointCutscene_Init(play, 9806, cond ? 120 : 60, &this->actor, CAM_ID_MAIN);
+            Letterbox_SetSizeTarget(32);
+        }
     }
+}
+
+// ZMP: a partner revived this downed player (soh/soh/Zmp/Sim/Players.cpp). The caller put the revive health in the
+// health accumulator; the player gets up like after a fairy revive once the hearts are refilled.
+void Player_ZmpRevive(PlayState* play, Player* this) {
+    if (this->stateFlags1 & PLAYER_STATE1_IN_WATER) {
+        LinkAnimation_Change(play, &this->skelAnime, &gPlayerAnim_link_swimer_swim_wait, 1.0f, 0.0f,
+                             Animation_GetLastFrame(&gPlayerAnim_link_swimer_swim_wait), ANIMMODE_ONCE, -16.0f);
+    } else {
+        LinkAnimation_Change(play, &this->skelAnime, &gPlayerAnim_link_derth_rebirth, 1.0f, 99.0f,
+                             Animation_GetLastFrame(&gPlayerAnim_link_derth_rebirth), ANIMMODE_ONCE, 0.0f);
+    }
+    this->av1.actionVar1 = 0;
+    this->av2.actionVar2 = -1; // func_80843AE8: stand up when the health accumulator is empty
+    Player_PlaySfx(this, NA_SE_EV_FIATY_HEAL - SFX_FLAG);
 }
 
 int Player_CanUpdateItems(Player* this) {
@@ -9501,7 +9524,9 @@ void func_80843AE8(PlayState* play, Player* this) {
         this->av2.actionVar2 = 60;
         Player_SpawnFairy(play, this, &this->actor.world.pos, &D_808545E4, FAIRY_REVIVE_DEATH);
         Player_PlaySfx(this, NA_SE_EV_FIATY_HEAL - SFX_FLAG);
-        OnePointCutscene_Init(play, 9908, 125, &this->actor, CAM_ID_MAIN);
+        if (Zmp_AllowDeathCamera()) { // ZMP: the fairy camera is personal
+            OnePointCutscene_Init(play, 9908, 125, &this->actor, CAM_ID_MAIN);
+        }
     } else if (play->gameOverCtx.state == GAMEOVER_DEATH_WAIT_GROUND) {
         play->gameOverCtx.state = GAMEOVER_DEATH_DELAY_MENU;
     }

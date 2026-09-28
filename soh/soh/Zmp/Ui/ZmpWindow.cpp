@@ -11,6 +11,7 @@
 #include "soh/Zmp/Net/ZmpClient.h"
 #include "soh/Zmp/Sim/Session.h"
 #include "soh/Zmp/Net/Lockstep.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h"
 #include <chrono>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
@@ -64,6 +65,60 @@ static void CenteredLine(float y, const std::string& text, ImU32 color, float sc
     dl->AddText(ImGui::GetFont(), fontSize, pos, color, text.c_str());
 }
 
+static void ReviveBar(float y, float frac, ImU32 color) {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList* dl = ImGui::GetForegroundDrawList(vp);
+    float w = std::min(320.0f, vp->Size.x * 0.6f);
+    float h = std::max(8.0f, ImGui::GetFontSize() * 0.6f);
+    ImVec2 a(vp->Pos.x + (vp->Size.x - w) * 0.5f, y);
+    ImVec2 b(a.x + w, a.y + h);
+    dl->AddRectFilled(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), IM_COL32(0, 0, 0, 190), 3.0f);
+    dl->AddRectFilled(a, ImVec2(a.x + w * std::clamp(frac, 0.0f, 1.0f), b.y), color, 2.0f);
+    dl->AddRect(a, b, IM_COL32(255, 255, 255, 200), 2.0f);
+}
+
+// Downed players, revive progress, spectator target (phase 3). Reads the simulation, draws nothing into it.
+static void DrawDownedOverlay(int local, float y) {
+    float line = ImGui::GetFontSize() * 1.2f + 8.0f;
+    if (Players::SlotDowned(local)) {
+        int who = Players::SlotReviver(local);
+        int prog = Players::SlotReviveProgress(local);
+        CenteredLine(y, "Has caido. Un companero puede revivirte manteniendo A a tu lado.",
+                     IM_COL32(255, 120, 120, 255), 1.1f);
+        y += line;
+        int t = Players::SlotSpectate(local);
+        if (t >= 0) {
+            CenteredLine(y, "Viendo a " + Lockstep::SlotName(t) + " (C-izquierda / C-derecha: cambiar)",
+                         IM_COL32(220, 220, 220, 255), 0.9f);
+            y += line;
+        }
+        if (who >= 0 && prog > 0) {
+            CenteredLine(y, Lockstep::SlotName(who) + " te esta reviviendo", IM_COL32(140, 255, 140, 255), 1.0f);
+            y += line;
+            ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
+        }
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k == local || !Players::SlotDowned(k) || Players::SlotPlayer(k) == nullptr) {
+            continue;
+        }
+        int who = Players::SlotReviver(k);
+        int prog = Players::SlotReviveProgress(k);
+        if (who == local && prog > 0) {
+            CenteredLine(y, "Reviviendo a " + Lockstep::SlotName(k) + "... sigue manteniendo A",
+                         IM_COL32(140, 255, 140, 255), 1.1f);
+            y += line;
+            ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
+            y += line;
+        } else {
+            CenteredLine(y, Lockstep::SlotName(k) + " ha caido: acercate y manten A para revivirle",
+                         IM_COL32(255, 170, 120, 255), 0.95f);
+            y += line;
+        }
+    }
+}
+
 void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     using Clock = std::chrono::steady_clock;
     static uint32_t sSeenResyncs = 0;
@@ -72,8 +127,8 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
         sSeenResyncs = ls.resyncsSeen;
         sResyncShownAt = Clock::now();
     }
-    bool recentResync =
-        ls.resyncsSeen > 0 && std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - sResyncShownAt).count() < 8;
+    bool recentResync = ls.resyncsSeen > 0 &&
+                        std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - sResyncShownAt).count() < 8;
     std::string line;
     ImU32 color = IM_COL32(120, 255, 120, 255);
     switch (ls.phase) {
@@ -109,6 +164,10 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     if (ls.countdown > 0) {
         int secs = (ls.countdown + 19) / 20;
         CenteredLine(mid, "Cambio de zona en " + std::to_string(secs) + " s", IM_COL32(140, 200, 255, 255), 1.4f);
+        mid += big;
+    }
+    if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
+        DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
     }
     if (!ls.lastError.empty() && ls.phase != Lockstep::Phase::Running) {
         CenteredLine(mid + big, ls.lastError, IM_COL32(255, 90, 90, 255), 1.0f);

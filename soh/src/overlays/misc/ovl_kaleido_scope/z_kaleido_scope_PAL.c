@@ -1,4 +1,5 @@
 #include "z_kaleido_scope.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include <stdlib.h>
 #include <string.h>
 
@@ -3883,6 +3884,9 @@ void KaleidoScope_Update(PlayState* play) {
             pauseCtx->unk_204 = -314.0f;
 
             pauseCtx->playerSegment = (void*)(((uintptr_t)play->objectCtx.spaceStart + 0x30) & ~0x3F);
+            if (Zmp_PauseScratch() != NULL) { // ZMP: the local menu must not write into the simulation's memory
+                pauseCtx->playerSegment = (void*)(((uintptr_t)Zmp_PauseScratch() + 0x30) & ~0x3F);
+            }
 
             size1 = func_80091738(play, pauseCtx->playerSegment, &pauseCtx->playerSkelAnime);
             osSyncPrintf("プレイヤー size1＝%x\n", size1);
@@ -4773,8 +4777,10 @@ void KaleidoScope_Update(PlayState* play) {
                     pauseCtx->state = 0;
                     R_UPDATE_RATE = 3;
                     R_PAUSE_MENU_MODE = 0;
-                    func_800981B8(&play->objectCtx);
-                    func_800418D0(&play->colCtx, play);
+                    if (!Zmp_PauseRunningLocal()) { // ZMP: the local menu did not touch object memory
+                        func_800981B8(&play->objectCtx);
+                        func_800418D0(&play->colCtx, play);
+                    }
                     if (pauseCtx->promptChoice == 0 && GameInteractor_Should(VB_BE_ABLE_TO_SAVE, true)) {
                         Play_TriggerRespawn(play);
                         gSaveContext.respawnFlag = -2;
@@ -4841,8 +4847,10 @@ void KaleidoScope_Update(PlayState* play) {
 
             CVarSetInteger(CVAR_GENERAL("PauseMenuAnimatedLinkTriforce"), 0);
 
-            func_800981B8(&play->objectCtx);
-            func_800418D0(&play->colCtx, play);
+            if (!Zmp_PauseRunningLocal()) { // ZMP: the local menu did not touch object memory
+                func_800981B8(&play->objectCtx);
+                func_800418D0(&play->colCtx, play);
+            }
 
             switch (play->sceneNum) {
                 case SCENE_DEKU_TREE:

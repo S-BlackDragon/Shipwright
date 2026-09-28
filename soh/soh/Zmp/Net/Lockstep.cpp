@@ -99,6 +99,7 @@ uint32_t sLastResyncTick = 0;
 bool sLeader = false;
 uint32_t sDumpTicks[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
 Sim::PadRecord sLastLocal; // last pad read from the local controller (or the harness)
+bool sLocalInputBlocked = false;
 std::string sLastError;
 std::map<int, Player*> sTagged;
 std::map<int, std::string> sTagNames;
@@ -339,12 +340,8 @@ void ProcessBlobRequests() {
         State::BlobInfo info;
         auto st = Sim::GetStatus();
         if (State::Save(blob, tick, st.lastHash, &err, &info)) {
-            json msg = { { "t", "STATE_BLOB" },
-                         { "group_id", it->groupId },
-                         { "tick", tick },
-                         { "for_slot", it->forSlot },
-                         { "data", json::binary(blob) },
-                         { "hash", st.lastHash } };
+            json msg = { { "t", "STATE_BLOB" },       { "group_id", it->groupId },    { "tick", tick },
+                         { "for_slot", it->forSlot }, { "data", json::binary(blob) }, { "hash", st.lastHash } };
             Send(msg);
             Log("net: STATE_BLOB sent for slot " + std::to_string(it->forSlot) + " at tick " + std::to_string(tick) +
                 " (" + std::to_string(blob.size()) + " bytes, " + std::to_string((int)info.ms) + " ms)");
@@ -399,8 +396,8 @@ void LoadPendingBlob() {
     } else {
         Sim::SetTick(info.tick);
         sResyncHold = false;
-        Log("net: resynchronized at tick " + std::to_string(info.tick) + " in " + std::to_string((int)info.ms) +
-            " ms" + (info.notes.empty() ? "" : " | " + info.notes));
+        Log("net: resynchronized at tick " + std::to_string(info.tick) + " in " + std::to_string((int)info.ms) + " ms" +
+            (info.notes.empty() ? "" : " | " + info.notes));
         std::lock_guard<std::mutex> lock(sMutex);
         for (auto it = sBundles.begin(); it != sBundles.end();) {
             it = it->first < info.tick ? sBundles.erase(it) : std::next(it);
@@ -438,7 +435,62 @@ void UpdateNameTags() {
     }
 }
 
+struct ConsoleArg {
+    const std::string* cmd;
+};
+
+void RunConsoleInContext(void* p) {
+    std::string output;
+    Ship::Context::GetRawInstance()->GetConsole()->Run(*((ConsoleArg*)p)->cmd, &output);
+}
+
+// Game events that travel as console events (the server stamps the sender's slot; docs/PROTOCOLO.md, phase 3).
+// "zmp_equip b0..b7 c0..c6 equipment": the pause menu of the sender changed its buttons or its worn equipment
+// (PLAN.md 2.7, EQUIP with absolute values).
+bool ApplyGameEvent(int slot, const std::string& cmd) {
+    if (cmd.rfind("zmp_equip ", 0) != 0) {
+        return false;
+    }
+    std::vector<int> v;
+    size_t pos = 10;
+    while (pos < cmd.size()) {
+        size_t next = cmd.find(' ', pos);
+        std::string tok = cmd.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        if (!tok.empty()) {
+            v.push_back(atoi(tok.c_str()));
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+    }
+    if (v.size() != 16) {
+        Log("net: malformed equip event from slot " + std::to_string(slot) + ": " + cmd);
+        return true;
+    }
+    ItemEquips eq{};
+    for (int i = 0; i < 8; i++) {
+        eq.buttonItems[i] = (u8)v[i];
+    }
+    for (int i = 0; i < 7; i++) {
+        eq.cButtonSlots[i] = (u8)v[8 + i];
+    }
+    eq.equipment = (u16)v[15];
+    Players::ApplyEquip(slot, eq);
+    return true;
+}
+
 } // namespace
+
+void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd) {
+    // Same command on every machine at the start of the same tick (PLAN.md 1.3.3), in the context of the player
+    // who sent it (its health, ammo and equipment are the ones a console command like "addammo" changes).
+    if (!ApplyGameEvent(slot, cmd)) {
+        ConsoleArg arg{ &cmd };
+        Players::RunInContext(slot, RunConsoleInContext, &arg);
+    }
+    Log("net: event at tick " + std::to_string(tick) + " from slot " + std::to_string(slot) + ": " + cmd);
+}
 
 const char* PhaseName(Phase phase) {
     switch (phase) {
@@ -615,6 +667,10 @@ void OnPadRead(void* padsV) {
     local.stickY = pads[0].stick_y;
     local.rStickX = pads[0].right_stick_x;
     local.rStickY = pads[0].right_stick_y;
+    Pause::OnLocalPad(pads[0]);
+    if (sLocalInputBlocked) {
+        local = Sim::PadRecord{}; // the pause menu is open: this player's Link stands still (PLAN.md 2.7)
+    }
     sLastLocal = local;
     Bundle b;
     {
@@ -631,10 +687,7 @@ void OnPadRead(void* padsV) {
         } else if (e.kind == "DESPAWN") {
             Players::Despawn(e.slot);
         } else if (e.kind == "CONSOLE" && !e.cmd.empty()) {
-            // Same console command on every machine at the start of the same tick (PLAN.md 1.3.3).
-            std::string output;
-            Ship::Context::GetRawInstance()->GetConsole()->Run(e.cmd, &output);
-            Log("net: event at tick " + std::to_string(tick) + " from slot " + std::to_string(e.slot) + ": " + e.cmd);
+            ApplyConsoleEvent(tick, e.slot, e.cmd);
         }
     }
     bool seen[ZMP_MAX_PLAYERS] = {};
@@ -687,6 +740,10 @@ int CatchUpSpeed() {
     }
     std::lock_guard<std::mutex> lock(sMutex);
     return sBundles.size() > (size_t)(sDelay + 3) ? 2 : 0;
+}
+
+void SetLocalInputBlocked(bool blocked) {
+    sLocalInputBlocked = blocked;
 }
 
 void SendConsoleEvent(const std::string& cmd) {
