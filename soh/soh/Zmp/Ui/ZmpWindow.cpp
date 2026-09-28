@@ -80,6 +80,9 @@ static void ReviveBar(float y, float frac, ImU32 color) {
 // Downed players, revive progress, spectator target (phase 3). Reads the simulation, draws nothing into it.
 static void DrawDownedOverlay(int local, float y) {
     float line = ImGui::GetFontSize() * 1.2f + 8.0f;
+    if (Players::GroupDefeat()) {
+        return; // everybody is down: the game over screen says it all
+    }
     if (Players::SlotDowned(local)) {
         int who = Players::SlotReviver(local);
         int prog = Players::SlotReviveProgress(local);

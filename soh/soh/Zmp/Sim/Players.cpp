@@ -683,6 +683,25 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
             }
         }
     }
+    // The shared magic meter grew (first meter, double magic): every other player's meter fills up too, as the
+    // anchor's did.
+    if (gSaveContext.magicCapacity > gZmpSim.lastMagicCapacity) {
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            ZmpPlayerBlock& b = Slot(k).block;
+            s16 full = MAX(gSaveContext.magicCapacity, gSaveContext.magicLevel * MAGIC_NORMAL_METER);
+            if (!Slot(k).active || k == gZmpSim.ctx) {
+                continue;
+            }
+            if (b.magicState == MAGIC_STATE_IDLE) {
+                b.prevMagicState = MAGIC_STATE_IDLE;
+                b.magicState = MAGIC_STATE_FILL;
+                b.magicFillTarget = full;
+            } else if (b.magicState == MAGIC_STATE_FILL) {
+                b.magicFillTarget = MAX(b.magicFillTarget, full);
+            }
+        }
+    }
+    gZmpSim.lastMagicCapacity = gSaveContext.magicCapacity;
     // Magic meter (consumption, refill) of the players out of context: Interface_Update only ran it for the
     // anchor.
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
@@ -1143,6 +1162,10 @@ ZmpPlayerBlock SlotBlock(int slot) {
 
 bool SlotDowned(int slot) {
     return Downed(slot);
+}
+
+bool GroupDefeat() {
+    return gZmpSim.groupDefeat != 0;
 }
 
 int SlotSpectate(int slot) {

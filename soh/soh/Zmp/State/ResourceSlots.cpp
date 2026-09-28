@@ -95,7 +95,7 @@ void BuildIndex() {
 #ifdef _WIN32
     // The whole region is reserved lazily, slot by slot; check the first slot address is usable.
     void* probe = VirtualAlloc((void*)kRegionBase, kSlotSize, MEM_RESERVE, PAGE_READWRITE);
-    sActive = probe == (void*)kRegionBase;
+    sActive = probe == (void*)kRegionBase && std::getenv("ZMP_NO_RESOURCE_SLOTS") == nullptr;
     if (probe != nullptr) {
         VirtualFree(probe, 0, MEM_RELEASE);
     }

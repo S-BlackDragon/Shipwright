@@ -13,6 +13,7 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
+#include <imgui.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -52,6 +53,8 @@ extern "C" const char __ImageBase; // start of the executable image (MSVC linker
 namespace Zmp::Harness {
 
 namespace {
+float sFrameIntervalMs = 0.0f;
+float sFrameIntervalMaxMs = 0.0f;
 
 struct PadStep {
     uint32_t buttons = 0;
@@ -484,7 +487,10 @@ void Dispatch(const RequestPtr& req) {
                       { "cvar_reverts", CVarProfile::RevertCount() },
                       { "audio_muted", Zmp_AudioMuted() },
                       { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) },
-                      { "lockstep", LockstepJson() } };
+                      { "lockstep", LockstepJson() },
+                      { "fps", ImGui::GetCurrentContext() != nullptr ? ImGui::GetIO().Framerate : 0.0f },
+                      { "frame_interval_ms", sFrameIntervalMs },
+                      { "frame_interval_max_ms", sFrameIntervalMaxMs } };
         if (st.hasHash) {
             resp["hash"] = Hex(st.lastHash);
             resp["hash_tick"] = st.tick - 1;
@@ -789,6 +795,17 @@ static void UpdateWaits() {
 }
 
 void OnFrameBegin(uint32_t tick) {
+    // Wall time between two RunFrame iterations (one logic tick each): mean (EMA) and worst since the last query.
+    {
+        static std::chrono::steady_clock::time_point last;
+        auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0) {
+            float ms = std::chrono::duration<float, std::milli>(now - last).count();
+            sFrameIntervalMs = sFrameIntervalMs == 0.0f ? ms : sFrameIntervalMs * 0.98f + ms * 0.02f;
+            sFrameIntervalMaxMs = std::max(sFrameIntervalMaxMs, ms);
+        }
+        last = now;
+    }
     sFrame = tick;
     for (auto& req : TakeRequests()) {
         try {

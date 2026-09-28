@@ -32,9 +32,12 @@
 extern "C" {
 #include <z64.h>
 #include "functions.h"
+#include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
 }
+
+extern "C" void gfx_texture_cache_clear();
 
 static uint32_t sFrameCount = 0;
 
@@ -233,6 +236,26 @@ static void RegisterConsoleCommands() {
                             { "z", Ship::ArgumentType::TEXT },
                             { "yaw", Ship::ArgumentType::TEXT, true },
                             { "slot", Ship::ArgumentType::TEXT, true } } });
+    // Tests: the debug game has no save slot (0xFF, never written); this gives it one (a lockstep event, so the
+    // save context stays identical on every machine).
+    console->AddCommand("zmp_file_num",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 2) {
+                                 return 1;
+                             }
+                             gSaveContext.fileNum = std::stoi(args[1]);
+                             return 0;
+                         },
+                          "ZMP: set the save slot of the current game (tests)",
+                          { { "slot", Ship::ArgumentType::TEXT } } });
+    // Presentation only: drops every texture the renderer has cached (they are uploaded again when drawn).
+    console->AddCommand("zmp_texcache_clear",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             gfx_texture_cache_clear();
+                             return 0;
+                         },
+                          "ZMP: clear the renderer's texture cache",
+                          {} });
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {

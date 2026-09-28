@@ -243,6 +243,7 @@ void VisitZmp(Visitor& v) {
     v.S("pause_owner", gZmpSim.pauseOwner);
     v.S("transition_countdown", gZmpSim.transitionCountdown);
     v.U("group_defeat", gZmpSim.groupDefeat);
+    v.S("last_magic_capacity", gZmpSim.lastMagicCapacity);
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         const ZmpPlayerSlot& s = gZmpSim.slots[k];
         v.prefix = "zmp.slot" + std::to_string(k) + ".";

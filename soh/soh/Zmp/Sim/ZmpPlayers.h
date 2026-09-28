@@ -80,10 +80,11 @@ typedef struct {
     s16 transitionCountdown; // ticks left before a group scene change
     s16 transitionEntrance;
     u8 groupDefeat; // every player was downed: the original game over runs for the group
-    u8 pad2[3];
-    u32 audioTaskCount; // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
-    u32 audioRandom;    // deterministic replacement of Audio_NextRandom in a ZMP session
-    u32 metronomeAt;    // audioTaskCount when the metronome sound was last requested
+    u8 pad2;
+    s16 lastMagicCapacity; // shared magic meter size seen last tick (a new meter fills everybody's)
+    u32 audioTaskCount;    // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
+    u32 audioRandom;       // deterministic replacement of Audio_NextRandom in a ZMP session
+    u32 metronomeAt;       // audioTaskCount when the metronome sound was last requested
     ZmpPlayerSlot slots[ZMP_MAX_PLAYERS];
 } ZmpSimState;
 
@@ -197,6 +198,7 @@ int SlotHealth(int slot);
 // Per-player block of a slot (live values when it is the context).
 ZmpPlayerBlock SlotBlock(int slot);
 bool SlotDowned(int slot);
+bool GroupDefeat();
 int SlotSpectate(int slot);
 int SlotReviveProgress(int slot);
 int SlotReviver(int slot);
