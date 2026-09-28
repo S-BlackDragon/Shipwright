@@ -4,6 +4,7 @@
 #include <cinttypes>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <map>
 #include <mutex>
 #include <set>
@@ -96,6 +97,7 @@ uint32_t sResyncs = 0;
 uint32_t sResyncsSeen = 0;
 uint32_t sLastResyncTick = 0;
 bool sLeader = false;
+uint32_t sDumpTicks[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
 Sim::PadRecord sLastLocal; // last pad read from the local controller (or the harness)
 std::string sLastError;
 std::map<int, Player*> sTagged;
@@ -272,6 +274,14 @@ void HandleControl(json& msg) {
         sResyncsSeen++;
         sLastResyncTick = bad;
         Sim::WriteDesyncDump(bad);
+        for (int i = 0; i < 4; i++) {
+            if (sDumpTicks[i] == bad) {
+                std::error_code ec;
+                std::filesystem::copy_file("logs/hashdump-" + std::to_string(i) + ".txt",
+                                           "logs/desync-" + std::to_string(bad) + "-exact.txt",
+                                           std::filesystem::copy_options::overwrite_existing, ec);
+            }
+        }
         bool target = false;
         if (msg.contains("targets") && msg["targets"].is_array()) {
             for (auto& x : msg["targets"]) {
@@ -645,6 +655,12 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
         return;
     }
     if (tick % 20 == 0) {
+        // Readable dump of every hashed tick (4 rotating files): a RESYNC names the tick whose hash
+        // differed, and the dumps of that exact tick on each machine are what explains it.
+        std::string err;
+        std::string path = "logs/hashdump-" + std::to_string((tick / 20) % 4) + ".txt";
+        Sim::DumpState(path, tick, &err);
+        sDumpTicks[(tick / 20) % 4] = tick;
         Send({ { "t", "HASH" }, { "tick", tick }, { "hash", hash } });
         size_t queued;
         {

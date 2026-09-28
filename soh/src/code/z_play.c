@@ -1318,14 +1318,20 @@ void Play_DrawOverlayElements(PlayState* play) {
     Zmp_OverlayBegin(play); // ZMP: HUD and menus show the local player
 
     if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
+        Zmp_EnterOwner(play, 1); // ZMP: the menu draws (and updates part of its state) for its owner
         KaleidoScopeCall_Draw(play);
+        Zmp_OverlayBegin(play);
     }
 
     if (gSaveContext.gameMode == GAMEMODE_NORMAL) {
         Interface_Draw(play);
     }
 
+    // ZMP: the text box / ocarina runs part of its logic while drawing (it spawns the song effects): it
+    // draws in the context of its owner on every machine, not of the local player.
+    Zmp_EnterOwner(play, 0);
     Message_Draw(play);
+    Zmp_OverlayBegin(play);
 
     if (play->gameOverCtx.state != GAMEOVER_INACTIVE) {
         GameOver_FadeInLights(play);

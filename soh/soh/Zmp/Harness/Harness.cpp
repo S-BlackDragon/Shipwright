@@ -696,7 +696,7 @@ void Dispatch(const RequestPtr& req) {
         Zmp::Client::Get().Connect(host, port, room, pname);
         req->Reply({ { "ok", true } });
     } else if (name == "net.event") {
-        Zmp::Lockstep::SendConsoleEvent(cmd.value("cmd", std::string()));
+        Zmp::Lockstep::SendConsoleEvent(cmd.value("line", std::string()));
         req->Reply({ { "ok", true } });
     } else if (name == "net.leave") {
         Zmp::Lockstep::Leave();

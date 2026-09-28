@@ -64,6 +64,8 @@ extern "C" {
 
 extern ZmpSimState gZmpSim;
 extern void* gZmpCtxPlayer;
+// Camera_UpdateInterface does nothing while set (main cameras of the non-anchor players).
+extern s32 gZmpCameraInterfaceMuted;
 
 // True while the multiplayer simulation runs in a Play state.
 s32 Zmp_MultiActive(void);

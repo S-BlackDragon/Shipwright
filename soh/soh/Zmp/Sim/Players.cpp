@@ -21,6 +21,7 @@ void Player_ReleaseLockOn(Player* player);
 extern "C" {
 ZmpSimState gZmpSim;
 void* gZmpCtxPlayer = nullptr;
+s32 gZmpCameraInterfaceMuted = 0;
 }
 
 namespace {
@@ -382,7 +383,9 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
                 continue;
             }
             SwitchTo(play, k);
+            gZmpCameraInterfaceMuted = (k != anchor);
             Camera_Update(&play->mainCamera);
+            gZmpCameraInterfaceMuted = 0;
             ZmpPlayerSlot& s = Slot(k);
             s.hasView = play->mainCamera.status == CAM_STAT_ACTIVE;
             if (s.hasView) {

@@ -1,5 +1,6 @@
 #include <libultraship/libultra.h>
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -757,6 +758,12 @@ s32 Camera_CopyPREGToModeValues(Camera* camera) {
 
 void Camera_UpdateInterface(s16 flags) {
     s16 interfaceAlpha;
+
+    // ZMP: with one main camera per player only the anchor's camera drives the letterbox and the HUD
+    // visibility (otherwise every camera overrides it each tick and the HUD flickers)
+    if (gZmpCameraInterfaceMuted) {
+        return;
+    }
 
     if ((flags & SHRINKWIN_MASK) != SHRINKWIN_MASK) {
         switch (flags & SHRINKWINVAL_MASK) {
