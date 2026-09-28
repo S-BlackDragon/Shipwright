@@ -519,7 +519,13 @@ extern "C" void Zmp_DrawEndView(PlayState* play) {
         return;
     }
     SwitchTo(play, gZmpSim.anchor);
+    // The matrix pointers of a View point into a frame's graphics pool. The copy taken at the start of the
+    // draw holds the previous frame's (stale), and func_800AB944 writes through them when a camera asks for
+    // a view recomputation: give the canonical view fresh matrices of this frame that no display list uses.
     play->view = sSimView;
+    play->view.projectionPtr = (Mtx*)Graph_Alloc(play->state.gfxCtx, sizeof(Mtx));
+    play->view.projectionFlippedPtr = (Mtx*)Graph_Alloc(play->state.gfxCtx, sizeof(Mtx));
+    play->view.viewingPtr = (Mtx*)Graph_Alloc(play->state.gfxCtx, sizeof(Mtx));
     play->viewProjectionMtxF = sSimVP;
     play->billboardMtxF = sSimBillboard;
     // The local picture left view dependent matrices in the game's matrix stack. The next tick starts
