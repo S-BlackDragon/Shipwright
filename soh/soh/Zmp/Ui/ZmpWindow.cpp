@@ -60,11 +60,13 @@ void RoomWindow::DrawOverlay() {
     ImDrawList* dl = ImGui::GetForegroundDrawList(vp);
     ImVec2 pos(vp->Pos.x + 6.0f, vp->Pos.y + 6.0f);
     float fontSize = ImGui::GetFontSize() * 0.85f;
-    ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text.c_str());
+    // Wrap long messages (a rejection explains the reason) inside the window.
+    float wrap = vp->Size.x - 16.0f;
+    ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, wrap, text.c_str());
     dl->AddRectFilled(ImVec2(pos.x - 3, pos.y - 2), ImVec2(pos.x + size.x + 3, pos.y + size.y + 2),
                       IM_COL32(0, 0, 0, 150), 3.0f);
     ImVec4 c = StatusColor(st.state);
-    dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str());
+    dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str(), nullptr, wrap);
 }
 
 void RoomWindow::DrawConnectionForm() {
