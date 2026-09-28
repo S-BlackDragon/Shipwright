@@ -1,0 +1,86 @@
+# ZMP: Windows Release build (adapted from the build-windows job of generate-builds.yml).
+# Builds soh.o2r and soh.exe with the test harness, packages the zip and uploads it.
+# The harness tests need a GPU and run on Alex's PC, not here (PLAN.md 5.8).
+name: zmp-windows
+on:
+  push:
+    branches: ["zmp/**"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install clang-format 14
+        run: pip install clang-format==14.0.6
+      - name: Check formatting of ZMP code and touched game files
+        run: |
+          files=$(find soh/soh/Zmp -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" \))
+          files="$files $(grep -rl 'ZMP' soh/src soh/soh --include=*.c --include=*.cpp | grep -v '^soh/soh/Zmp/' || true)"
+          clang-format --dry-run --Werror $files
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          choco install ninja -y
+          Remove-Item -Path "C:\ProgramData\Chocolatey\bin\ccache.exe" -Force -ErrorAction SilentlyContinue
+      - name: Git Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Configure ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          max-size: "2G"
+          evict-old-files: job
+          save: ${{ startsWith(github.ref_name, 'zmp/') }}
+          key: ${{ runner.os }}-zmp-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-zmp-ccache-${{ github.ref }}
+            ${{ runner.os }}-zmp-ccache
+      - name: Restore Cached VCPKG folder
+        id: restore-cache-vcpkg
+        uses: actions/cache/restore@v5
+        with:
+          key: ${{ runner.os }}-zmp-vcpkg-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-zmp-vcpkg-
+          path: vcpkg
+      - name: Configure Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Build SoH (ZMP, harness on)
+        env:
+          VCPKG_ROOT: ${{github.workspace}}/vcpkg
+        run: |
+          cmake -S . -B build-windows -G Ninja -DCMAKE_MAKE_PROGRAM=ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DZMP_HARNESS=ON
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cmake --build build-windows --target GenerateSohOtr --config Release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cmake --build build-windows --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          (cd build-windows && cpack)
+          cd ..
+          mv _packages/*.zip _packages/zmp-soh-windows.zip
+      - name: Unzip package
+        run: Expand-Archive -Path _packages/zmp-soh-windows.zip -DestinationPath zmp-soh-windows
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: zmp-soh-windows
+          path: zmp-soh-windows
+          retention-days: 14
+      - name: Save Cache VCPKG folder
+        if: ${{ steps.restore-cache-vcpkg.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          key: ${{ steps.restore-cache-vcpkg.outputs.cache-primary-key }}
+          path: vcpkg
