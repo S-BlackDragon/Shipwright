@@ -37,6 +37,96 @@ extern PlayState* gPlayState;
 }
 
 static uint32_t sFrameCount = 0;
+
+#ifdef _WIN32
+#include <dbghelp.h>
+#include <thread>
+// Hang watchdog (diagnostics for testers and friends): if the game thread does not start a new frame for
+// 5 s, its call stack goes to logs/zmp.log.
+static std::atomic<uint32_t> sFrameBegins{ 0 };
+static HANDLE sGameThread = nullptr;
+static std::thread sWatchdog;
+static std::atomic<bool> sWatchdogStop{ false };
+
+static void LogGameThreadStack() {
+    if (sGameThread == nullptr) {
+        return;
+    }
+    static bool sSymInit = false;
+    HANDLE proc = GetCurrentProcess();
+    if (!sSymInit) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+        char exe[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        std::string dir = exe;
+        dir = dir.substr(0, dir.find_last_of("\\/"));
+        std::string search = dir + ";" + dir + "\\debug";
+        SymInitialize(proc, search.c_str(), TRUE);
+        sSymInit = true;
+    }
+    if (SuspendThread(sGameThread) == (DWORD)-1) {
+        return;
+    }
+    CONTEXT ctx = {};
+    ctx.ContextFlags = CONTEXT_FULL;
+    std::string out = "zmp: WATCHDOG game thread stuck, stack:";
+    if (GetThreadContext(sGameThread, &ctx)) {
+        STACKFRAME64 frame = {};
+        frame.AddrPC.Offset = ctx.Rip;
+        frame.AddrPC.Mode = AddrModeFlat;
+        frame.AddrFrame.Offset = ctx.Rbp;
+        frame.AddrFrame.Mode = AddrModeFlat;
+        frame.AddrStack.Offset = ctx.Rsp;
+        frame.AddrStack.Mode = AddrModeFlat;
+        for (int i = 0; i < 40; i++) {
+            if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, sGameThread, &frame, &ctx, nullptr,
+                             SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
+                frame.AddrPC.Offset == 0) {
+                break;
+            }
+            char buf[sizeof(SYMBOL_INFO) + 256];
+            SYMBOL_INFO* sym = (SYMBOL_INFO*)buf;
+            sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+            sym->MaxNameLen = 255;
+            DWORD64 disp = 0;
+            char off[32];
+            snprintf(off, sizeof(off), "exe+0x%llX",
+                     (unsigned long long)(frame.AddrPC.Offset - (DWORD64)GetModuleHandleA(nullptr)));
+            std::string name = SymFromAddr(proc, frame.AddrPC.Offset, &disp, sym) ? sym->Name : off;
+            IMAGEHLP_LINE64 line = {};
+            line.SizeOfStruct = sizeof(line);
+            DWORD ldisp = 0;
+            std::string where;
+            if (SymGetLineFromAddr64(proc, frame.AddrPC.Offset, &ldisp, &line)) {
+                where = std::string(" ") + line.FileName + ":" + std::to_string(line.LineNumber);
+            }
+            out += "\n    " + name + where;
+        }
+    }
+    ResumeThread(sGameThread);
+    Zmp::Log(out);
+}
+
+static void WatchdogLoop() {
+    uint32_t last = 0;
+    int stuck = 0;
+    bool reported = false;
+    while (!sWatchdogStop) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        uint32_t now = sFrameBegins.load();
+        if (now == last && now != 0) {
+            if (++stuck == 10 && !reported) { // 5 s
+                reported = true;
+                LogGameThreadStack();
+            }
+        } else {
+            stuck = 0;
+            reported = false;
+        }
+        last = now;
+    }
+}
+#endif
 static std::shared_ptr<Zmp::RoomWindow> sRoomWindow;
 static std::atomic<bool> sAudioMuted{ false };
 
@@ -226,6 +316,12 @@ extern "C" void Zmp_Init(void) {
 
 extern "C" void Zmp_Deinit(void) {
     Zmp::Log("zmp: shutdown");
+#ifdef _WIN32
+    sWatchdogStop = true;
+    if (sWatchdog.joinable()) {
+        sWatchdog.join();
+    }
+#endif
 #ifdef ZMP_HARNESS
     Zmp::Harness::Stop();
 #endif
@@ -235,6 +331,15 @@ extern "C" void Zmp_Deinit(void) {
 }
 
 extern "C" void Zmp_OnFrameBegin(void) {
+#ifdef _WIN32
+    if (sGameThread == nullptr) {
+        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &sGameThread, 0, FALSE,
+                        DUPLICATE_SAME_ACCESS);
+        sWatchdogStop = false;
+        sWatchdog = std::thread(WatchdogLoop);
+    }
+    sFrameBegins++;
+#endif
     static bool sLoggedMemory = false;
     if (!sLoggedMemory) {
         sLoggedMemory = true;
