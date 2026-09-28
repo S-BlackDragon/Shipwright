@@ -26,6 +26,7 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 void Play_Main(GameState* thisx);
+void FileChoose_Main(GameState* thisx);
 }
 
 #ifdef _WIN32
@@ -36,9 +37,12 @@ namespace Zmp::Sim {
 
 namespace {
 
-// Offsets instead of pointers: an address inside the executable becomes its offset from the
-// image base; an address inside the resource region becomes its offset from the region base
-// (deterministic, see ResourceSlots.h). Anything else is reduced to "null" or "other".
+// Never a pointer value. An address inside the resource region becomes its offset from the region
+// base (deterministic, see ResourceSlots.h). An address inside the executable is build dependent,
+// so it is reduced to its meaning when that is stable: an asset name ("__OTR__..." string, how SoH
+// refers to animations and display lists) is hashed by content; anything else (a function) only
+// counts as "inside the executable". Recordings made with one build then replay in the next build
+// as long as the game logic did not change. Anything else is "null" or "other".
 uint64_t PointerToken(const void* p) {
     if (p == nullptr) {
         return 0;
@@ -53,7 +57,15 @@ uint64_t PointerToken(const void* p) {
         sSize = nt->OptionalHeader.SizeOfImage;
     }
     if (a >= sBase && a < sBase + sSize) {
-        return 0x1000000000000000ULL | (uint64_t)(a - sBase);
+        const char* str = (const char*)p;
+        if (a + 8 < sBase + sSize && memcmp(str, "__OTR__", 7) == 0) {
+            uint64_t h = 0xCBF29CE484222325ULL;
+            for (size_t i = 0; i < 256 && a + i < sBase + sSize && str[i] != 0; i++) {
+                h = (h ^ (uint8_t)str[i]) * 0x100000001B3ULL;
+            }
+            return 0x3000000000000000ULL | (h & 0x0FFFFFFFFFFFFFFFULL);
+        }
+        return 0x1000000000000000ULL;
     }
 #endif
     if (a >= ZMP_RESOURCE_REGION_ADDR && a < ZMP_RESOURCE_REGION_ADDR + (1ULL << 42)) {
@@ -221,7 +233,12 @@ void VisitAll(Visitor& v, uint32_t tick) {
     u32 randInt = Rand_ZmpGetState(&randFloat);
     v.U("rng.int", randInt);
     v.U("rng.float", randFloat);
-    v.U("game_state", gGameState != nullptr ? PointerToken((const void*)gGameState->main) : 0);
+    // Which game state runs (as a stable number, not the address of its main function).
+    uint64_t state = 0;
+    if (gGameState != nullptr) {
+        state = gGameState->main == Play_Main ? 1 : (gGameState->main == FileChoose_Main ? 2 : 3);
+    }
+    v.U("game_state", state);
     if (InPlay()) {
         VisitPlay(v);
     }

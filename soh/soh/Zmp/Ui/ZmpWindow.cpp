@@ -1,5 +1,6 @@
 #include "ZmpWindow.h"
 
+#include <algorithm>
 #include <string>
 
 #include <imgui.h>
@@ -59,11 +60,13 @@ void RoomWindow::DrawOverlay() {
     std::string text = "ZMP " + name + " | " + StatusLine(st);
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImDrawList* dl = ImGui::GetForegroundDrawList(vp);
-    ImVec2 pos(vp->Pos.x + 6.0f, vp->Pos.y + 6.0f);
+    ImVec2 pos(vp->Pos.x + 6.0f, vp->Pos.y + 6.0f); // x is centred below, once the text size is known
     float fontSize = ImGui::GetFontSize() * 0.85f;
     // Wrap long messages (a rejection explains the reason) inside the window.
     float wrap = vp->Size.x - 16.0f;
     ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, wrap, text.c_str());
+    // Top centre: the hearts and the magic bar of the HUD are on the left, the buttons on the right.
+    pos.x = vp->Pos.x + std::max(6.0f, (vp->Size.x - size.x) * 0.5f);
     dl->AddRectFilled(ImVec2(pos.x - 3, pos.y - 2), ImVec2(pos.x + size.x + 3, pos.y + size.y + 2),
                       IM_COL32(0, 0, 0, 150), 3.0f);
     ImVec4 c = StatusColor(st.state);
@@ -93,8 +96,8 @@ void RoomWindow::DrawOverlay() {
         line += " | PAUSA";
     }
     float bigSize = ImGui::GetFontSize() * 1.1f;
-    ImVec2 pos2(pos.x, pos.y + size.y + 6.0f);
     ImVec2 size2 = ImGui::GetFont()->CalcTextSizeA(bigSize, FLT_MAX, 0.0f, line.c_str());
+    ImVec2 pos2(vp->Pos.x + std::max(6.0f, (vp->Size.x - size2.x) * 0.5f), pos.y + size.y + 6.0f);
     dl->AddRectFilled(ImVec2(pos2.x - 3, pos2.y - 2), ImVec2(pos2.x + size2.x + 3, pos2.y + size2.y + 2),
                       IM_COL32(0, 0, 0, 170), 3.0f);
     dl->AddText(ImGui::GetFont(), bigSize, pos2, color, line.c_str());

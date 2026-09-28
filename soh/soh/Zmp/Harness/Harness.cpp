@@ -485,6 +485,7 @@ void Dispatch(const RequestPtr& req) {
         if (!fromState.empty()) {
             fromState = std::filesystem::absolute(fromState).string();
         }
+        Sim::PauseOnActivate(cmd.value("pause", false));
         if (Sim::StartReplay(path, fromState, &err)) {
             req->Reply({ { "ok", true }, { "session", SessionJson() } });
         } else {

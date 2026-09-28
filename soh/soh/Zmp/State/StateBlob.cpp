@@ -47,11 +47,12 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(Matrix)                                                                                                         \
     X(Lights)                                                                                                         \
     X(DoorWarp1)                                                                                                      \
-    X(MapMark) X(Camera) X(OnePointCutscene) X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd)       \
-        X(BgDodoago) X(BgHakaTrap) X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects)      \
-            X(BgSpot18Basket) X(BossGanon) X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) \
-                X(DemoKekkai) X(EnBw) X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField)     \
-                    X(EnTakaraMan) X(EnXc) X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player)
+    X(MapMark)                                                                                                        \
+    X(Camera) X(OnePointCutscene) X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago)     \
+        X(BgHakaTrap) X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) \
+            X(BossGanon) X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai)     \
+                X(EnBw) X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan)    \
+                    X(EnXc) X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player)
 
 #define ZMP_DECLARE_SAVESTATE(Tag) extern "C" void Tag##_SaveState(SaveStateCtx* ctx);
 ZMP_STATIC_SAVESTATES(ZMP_DECLARE_SAVESTATE)
@@ -77,6 +78,7 @@ enum SectionId : uint32_t {
     SEC_ACTORDB,
     SEC_RESOURCES,
     SEC_HEAP_POINTER_STATICS,
+    SEC_PADMGR,
 };
 
 #pragma pack(push, 1)
@@ -382,6 +384,8 @@ bool Save(std::vector<uint8_t>& out, uint32_t tick, uint64_t hash, std::string* 
         resources = (uint32_t)slots.size();
         w.Section(SEC_RESOURCES, r.buf);
     }
+    // Controller history: press/rel edges of the next tick are computed from it.
+    w.Section(SEC_PADMGR, gPadMgr.inputs, sizeof(gPadMgr.inputs));
     {
         auto ptrs = HeapPointerStatics();
         w.Section(SEC_HEAP_POINTER_STATICS, ptrs.data(), ptrs.size() * sizeof(ptrs[0]));
@@ -631,6 +635,9 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
             AppendNote(info, "actor table size differs");
         }
     }
+    if (sections.count(SEC_PADMGR) && sections[SEC_PADMGR].second == sizeof(gPadMgr.inputs)) {
+        memcpy(gPadMgr.inputs, sections[SEC_PADMGR].first, sizeof(gPadMgr.inputs));
+    }
     if (!LoadStatics(statics)) {
         *err = "static data layout differs (different build?) - state partially loaded";
         return false;
@@ -652,14 +659,23 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         uintptr_t base = (uintptr_t)ImageBase();
         uint32_t mismatches = 0;
         std::string names;
+        FILE* report = fopen("logs/state-load-statics.txt", "w");
         for (size_t i = 0; i < n; i++) {
             uint64_t now = *(const uint64_t*)(base + ptrs[i].first);
             if (now != ptrs[i].second) {
                 mismatches++;
+                std::string name = SymbolName(base + ptrs[i].first);
+                if (report != nullptr) {
+                    fprintf(report, "%s saved=0x%llX now=0x%llX\n", name.c_str(), (unsigned long long)ptrs[i].second,
+                            (unsigned long long)now);
+                }
                 if (mismatches <= 12) {
-                    names += (names.empty() ? "" : ", ") + SymbolName(base + ptrs[i].first);
+                    names += (names.empty() ? "" : ", ") + name;
                 }
             }
+        }
+        if (report != nullptr) {
+            fclose(report);
         }
         if (mismatches > 0) {
             AppendNote(info, std::to_string(mismatches) + " heap pointer statics differ: " + names);

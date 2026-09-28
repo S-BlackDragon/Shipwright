@@ -66,6 +66,8 @@ bool RecordEvent(const std::string& consoleCommand, std::string* err, uint32_t* 
 // Replay. `fromStatePath` (optional): load that save state first and continue the replay from
 // its tick (the resume demo); otherwise the file's own start (new game or embedded state).
 bool StartReplay(const std::string& path, const std::string& fromStatePath, std::string* err);
+// The next session start (first replayed/recorded tick) leaves the tick gate closed (tests).
+void PauseOnActivate(bool pause);
 void StopSession();
 
 void SetPaused(bool paused);

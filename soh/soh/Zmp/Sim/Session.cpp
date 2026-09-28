@@ -101,6 +101,7 @@ struct CheckpointData {
 std::map<std::string, CheckpointData> sCheckpoints;
 
 bool sAutostartDone = false;
+bool sPauseOnActivate = false;
 bool sReturnRequested = false;
 
 bool InPlay() {
@@ -280,6 +281,10 @@ bool ReadInputFile(const std::string& path, std::string* err) {
 
 void BeginActive(uint32_t tick) {
     sArmed = false;
+    if (sPauseOnActivate) {
+        sPauseOnActivate = false;
+        sPaused = true;
+    }
     sTick = tick;
     ResetHashes(tick);
     sReplayFinished = false;
@@ -569,6 +574,10 @@ bool StartReplay(const std::string& path, const std::string& fromStatePath, std:
     Log("zmp: replay of " + path + " (" + std::to_string(sPads.size()) + " ticks from tick " +
         std::to_string(sStartTick) + ")");
     return true;
+}
+
+void PauseOnActivate(bool pause) {
+    sPauseOnActivate = pause;
 }
 
 void StopSession() {
