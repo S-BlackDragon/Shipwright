@@ -31,6 +31,8 @@
 extern "C" {
 #include <z64.h>
 #include "functions.h"
+#include "macros.h"
+extern PlayState* gPlayState;
 }
 
 static uint32_t sFrameCount = 0;
@@ -110,6 +112,29 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: write a readable dump of the simulation state",
                           { { "path", Ship::ArgumentType::TEXT } } });
+    // Scripted segment boundary for recordings (docs/DECISIONES.md): puts the player at an exact position
+    // (the vanilla `pos` command keeps the previous position, so collision stops the move halfway).
+    console->AddCommand("zmp_teleport",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 4 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             Player* player = GET_PLAYER(gPlayState);
+                             Vec3f pos = { std::stof(args[1]), std::stof(args[2]), std::stof(args[3]) };
+                             player->actor.world.pos = pos;
+                             player->actor.prevPos = pos;
+                             player->actor.home.pos = pos;
+                             if (args.size() > 4) {
+                                 s16 yaw = (s16)std::stoi(args[4]);
+                                 player->actor.shape.rot.y = player->actor.world.rot.y = player->yaw = yaw;
+                             }
+                             return 0;
+                         },
+                          "ZMP: teleport the player to x y z [yaw] (used by scripted recordings)",
+                          { { "x", Ship::ArgumentType::TEXT },
+                            { "y", Ship::ArgumentType::TEXT },
+                            { "z", Ship::ArgumentType::TEXT },
+                            { "yaw", Ship::ArgumentType::TEXT, true } } });
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {

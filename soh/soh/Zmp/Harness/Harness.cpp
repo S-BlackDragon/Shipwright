@@ -254,6 +254,7 @@ json ActorsJson(const json& cmd) {
                 { "health", a->colChkInfo.health },
                 { "room", a->room },
                 { "freeze_timer", a->freezeTimer },
+                { "proj", Vec3(a->projectedPos) },
             });
         }
     }
@@ -522,6 +523,36 @@ void Dispatch(const RequestPtr& req) {
         std::string path = std::filesystem::absolute(cmd.value("path", std::string("census.txt"))).string();
         bool ok = State::Census(path, &summary);
         req->Reply({ { "ok", ok }, { "path", path }, { "summary", summary } });
+    } else if (name == "debug.floor") {
+        // Exploration tool (not simulation): floor heights under a list of points, [[x, y, z], ...].
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json out = json::array();
+            for (auto& pt : cmd.value("points", json::array())) {
+                Vec3f pos = { pt[0].get<float>(), pt[1].get<float>(), pt[2].get<float>() };
+                CollisionPoly* poly = nullptr;
+                s32 bgId = 0;
+                f32 y = BgCheck_EntityRaycastFloor3(&gPlayState->colCtx, &poly, &bgId, &pos);
+                out.push_back(y);
+            }
+            req->Reply({ { "ok", true }, { "floors", out } });
+        }
+    } else if (name == "debug.teleport") {
+        // Exploration tool: puts the player exactly at a position (never used in recordings).
+        if (!InPlay() || GET_PLAYER(gPlayState) == nullptr) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            Player* pl = GET_PLAYER(gPlayState);
+            Vec3f pos = { cmd["pos"][0].get<float>(), cmd["pos"][1].get<float>(), cmd["pos"][2].get<float>() };
+            pl->actor.world.pos = pos;
+            pl->actor.prevPos = pos;
+            pl->actor.home.pos = pos;
+            if (cmd.contains("yaw")) {
+                pl->actor.shape.rot.y = pl->actor.world.rot.y = pl->yaw = (s16)cmd["yaw"].get<int>();
+            }
+            req->Reply({ { "ok", true } });
+        }
     } else if (name == "debug.set_actor_health") {
         std::string err;
         bool ok =
