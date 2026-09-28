@@ -592,6 +592,21 @@ extern "C" u32 Zmp_AudioRandom(void) {
     return gZmpSim.audioRandom >> 8;
 }
 
+extern "C" void Zmp_AudioSfxPlayed(u16 sfxId) {
+    if (gZmpSim.enabled && sfxId == NA_SE_SY_METRONOME) {
+        gZmpSim.metronomeAt = gZmpSim.audioTaskCount;
+    }
+}
+
+extern "C" s32 Zmp_AudioSfxPlaying(u32 sfxId, s32* playing) {
+    if (!gZmpSim.enabled || sfxId != NA_SE_SY_METRONOME) {
+        return 0;
+    }
+    // The metronome click lasts about 0.4 s: 8 game ticks (24 audio tasks).
+    *playing = (gZmpSim.audioTaskCount - gZmpSim.metronomeAt) < 24 ? 1 : 0;
+    return 1;
+}
+
 extern "C" s32 Zmp_LanguageLocked(void) {
     return gZmpSim.enabled ? 1 : 0;
 }

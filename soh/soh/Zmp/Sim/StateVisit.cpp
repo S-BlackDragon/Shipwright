@@ -236,6 +236,7 @@ void VisitZmp(Visitor& v) {
     v.prefix = "zmp.";
     v.U("audio_tasks", gZmpSim.audioTaskCount);
     v.U("audio_random", gZmpSim.audioRandom);
+    v.U("metronome_at", gZmpSim.metronomeAt);
     v.S("anchor", gZmpSim.anchor);
     v.S("ctx", gZmpSim.ctx);
     v.S("msg_owner", gZmpSim.msgOwner);

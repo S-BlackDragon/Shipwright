@@ -1,5 +1,6 @@
 #include <libultraship/libultra.h>
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
 #include "soh/Enhancements/audio/AudioEditor.h"
@@ -127,6 +128,8 @@ void Audio_ClearBGMMute(u8 channelIdx) {
 void Audio_PlaySfxGeneral(u16 sfxId, Vec3f* pos, u8 token, f32* freqScale, f32* vol, s8* reverbAdd) {
     size_t i;
     SoundRequest* req;
+
+    Zmp_AudioSfxPlayed(sfxId); // ZMP: the metronome's duration is simulated in ticks in lockstep
 
     if (!gSoundBankMuted[SFX_BANK_SHIFT(sfxId)]) {
         req = &sSoundRequests[sSoundRequestWriteIndex];
@@ -738,6 +741,13 @@ void func_800F8F88(void) {
 u8 Audio_IsSfxPlaying(u32 sfxId) {
     SoundBankEntry* entry;
     u8 entryIndex = gSoundBanks[SFX_BANK(sfxId)][0].next;
+    s32 zmpPlaying;
+
+    // ZMP: game logic asks whether the metronome still sounds (Skull Kid, Lost Woods memory game); the
+    // answer came from the audio thread. In lockstep it is a fixed duration in game ticks.
+    if (Zmp_AudioSfxPlaying(sfxId, &zmpPlaying)) {
+        return zmpPlaying;
+    }
 
     while (entryIndex != 0xFF) {
         entry = &gSoundBanks[SFX_BANK(sfxId)][entryIndex];

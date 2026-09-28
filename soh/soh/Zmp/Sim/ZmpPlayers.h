@@ -55,6 +55,7 @@ typedef struct {
     s16 transitionEntrance;
     u32 audioTaskCount; // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
     u32 audioRandom;    // deterministic replacement of Audio_NextRandom in a ZMP session
+    u32 metronomeAt;    // audioTaskCount when the metronome sound was last requested
     ZmpPlayerSlot slots[ZMP_MAX_PLAYERS];
 } ZmpSimState;
 
@@ -118,6 +119,9 @@ s32 Zmp_AudioSession(void);
 void Zmp_AudioTick(void);
 u32 Zmp_AudioTaskCount(u32 real);
 u32 Zmp_AudioRandom(void);
+void Zmp_AudioSfxPlayed(u16 sfxId);
+// Returns 1 and sets *playing when the answer comes from the simulation (lockstep, metronome).
+s32 Zmp_AudioSfxPlaying(u32 sfxId, s32* playing);
 // GameState_Update: gSaveContext.language comes from the simulation, not the local setting.
 s32 Zmp_LanguageLocked(void);
 // Save files are written only by the group leader (a joiner never overwrites its own slot with the
