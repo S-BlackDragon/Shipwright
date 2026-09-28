@@ -242,6 +242,9 @@ void VisitZmp(Visitor& v) {
     v.S("msg_owner", gZmpSim.msgOwner);
     v.S("pause_owner", gZmpSim.pauseOwner);
     v.S("transition_countdown", gZmpSim.transitionCountdown);
+    v.U("group_defeat", gZmpSim.groupDefeat);
+    v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
+    v.S("last_magic_capacity", gZmpSim.lastMagicCapacity);
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         const ZmpPlayerSlot& s = gZmpSim.slots[k];
         v.prefix = "zmp.slot" + std::to_string(k) + ".";
@@ -251,8 +254,23 @@ void VisitZmp(Visitor& v) {
             continue;
         }
         bool live = k == gZmpSim.ctx && InPlay();
-        v.S("health", live ? gSaveContext.health : s.health);
-        v.S("health_acc", live ? gSaveContext.healthAccumulator : s.healthAccumulator);
+        ZmpPlayerBlock b = Zmp::Players::SlotBlock(k);
+        v.S("health", b.health);
+        v.S("health_acc", b.healthAccumulator);
+        v.S("magic", b.magic);
+        v.S("magic_state", b.magicState);
+        v.S("magic_target", b.magicTarget);
+        v.S("nayru_timer", b.nayrusLoveTimer);
+        v.Bytes("buttons", b.equips.buttonItems, sizeof(b.equips.buttonItems));
+        v.Bytes("c_slots", b.equips.cButtonSlots, sizeof(b.equips.cButtonSlots));
+        v.U("equipment", b.equips.equipment);
+        v.Bytes("ammo", b.ammo, sizeof(b.ammo));
+        v.Bytes("bottles", b.bottles, sizeof(b.bottles));
+        v.Bytes("button_status", b.buttonStatus, sizeof(b.buttonStatus));
+        v.U("downed", s.downed);
+        v.S("spectate", s.spectate);
+        v.S("revive_progress", s.reviveProgress);
+        v.S("reviver", s.reviver);
         const Camera* cam = live ? &gPlayState->mainCamera : &s.camera;
         Vec(v, "cam.at", cam->at);
         Vec(v, "cam.eye", cam->eye);

@@ -13,6 +13,13 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#include <imgui.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -52,6 +59,8 @@ extern "C" const char __ImageBase; // start of the executable image (MSVC linker
 namespace Zmp::Harness {
 
 namespace {
+float sFrameIntervalMs = 0.0f;
+float sFrameIntervalMaxMs = 0.0f;
 
 struct PadStep {
     uint32_t buttons = 0;
@@ -202,12 +211,38 @@ json PlayerJson(Player* player, int slot = 0) {
     bool live = !multi || slot == gZmpSim.ctx;
     const Camera* cam = live ? &gPlayState->mainCamera : &gZmpSim.slots[slot].camera;
     int health = multi ? Zmp::Players::SlotHealth(slot) : gSaveContext.health;
+    // Per-player block (phase 3): the slot's own values, live in the save context when it is the context.
+    ZmpPlayerBlock blk{};
+    if (multi) {
+        blk = Zmp::Players::SlotBlock(slot);
+    } else {
+        blk.magic = gSaveContext.magic;
+        blk.equips = gSaveContext.equips;
+        memcpy(blk.ammo, gSaveContext.inventory.ammo, sizeof(blk.ammo));
+        for (int i = 0; i < 4; i++) {
+            blk.bottles[i] = gSaveContext.inventory.items[SLOT_BOTTLE_1 + i];
+        }
+    }
     json eq = json::object();
     eq["button_items"] = json::array();
+    eq["c_slots"] = json::array();
     for (int i = 0; i < 8; i++) {
-        eq["button_items"].push_back(gSaveContext.equips.buttonItems[i]);
+        eq["button_items"].push_back(blk.equips.buttonItems[i]);
     }
-    eq["equipment"] = gSaveContext.equips.equipment;
+    for (int i = 0; i < 7; i++) {
+        eq["c_slots"].push_back(blk.equips.cButtonSlots[i]);
+    }
+    eq["equipment"] = blk.equips.equipment;
+    json ammo = json::array();
+    for (int i = 0; i < 16; i++) {
+        ammo.push_back(blk.ammo[i]);
+    }
+    json bottles = json::array();
+    for (int i = 0; i < 4; i++) {
+        bottles.push_back(blk.bottles[i]);
+    }
+    bool downed = multi && Zmp::Players::SlotDowned(slot);
+    int spectate = multi ? Zmp::Players::SlotSpectate(slot) : -1;
     return {
         { "ok", true },
         { "index", slot },
@@ -218,24 +253,31 @@ json PlayerJson(Player* player, int slot = 0) {
         { "speed", player->linearVelocity },
         { "health", health },
         { "health_capacity", gSaveContext.healthCapacity },
-        { "magic", gSaveContext.magic },
+        { "magic", blk.magic },
+        { "magic_capacity", gSaveContext.magicCapacity },
         { "rupees", gSaveContext.rupees },
         { "equips", eq },
+        { "ammo", ammo },
+        { "bottles", bottles },
+        { "items", json(std::vector<int>(gSaveContext.inventory.items, gSaveContext.inventory.items + 24)) },
+        { "boots", player->currentBoots },
+        { "tunic", player->currentTunic },
+        { "revive_progress", multi ? Zmp::Players::SlotReviveProgress(slot) : 0 },
+        { "reviver", multi ? Zmp::Players::SlotReviver(slot) : -1 },
+        { "game_over_state", gPlayState->gameOverCtx.state },
         { "state_flags", json::array({ player->stateFlags1, player->stateFlags2, player->stateFlags3 }) },
         { "room", a->room },
         { "cur_room", gPlayState->roomCtx.curRoom.num },
         { "age", gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult" },
-        { "downed", false },
+        { "downed", downed },
         { "camera",
-          { { "eye", Vec3(cam->eye) },
-            { "at", Vec3(cam->at) },
-            { "setting", cam->setting },
-            { "mode", cam->mode } } },
+          { { "eye", Vec3(cam->eye) }, { "at", Vec3(cam->at) }, { "setting", cam->setting }, { "mode", cam->mode } } },
         { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
         { "action_offset", (uint64_t)((uintptr_t)player->actionFunc - (uintptr_t)&__ImageBase) },
         { "bg_flags", a->bgCheckFlags },
         { "floor_y", a->floorHeight },
-        { "spectating", nullptr },
+        { "spectating", spectate >= 0 ? json(spectate) : json(nullptr) },
+        { "pause_local", Zmp::Pause::State() },
         { "tick", sFrame },
     };
 }
@@ -451,7 +493,10 @@ void Dispatch(const RequestPtr& req) {
                       { "cvar_reverts", CVarProfile::RevertCount() },
                       { "audio_muted", Zmp_AudioMuted() },
                       { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) },
-                      { "lockstep", LockstepJson() } };
+                      { "lockstep", LockstepJson() },
+                      { "fps", ImGui::GetCurrentContext() != nullptr ? ImGui::GetIO().Framerate : 0.0f },
+                      { "frame_interval_ms", sFrameIntervalMs },
+                      { "frame_interval_max_ms", sFrameIntervalMaxMs } };
         if (st.hasHash) {
             resp["hash"] = Hex(st.lastHash);
             resp["hash_tick"] = st.tick - 1;
@@ -571,6 +616,34 @@ void Dispatch(const RequestPtr& req) {
         std::string path = std::filesystem::absolute(cmd.value("path", std::string("census.txt"))).string();
         bool ok = State::Census(path, &summary);
         req->Reply({ { "ok", ok }, { "path", path }, { "summary", summary } });
+    } else if (name == "debug.dump_data") {
+        // Desync hunting: raw copy of every writable section of the executable (its globals and file statics; the
+        // image lives at a fixed address, D-016), to compare two instances at the same tick.
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("data.bin"))).string();
+        uint8_t* base = (uint8_t*)&__ImageBase;
+        auto* dos = (IMAGE_DOS_HEADER*)base;
+        auto* nt = (IMAGE_NT_HEADERS64*)(base + dos->e_lfanew);
+        IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+        json sections = json::array();
+        FILE* f = fopen(path.c_str(), "wb");
+        bool ok = f != nullptr;
+        for (int i = 0; ok && i < nt->FileHeader.NumberOfSections; i++) {
+            if (!(sec[i].Characteristics & IMAGE_SCN_MEM_WRITE)) {
+                continue;
+            }
+            uint32_t rva = sec[i].VirtualAddress;
+            uint32_t size = sec[i].Misc.VirtualSize;
+            fwrite(&rva, 4, 1, f);
+            fwrite(&size, 4, 1, f);
+            fwrite(base + rva, 1, size, f);
+            char nm[9] = {};
+            memcpy(nm, sec[i].Name, 8);
+            sections.push_back({ { "name", nm }, { "rva", rva }, { "size", size } });
+        }
+        if (f != nullptr) {
+            fclose(f);
+        }
+        req->Reply({ { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame } });
     } else if (name == "debug.floor") {
         // Exploration tool (not simulation): floor heights under a list of points, [[x, y, z], ...].
         if (!InPlay()) {
@@ -592,7 +665,7 @@ void Dispatch(const RequestPtr& req) {
         Player* pl = nullptr;
         if (InPlay()) {
             pl = (Zmp_MultiActive() && cmd.contains("slot")) ? Zmp::Players::SlotPlayer(cmd["slot"].get<int>())
-                                                              : GET_PLAYER(gPlayState);
+                                                             : GET_PLAYER(gPlayState);
         }
         if (pl == nullptr) {
             req->Reply({ { "ok", false }, { "error", "not in play or no such player" } });
@@ -756,6 +829,17 @@ static void UpdateWaits() {
 }
 
 void OnFrameBegin(uint32_t tick) {
+    // Wall time between two RunFrame iterations (one logic tick each): mean (EMA) and worst since the last query.
+    {
+        static std::chrono::steady_clock::time_point last;
+        auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0) {
+            float ms = std::chrono::duration<float, std::milli>(now - last).count();
+            sFrameIntervalMs = sFrameIntervalMs == 0.0f ? ms : sFrameIntervalMs * 0.98f + ms * 0.02f;
+            sFrameIntervalMaxMs = std::max(sFrameIntervalMaxMs, ms);
+        }
+        last = now;
+    }
     sFrame = tick;
     for (auto& req : TakeRequests()) {
         try {

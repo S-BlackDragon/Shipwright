@@ -24,13 +24,39 @@ extern "C" {
 
 #define ZMP_MAX_PLAYERS 6
 
+// Per-player part of the save context (PLAN.md 2.6: progression is shared, this is not). While a slot is the
+// context these values are live in gSaveContext; otherwise they are parked here.
 typedef struct {
-    /* in the simulation */
-    u8 active;  // slot belongs to the simulation (joined and not left)
-    u8 present; // its Player actor exists in the current scene
     s16 health;
     s16 healthAccumulator;
-    s16 pad0;
+    s8 magic;
+    u8 pad0;
+    s16 magicState;
+    s16 prevMagicState;
+    s16 magicFillTarget;
+    s16 magicTarget;
+    s16 nayrusLoveTimer;
+    ItemEquips equips; // B, C and D-pad buttons, worn sword / shield / tunic / boots
+    s8 ammo[16];
+    u8 bottles[4]; // contents of SLOT_BOTTLE_1..4 (having a bottle is shared: a new one appears for everybody)
+    u8 buttonStatus[9];
+    u8 pad1[3];
+} ZmpPlayerBlock;
+
+// Downed state (PLAN.md 2.8).
+#define ZMP_REVIVE_TICKS 60 // a partner holds A this long (3 s)
+#define ZMP_REVIVE_RANGE 100.0f
+
+typedef struct {
+    /* in the simulation */
+    u8 active;          // slot belongs to the simulation (joined and not left)
+    u8 present;         // its Player actor exists in the current scene
+    u8 downed;          // health reached zero without a fairy: lying on the ground until a partner revives it
+    s8 spectate;        // slot whose player the camera of a downed player follows (-1 none)
+    s16 reviveProgress; // ticks of A held by a partner in range
+    s8 reviver;         // slot reviving it (-1 none)
+    u8 pad0;
+    ZmpPlayerBlock block;
     Player* player;       // heap address (the heap lives at a fixed address, D-016)
     Camera camera;        // parked main camera (live in play->mainCamera while in context)
     TargetContext target; // parked Z-targeting context
@@ -53,9 +79,12 @@ typedef struct {
     u8 transitionArmed;
     s16 transitionCountdown; // ticks left before a group scene change
     s16 transitionEntrance;
-    u32 audioTaskCount; // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
-    u32 audioRandom;    // deterministic replacement of Audio_NextRandom in a ZMP session
-    u32 metronomeAt;    // audioTaskCount when the metronome sound was last requested
+    u8 groupDefeat; // every player was downed: the original game over runs for the group
+    u8 pad2;
+    s16 lastMagicCapacity; // shared magic meter size seen last tick (a new meter fills everybody's)
+    u32 audioTaskCount;    // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
+    u32 audioRandom;       // deterministic replacement of Audio_NextRandom in a ZMP session
+    u32 metronomeAt;       // audioTaskCount when the metronome sound was last requested
     ZmpPlayerSlot slots[ZMP_MAX_PLAYERS];
 } ZmpSimState;
 
@@ -94,8 +123,29 @@ void Zmp_KaleidoSetupAll(PlayState* play);
 // Context of the owner of the text box (which = 0) or of the pause / game over menu (which = 1).
 void Zmp_EnterOwner(PlayState* play, s32 which);
 void Zmp_OnMessageStart(void);
-// Play_Update after Interface_Update: health refills of the players out of context.
+// Play_Update after Interface_Update: health refills and magic meter of the players out of context, downed
+// players, revive, spectator targets, group defeat.
 void Zmp_UpdateHealthAccumulators(PlayState* play);
+// Player death (z_player.c): returns 1 when the dying player becomes downed instead of starting the game over
+// (multiplayer, no fairy, somebody else still standing).
+s32 Zmp_OnPlayerDeath(PlayState* play, Player* player);
+// True for a downed player (enemies ignore it, it is not "the nearest player").
+s32 Zmp_IsDowned(Player* player);
+// OnePointCutscene on death / fairy revive: 0 in multiplayer (a personal camera must not take everybody's view).
+s32 Zmp_AllowDeathCamera(void);
+// Pause menu: the multiplayer simulation never opens it (it is local to each client, ZmpPause.cpp).
+s32 Zmp_PauseIsLocal(void);
+// Play_Update (once per tick) and Play_DrawOverlayElements: the local pause menu.
+void Zmp_PauseLocalUpdate(PlayState* play);
+void Zmp_PauseLocalDraw(PlayState* play);
+// Kaleido: true while it runs for the local menu (it must not touch simulation memory: object space, collision).
+s32 Zmp_PauseRunningLocal(void);
+// Low health alarm (a sound, presentation): the local player's health, not the anchor's.
+s32 Zmp_LocalHealthCritical(void);
+// Player_DrawImpl: per-player tunic tone (cosmetic). Returns 1 and fills *out for the players after the first.
+s32 Zmp_TunicColor(s32 tunic, const Color_RGB8* base, Color_RGB8* out);
+// Kaleido: buffer for the menu's Link preview while it runs for the local menu (NULL otherwise).
+void* Zmp_PauseScratch(void);
 // Play_Update: group scene change with a countdown. Returns 1 while the transition must wait.
 s32 Zmp_TransitionGate(PlayState* play);
 
@@ -131,7 +181,12 @@ s32 Zmp_AllowSaveWrite(void);
 #ifdef __cplusplus
 }
 
+#include <string>
+
 namespace Zmp::Players {
+// Debug RNG trace of the tick (desync hunting).
+void RandTraceBegin(bool enabled);
+std::string RandTraceText();
 // Local slot (presentation only; not simulation state).
 void SetLocalSlot(int slot);
 int LocalSlot();
@@ -147,8 +202,30 @@ void StepInput(int slot, const OSContPad& pad);
 Player* SlotPlayer(int slot);
 int SlotOf(const Actor* actor);
 int SlotHealth(int slot);
+// Per-player block of a slot (live values when it is the context).
+ZmpPlayerBlock SlotBlock(int slot);
+bool SlotDowned(int slot);
+bool GroupDefeat();
+int SlotSpectate(int slot);
+int SlotReviveProgress(int slot);
+int SlotReviver(int slot);
+// EQUIP event (from the pause menu of `slot`): absolute buttons and worn equipment.
+void ApplyEquip(int slot, const ItemEquips& equips);
+// Saved per-player block (loaded game): equipment, buttons, ammo, bottles; full health (PLAN.md 2.6).
+void ApplySavedBlock(int slot, const ZmpPlayerBlock& block);
+// Runs `fn` in the context of `slot` (console events run for the player who sent them).
+void RunInContext(int slot, void (*fn)(void*), void* arg);
 int PresentCount();
 // After a portable save state load.
 void AfterStateLoad();
 } // namespace Zmp::Players
+
+namespace Zmp::Pause {
+// Local pad of this tick (before the lockstep replaces it).
+void OnLocalPad(const OSContPad& pad);
+// New Play / session end.
+void Reset();
+bool IsOpen();
+int State();
+} // namespace Zmp::Pause
 #endif

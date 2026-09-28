@@ -29,19 +29,19 @@ struct Status {
     uint32_t tick = 0;
     int delay = 2;
     size_t queued = 0;
-    bool waiting = false;      // tick gate closed for more than 250 ms
-    int waitMs = 0;            // time the current tick has been waiting
-    std::string waitingFor;    // names from the server's WAIT message
-    uint32_t stalls = 0;       // waits over 250 ms
+    bool waiting = false;   // tick gate closed for more than 250 ms
+    int waitMs = 0;         // time the current tick has been waiting
+    std::string waitingFor; // names from the server's WAIT message
+    uint32_t stalls = 0;    // waits over 250 ms
     uint32_t maxStallMs = 0;
-    uint32_t resyncs = 0;      // RESYNC messages that targeted this client
-    uint32_t resyncsSeen = 0;  // RESYNC messages received
+    uint32_t resyncs = 0;     // RESYNC messages that targeted this client
+    uint32_t resyncsSeen = 0; // RESYNC messages received
     uint32_t lastResyncTick = 0;
     bool leader = false;
-    uint32_t groupTick = 0;    // last tick emitted by the server
+    uint32_t groupTick = 0; // last tick emitted by the server
     std::string lastError;
     std::vector<SlotInfo> players;
-    int countdown = 0;         // group scene change countdown (ticks)
+    int countdown = 0; // group scene change countdown (ticks)
 };
 
 const char* PhaseName(Phase phase);
@@ -62,6 +62,12 @@ int CatchUpSpeed();
 void Leave();
 // Console command applied by every client at the same tick (lockstep EVENT).
 void SendConsoleEvent(const std::string& cmd);
+// Applies a console event of `slot` (game events like "zmp_equip", or a console command run in that player's context).
+void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd);
+// The leader saved the game: the other players' blocks are written next to it (Save/zmp-players-fileN.txt).
+void SaveGroupBlocks(int fileNum);
+// True while this client's pause menu is open: its input to the group is neutral (PLAN.md 2.7).
+void SetLocalInputBlocked(bool blocked);
 
 Status GetStatus();
 bool Active();

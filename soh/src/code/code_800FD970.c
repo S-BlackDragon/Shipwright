@@ -1,4 +1,13 @@
 #include "global.h"
+#ifdef _MSC_VER
+#include <intrin.h>
+// ZMP: debug trace of who draws random numbers (desync hunting, off unless gZmpRandTrace is set)
+extern s32 gZmpRandTrace;
+void Zmp_RandTraceHit(void* caller);
+#define ZMP_RAND_TRACE()              if (gZmpRandTrace) {                  Zmp_RandTraceHit(_ReturnAddress());     }
+#else
+#define ZMP_RAND_TRACE()
+#endif
 
 // The latest generated random number, used to generate the next number in the sequence.
 static u32 sRandInt = 1;
@@ -10,6 +19,7 @@ static u32 sRandFloat;
  * Gets the next integer in the sequence of pseudo-random numbers.
  */
 u32 Rand_Next(void) {
+    ZMP_RAND_TRACE(); // ZMP
     return sRandInt = (sRandInt * 1664525) + 1013904223;
 }
 
@@ -40,6 +50,7 @@ void Rand_ZmpSetState(u32 randInt, u32 randFloat) {
  * between 1.0f and 2.0f, returning the result subtract 1.0f.
  */
 f32 Rand_ZeroOne(void) {
+    ZMP_RAND_TRACE(); // ZMP
     sRandInt = (sRandInt * 1664525) + 1013904223;
     sRandFloat = ((sRandInt >> 9) | 0x3F800000);
     return *((f32*)&sRandFloat) - 1.0f;
@@ -50,6 +61,7 @@ f32 Rand_ZeroOne(void) {
  * manner in which Rand_ZeroOne generates its result.
  */
 f32 Rand_Centered(void) {
+    ZMP_RAND_TRACE(); // ZMP
     sRandInt = (sRandInt * 1664525) + 1013904223;
     sRandFloat = ((sRandInt >> 9) | 0x3F800000);
     return *((f32*)&sRandFloat) - 1.5f;

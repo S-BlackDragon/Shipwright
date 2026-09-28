@@ -6,6 +6,17 @@
 
 EffectSsInfo sEffectSsInfo = { 0 }; // "EffectSS2Info"
 
+// ZMP: where the next free-slot search starts is simulation state (which effect a full table drops, and so how
+// many random numbers the effects draw): the portable save state and the state hash carry it.
+s32 EffectSs_ZmpGetSearchIndex(void) {
+    return sEffectSsInfo.searchStartIndex;
+}
+
+// ZMP
+void EffectSs_ZmpSetSearchIndex(s32 index) {
+    sEffectSsInfo.searchStartIndex = index;
+}
+
 void EffectSs_InitInfo(PlayState* play, s32 tableSize) {
     u32 i;
     EffectSs* effectSs;

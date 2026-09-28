@@ -1117,9 +1117,7 @@ void Play_Update(PlayState* play) {
 
             if ((gSaveContext.gameMode == GAMEMODE_NORMAL) && (play->msgCtx.msgMode == MSGMODE_NONE) &&
                 (play->gameOverCtx.state == GAMEOVER_INACTIVE)) {
-                if (Zmp_MultiActive()) {
-                    Zmp_KaleidoSetupAll(play); // ZMP: any player can open the menu and becomes its owner
-                } else {
+                if (!Zmp_PauseIsLocal()) { // ZMP: in multiplayer each client opens its own menu (Zmp_PauseLocalUpdate)
                     KaleidoSetup_Update(play);
                 }
             }
@@ -1253,6 +1251,8 @@ void Play_Update(PlayState* play) {
                 Zmp_RestoreAnchor(play); // ZMP
             }
 
+            Zmp_PauseLocalUpdate(play); // ZMP: this client's pause menu (the world keeps running)
+
             PLAY_LOG(3737);
 
             PLAY_LOG(3742);
@@ -1322,6 +1322,8 @@ void Play_DrawOverlayElements(PlayState* play) {
         KaleidoScopeCall_Draw(play);
         Zmp_OverlayBegin(play);
     }
+    Zmp_PauseLocalDraw(play); // ZMP: this client's pause menu
+    Zmp_OverlayBegin(play);   // ZMP
 
     if (gSaveContext.gameMode == GAMEMODE_NORMAL) {
         Interface_Draw(play);
