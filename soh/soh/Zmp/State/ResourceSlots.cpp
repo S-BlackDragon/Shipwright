@@ -183,6 +183,15 @@ class SlotFactory : public Ship::ResourceFactory {
                 ReleaseSlot(slot);
             }
         } restore{ slot, prevSlot, prevPaused };
+        // The archive read the file into a buffer before this factory runs, outside the slot. Some resources keep
+        // pointing into that buffer instead of copying it (textures: their pixels; D-043), so heap data that points
+        // at them would hold a different address in every process. The resource gets a copy of the buffer made
+        // inside its slot: same bytes, same address everywhere. The original buffer stays alive while the reader,
+        // which streams from it, parses.
+        std::shared_ptr<std::vector<char>> original = file->Buffer;
+        if (original != nullptr) {
+            file->Buffer = std::make_shared<std::vector<char>>(original->begin(), original->end());
+        }
         return mInner->ReadResource(file, initData);
     }
 
