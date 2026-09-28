@@ -83,7 +83,9 @@
 #include "soh/Network/CrowdControl/CrowdControl.h"
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
-#include "soh/Zmp/Zmp.h" // ZMP
+#include "soh/Zmp/Zmp.h"                // ZMP
+#include "soh/Zmp/Sim/ZmpSim.h"         // ZMP
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
 #include <libultraship/controller/controldeck/ControlDeck.h>
@@ -863,59 +865,61 @@ void OTRGlobals::Initialize() {
                 (char*)gGitBranch, (char*)gGitCommitHash);
 
     auto loader = context->GetResourceManager()->GetResourceLoader();
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
+    // ZMP: game resources are parsed at a deterministic address (Zmp/State/ResourceSlots.h); audio is local
+    // to each client and keeps the normal allocator.
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>()), RESOURCE_FORMAT_BINARY,
                                     "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryBinaryTextureV1>()), RESOURCE_FORMAT_BINARY,
                                     "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 1);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryVertexV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryBinaryVertexV0>()), RESOURCE_FORMAT_BINARY,
                                     "Vertex", static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLVertexV0>(), RESOURCE_FORMAT_XML, "Vertex",
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryXMLVertexV0>()), RESOURCE_FORMAT_XML, "Vertex",
                                     static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryDisplayListV0>(),
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryBinaryDisplayListV0>()),
                                     RESOURCE_FORMAT_BINARY, "DisplayList",
                                     static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLDisplayListV0>(), RESOURCE_FORMAT_XML,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryXMLDisplayListV0>()), RESOURCE_FORMAT_XML,
                                     "DisplayList", static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryMatrixV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Fast::ResourceFactoryBinaryMatrixV0>()), RESOURCE_FORMAT_BINARY,
                                     "Matrix", static_cast<uint32_t>(Fast::ResourceType::Matrix), 0);
-    loader->RegisterResourceFactory(std::make_shared<Ship::ResourceFactoryBinaryBlobV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<Ship::ResourceFactoryBinaryBlobV0>()), RESOURCE_FORMAT_BINARY,
                                     "Blob", static_cast<uint32_t>(Ship::ResourceType::Blob), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryArrayV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryArrayV0>()), RESOURCE_FORMAT_BINARY,
                                     "Array", static_cast<uint32_t>(SOH::ResourceType::SOH_Array), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAnimationV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryAnimationV0>()), RESOURCE_FORMAT_BINARY,
                                     "Animation", static_cast<uint32_t>(SOH::ResourceType::SOH_Animation), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPlayerAnimationV0>(),
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryPlayerAnimationV0>()),
                                     RESOURCE_FORMAT_BINARY, "PlayerAnimation",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_PlayerAnimation), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySceneV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinarySceneV0>()), RESOURCE_FORMAT_BINARY,
                                     "Room", static_cast<uint32_t>(SOH::ResourceType::SOH_Room),
                                     0); // Is room scene? maybe?
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSceneV0>(), RESOURCE_FORMAT_XML, "Room",
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLSceneV0>()), RESOURCE_FORMAT_XML, "Room",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_Room), 0); // Is room scene? maybe?
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCollisionHeaderV0>(),
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryCollisionHeaderV0>()),
                                     RESOURCE_FORMAT_BINARY, "CollisionHeader",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLCollisionHeaderV0>(), RESOURCE_FORMAT_XML,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLCollisionHeaderV0>()), RESOURCE_FORMAT_XML,
                                     "CollisionHeader", static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader),
                                     0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>()), RESOURCE_FORMAT_BINARY,
                                     "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonV0>(), RESOURCE_FORMAT_XML,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLSkeletonV0>()), RESOURCE_FORMAT_XML,
                                     "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>(),
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>()),
                                     RESOURCE_FORMAT_BINARY, "SkeletonLimb",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonLimbV0>(), RESOURCE_FORMAT_XML,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLSkeletonLimbV0>()), RESOURCE_FORMAT_XML,
                                     "SkeletonLimb", static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPathV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryPathV0>()), RESOURCE_FORMAT_BINARY,
                                     "Path", static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLPathV0>(), RESOURCE_FORMAT_XML, "Path",
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLPathV0>()), RESOURCE_FORMAT_XML, "Path",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>()), RESOURCE_FORMAT_BINARY,
                                     "Cutscene", static_cast<uint32_t>(SOH::ResourceType::SOH_Cutscene), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryTextV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryTextV0>()), RESOURCE_FORMAT_BINARY,
                                     "Text", static_cast<uint32_t>(SOH::ResourceType::SOH_Text), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLTextV0>(), RESOURCE_FORMAT_XML, "Text",
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryXMLTextV0>()), RESOURCE_FORMAT_XML, "Text",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_Text), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSampleV2>(), RESOURCE_FORMAT_BINARY,
                                     "AudioSample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 2);
@@ -932,7 +936,7 @@ void OTRGlobals::Initialize() {
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 2);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSequenceV0>(), RESOURCE_FORMAT_XML,
                                     "Sequence", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryBackgroundV0>(), RESOURCE_FORMAT_BINARY,
+    loader->RegisterResourceFactory(Zmp::ResSlots::Wrap(std::make_shared<SOH::ResourceFactoryBinaryBackgroundV0>()), RESOURCE_FORMAT_BINARY,
                                     "Background", static_cast<uint32_t>(SOH::ResourceType::SOH_Background), 0);
 
     Lang::LoadLangs();
@@ -1072,6 +1076,9 @@ void OTRAudio_Thread() {
                                            num_audio_samples);
         }
 
+        if (Zmp_AudioMuted()) { // ZMP: silence the output while the window has no focus (presentation only)
+            memset(audio_buffer, 0, total_samples * sizeof(int16_t));
+        }
         AudioPlayer_Play(reinterpret_cast<u8*>(audio_buffer), total_samples * sizeof(int16_t));
     };
 
@@ -1837,6 +1844,11 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     if (target_fps == 20 || original_fps > target_fps) {
         fps = original_fps;
     }
+    // ZMP: replay speed-up (presentation only): one drawn frame per tick, paced at speed x 20 Hz.
+    int zmpSpeed = Zmp_PresentationSpeed();
+    if (zmpSpeed != 1) {
+        fps = original_fps;
+    }
 
     if (last_fps != fps || last_update_rate != R_UPDATE_RATE) {
         time = 0;
@@ -1855,7 +1867,7 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     time -= fps;
 
     if (wnd != nullptr) {
-        wnd->SetTargetFps(fps);
+        wnd->SetTargetFps(zmpSpeed != 1 ? original_fps * (zmpSpeed > 1 ? zmpSpeed : 50) : fps); // ZMP
     }
 
     int step = original_fps;

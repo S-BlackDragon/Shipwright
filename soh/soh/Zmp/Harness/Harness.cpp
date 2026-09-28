@@ -18,8 +18,12 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <libultraship/libultra/controller.h>
 
+#include "soh/Zmp/Zmp.h"
 #include "soh/Zmp/ZmpLog.h"
 #include "soh/Zmp/Net/ZmpClient.h"
+#include "soh/Zmp/Sim/CVarProfile.h"
+#include "soh/Zmp/Sim/Session.h"
+#include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
@@ -35,10 +39,13 @@ void Select_Main(GameState* thisx);
 void Title_Main(GameState* thisx);
 void Play_Main(GameState* thisx);
 void Play_Init(GameState* thisx);
-void Sram_InitDebugSave(void);
 }
 
 using json = nlohmann::json;
+
+#ifdef _WIN32
+extern "C" const char __ImageBase; // start of the executable image (MSVC linker symbol)
+#endif
 
 namespace Zmp::Harness {
 
@@ -53,7 +60,7 @@ struct PadStep {
     int32_t frames = 1; // <= 0 means hold until input.release
 };
 
-enum class WaitKind { Tick, Stable, Scene, GameState };
+enum class WaitKind { Tick, Stable, Scene, GameState, SimTick, ReplayEnd };
 
 struct Wait {
     WaitKind kind;
@@ -158,7 +165,7 @@ void StartScript(std::deque<PadStep> steps, RequestPtr req) {
 }
 
 // Called once per frame with the physical pads already read.
-void ApplyInput(OSContPad* pads) {
+void ApplyScriptInput(OSContPad* pads) {
     if (!sScriptActive) {
         return;
     }
@@ -212,6 +219,15 @@ json PlayerJson(Player* player) {
         { "cur_room", gPlayState->roomCtx.curRoom.num },
         { "age", gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult" },
         { "downed", false },
+        { "camera",
+          { { "eye", Vec3(gPlayState->mainCamera.eye) },
+            { "at", Vec3(gPlayState->mainCamera.at) },
+            { "setting", gPlayState->mainCamera.setting },
+            { "mode", gPlayState->mainCamera.mode } } },
+        { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
+        { "action_offset", (uint64_t)((uintptr_t)player->actionFunc - (uintptr_t)&__ImageBase) },
+        { "bg_flags", a->bgCheckFlags },
+        { "floor_y", a->floorHeight },
         { "spectating", nullptr },
         { "tick", sFrame },
     };
@@ -219,7 +235,7 @@ json PlayerJson(Player* player) {
 
 json ActorsJson(const json& cmd) {
     int onlyCat = cmd.value("category", -1);
-    int onlyId = cmd.value("id", -1);
+    int onlyId = cmd.value("actor_id", -1); // "id" is the request id
     json list = json::array();
     for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
         if (onlyCat >= 0 && cat != onlyCat) {
@@ -242,43 +258,6 @@ json ActorsJson(const json& cmd) {
         }
     }
     return { { "ok", true }, { "tick", sFrame }, { "count", list.size() }, { "actors", list } };
-}
-
-// Same steps as the map select (z_select.c Select_LoadGame) with the debug save.
-bool StartDebugGame(int entrance, bool adult, uint16_t dayTime, std::string* err) {
-    if (gGameState == nullptr) {
-        *err = "no game state";
-        return false;
-    }
-    gSaveContext.fileNum = 0xFF;
-    Sram_InitDebugSave();
-    gSaveContext.magicFillTarget = gSaveContext.magic;
-    gSaveContext.magic = 0;
-    gSaveContext.magicCapacity = 0;
-    gSaveContext.magicLevel = gSaveContext.magic;
-    gSaveContext.linkAge = adult ? LINK_AGE_ADULT : LINK_AGE_CHILD;
-    gSaveContext.dayTime = dayTime;
-    gSaveContext.nightFlag = (dayTime >= 0xC001 || dayTime < 0x4555) ? 1 : 0;
-    GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
-    for (int i = 0; i < ARRAY_COUNT(gSaveContext.buttonStatus); i++) {
-        gSaveContext.buttonStatus[i] = BTN_ENABLED;
-    }
-    gSaveContext.forceRisingButtonAlphas = 0;
-    gSaveContext.nextHudVisibilityMode = 0;
-    gSaveContext.hudVisibilityMode = 0;
-    gSaveContext.hudVisibilityModeTimer = 0;
-    gSaveContext.entranceIndex = entrance;
-    gSaveContext.cutsceneIndex = 0;
-    gSaveContext.respawnFlag = 0;
-    gSaveContext.respawn[RESPAWN_MODE_DOWN].entranceIndex = ENTR_LOAD_OPENING;
-    gSaveContext.seqId = (u8)NA_BGM_DISABLED;
-    gSaveContext.natureAmbienceId = 0xFF;
-    gSaveContext.showTitleCard = true;
-    gSaveContext.gameMode = GAMEMODE_NORMAL;
-    gWeatherMode = 0;
-    gGameState->running = false;
-    SET_NEXT_GAMESTATE(gGameState, Play_Init, PlayState);
-    return true;
 }
 
 bool IsPlayOnlyConsoleCommand(const std::string& cmdline) {
@@ -314,6 +293,31 @@ json NetStatusJson() {
              { "oot_hash", hs.ootHash },
              { "soh_hash", hs.sohHash },
              { "cvar_profile_hash", hs.cvarProfileHash } };
+}
+
+std::string Hex(uint64_t v) {
+    char b[24];
+    snprintf(b, sizeof(b), "%016llX", (unsigned long long)v);
+    return b;
+}
+
+json SessionJson() {
+    auto st = Sim::GetStatus();
+    json j = { { "mode", Sim::ModeName(st.mode) },
+               { "armed", st.armed },
+               { "paused", st.paused },
+               { "tick", st.tick },
+               { "length", st.replayLength },
+               { "finished", st.replayFinished },
+               { "checked", st.checked },
+               { "mismatches", st.mismatches },
+               { "first_mismatch", st.firstMismatch == UINT32_MAX ? json(nullptr) : json(st.firstMismatch) },
+               { "speed", st.speed },
+               { "file", st.file } };
+    if (st.hasHash) {
+        j["hash"] = Hex(st.lastHash);
+    }
+    return j;
 }
 
 std::chrono::steady_clock::time_point Deadline(const json& cmd) {
@@ -386,14 +390,143 @@ void Dispatch(const RequestPtr& req) {
             req->Reply(ActorsJson(cmd));
         }
     } else if (name == "query.state") {
-        req->Reply({ { "ok", true },
-                     { "tick", sFrame },
-                     { "state", GameStateName() },
-                     { "scene", InPlay() ? gPlayState->sceneNum : -1 },
-                     { "room", InPlay() ? gPlayState->roomCtx.curRoom.num : -1 },
-                     { "day_time", gSaveContext.dayTime },
-                     { "script_active", sScriptActive },
-                     { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) } });
+        auto st = Sim::GetStatus();
+        json resp = { { "ok", true },
+                      { "tick", sFrame },
+                      { "sim_tick", st.tick },
+                      { "state", GameStateName() },
+                      { "scene", InPlay() ? gPlayState->sceneNum : -1 },
+                      { "room", InPlay() ? gPlayState->roomCtx.curRoom.num : -1 },
+                      { "day_time", gSaveContext.dayTime },
+                      { "script_active", sScriptActive },
+                      { "session", SessionJson() },
+                      { "cvar_profile_hash", Hex(CVarProfile::Hash()) },
+                      { "cvar_reverts", CVarProfile::RevertCount() },
+                      { "audio_muted", Zmp_AudioMuted() },
+                      { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) } };
+        if (st.hasHash) {
+            resp["hash"] = Hex(st.lastHash);
+            resp["hash_tick"] = st.tick - 1;
+        }
+        req->Reply(resp);
+    } else if (name == "query.hash") {
+        auto st = Sim::GetStatus();
+        uint32_t t = cmd.contains("tick") ? cmd["tick"].get<uint32_t>() : (st.tick > 0 ? st.tick - 1 : 0);
+        uint64_t h = 0;
+        if (!Sim::HashAt(t, &h)) {
+            req->Reply({ { "ok", false },
+                         { "error", "no hash recorded for tick " + std::to_string(t) },
+                         { "sim_tick", st.tick } });
+        } else {
+            json resp = { { "ok", true }, { "tick", t }, { "hash", Hex(h) }, { "sim_tick", st.tick } };
+            uint64_t ref = 0;
+            if (Sim::ReferenceHashAt(t, &ref)) {
+                resp["ref"] = Hex(ref);
+                resp["match"] = ref == h;
+            }
+            req->Reply(resp);
+        }
+    } else if (name == "query.hashes") {
+        // Recorded hashes of ticks [from, to), for bulk comparison between instances.
+        uint32_t from = cmd.value("from", 0u);
+        uint32_t to = cmd.value("to", Sim::CurrentTick());
+        json list = json::array();
+        uint32_t first = UINT32_MAX;
+        for (uint32_t t = from; t < to; t++) {
+            uint64_t h = 0;
+            if (Sim::HashAt(t, &h)) {
+                if (first == UINT32_MAX) {
+                    first = t;
+                }
+                list.push_back(Hex(h));
+            } else if (first != UINT32_MAX) {
+                break;
+            }
+        }
+        req->Reply(
+            { { "ok", true }, { "from", first == UINT32_MAX ? json(nullptr) : json(first) }, { "hashes", list } });
+    } else if (name == "record.start") {
+        Sim::StartSpec spec;
+        spec.entrance = cmd.value("entrance", spec.entrance);
+        spec.adult = cmd.value("age", std::string("child")) == "adult";
+        spec.dayTime = (uint16_t)cmd.value("day_time", (int)spec.dayTime);
+        spec.seed = cmd.value("seed", spec.seed);
+        std::string err;
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("recording.zmpinput"))).string();
+        if (Sim::StartRecording(path, spec, cmd.value("from_state", false), &err)) {
+            req->Reply({ { "ok", true }, { "session", SessionJson() } });
+        } else {
+            req->Reply({ { "ok", false }, { "error", err } });
+        }
+    } else if (name == "record.stop") {
+        std::string err;
+        uint32_t ticks = 0;
+        bool ok = Sim::StopRecording(&err, &ticks);
+        req->Reply({ { "ok", ok }, { "ticks", ticks }, { "error", err } });
+    } else if (name == "record.event") {
+        std::string err;
+        uint32_t t = 0;
+        bool ok = Sim::RecordEvent(cmd.value("line", std::string()), &err, &t);
+        req->Reply({ { "ok", ok }, { "sim_tick", t }, { "error", err } });
+    } else if (name == "record.checkpoint" || name == "record.rewind") {
+        std::string err;
+        uint32_t t = 0;
+        std::string cpName = cmd.value("name", std::string("default"));
+        bool ok = name == "record.checkpoint" ? Sim::Checkpoint(cpName, &err, &t) : Sim::Rewind(cpName, &err, &t);
+        req->Reply({ { "ok", ok }, { "sim_tick", t }, { "error", err } });
+    } else if (name == "replay.start") {
+        std::string err;
+        if (cmd.contains("speed")) {
+            Sim::SetSpeed(cmd["speed"].get<int>());
+        }
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string())).string();
+        std::string fromState = cmd.value("from_state", std::string());
+        if (!fromState.empty()) {
+            fromState = std::filesystem::absolute(fromState).string();
+        }
+        if (Sim::StartReplay(path, fromState, &err)) {
+            req->Reply({ { "ok", true }, { "session", SessionJson() } });
+        } else {
+            req->Reply({ { "ok", false }, { "error", err } });
+        }
+    } else if (name == "replay.stop" || name == "session.stop") {
+        Sim::StopSession();
+        req->Reply({ { "ok", true }, { "session", SessionJson() } });
+    } else if (name == "sim.pause") {
+        Sim::SetPaused(true);
+        req->Reply({ { "ok", true }, { "sim_tick", Sim::CurrentTick() } });
+    } else if (name == "sim.resume") {
+        Sim::SetPaused(false);
+        req->Reply({ { "ok", true }, { "sim_tick", Sim::CurrentTick() } });
+    } else if (name == "sim.run_until") {
+        // Runs until `tick` ticks have been executed, then closes the tick gate.
+        Sim::SetPauseAt(cmd.value("tick", 0u));
+        req->Reply({ { "ok", true }, { "sim_tick", Sim::CurrentTick() } });
+    } else if (name == "sim.speed") {
+        Sim::SetSpeed(cmd.value("speed", 1));
+        req->Reply({ { "ok", true } });
+    } else if (name == "state.save" || name == "state.load") {
+        std::string err, info;
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("state.zmps"))).string();
+        bool ok = name == "state.save" ? Sim::SaveStateFile(path, &err, &info) : Sim::LoadStateFile(path, &err, &info);
+        req->Reply(
+            { { "ok", ok }, { "path", path }, { "info", info }, { "error", err }, { "sim_tick", Sim::CurrentTick() } });
+    } else if (name == "state.dump") {
+        std::string err;
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("state.txt"))).string();
+        uint32_t t = Sim::CurrentTick() > 0 ? Sim::CurrentTick() - 1 : 0;
+        bool ok = Sim::DumpState(path, t, &err);
+        req->Reply({ { "ok", ok }, { "path", path }, { "tick", t }, { "error", err } });
+    } else if (name == "state.census") {
+        std::string summary;
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("census.txt"))).string();
+        bool ok = State::Census(path, &summary);
+        req->Reply({ { "ok", ok }, { "path", path }, { "summary", summary } });
+    } else if (name == "debug.set_actor_health") {
+        std::string err;
+        bool ok =
+            Sim::DebugSetActorHealth(cmd.value("category", 5), cmd.value("index", 0), cmd.value("health", 0), &err);
+        req->Reply({ { "ok", ok }, { "error", err } });
     } else if (name == "screenshot") {
         std::string path = cmd.value("path", std::string("screenshot.png"));
         path = std::filesystem::absolute(path).string();
@@ -404,7 +537,8 @@ void Dispatch(const RequestPtr& req) {
         } else {
             req->Reply({ { "ok", false }, { "error", info } });
         }
-    } else if (name == "wait.tick" || name == "wait.stable" || name == "wait.scene" || name == "wait.state") {
+    } else if (name == "wait.tick" || name == "wait.stable" || name == "wait.scene" || name == "wait.state" ||
+               name == "wait.sim_tick" || name == "wait.replay_end") {
         Wait w;
         w.req = req;
         w.deadline = Deadline(cmd);
@@ -414,6 +548,11 @@ void Dispatch(const RequestPtr& req) {
         } else if (name == "wait.stable") {
             w.kind = WaitKind::Stable;
             w.targetTick = sFrame + cmd.value("frames", 1u);
+        } else if (name == "wait.sim_tick") {
+            w.kind = WaitKind::SimTick;
+            w.targetTick = cmd.value("tick", 0u);
+        } else if (name == "wait.replay_end") {
+            w.kind = WaitKind::ReplayEnd;
         } else if (name == "wait.scene") {
             w.kind = WaitKind::Scene;
             w.scene = cmd.value("scene", -1);
@@ -423,14 +562,15 @@ void Dispatch(const RequestPtr& req) {
         }
         sWaits.push_back(w);
     } else if (name == "game.new") {
-        std::string err;
-        int entrance = cmd.value("entrance", 0x0EE);
-        bool adult = cmd.value("age", std::string("child")) == "adult";
-        uint16_t dayTime = (uint16_t)cmd.value("day_time", 0x8000); // noon by default
-        if (StartDebugGame(entrance, adult, dayTime, &err)) {
-            req->Reply({ { "ok", true }, { "tick", sFrame } });
+        if (gGameState == nullptr) {
+            req->Reply({ { "ok", false }, { "error", "no game state" } });
         } else {
-            req->Reply({ { "ok", false }, { "error", err } });
+            Sim::StartSpec spec;
+            spec.entrance = cmd.value("entrance", 0x0EE);
+            spec.adult = cmd.value("age", std::string("child")) == "adult";
+            spec.dayTime = (uint16_t)cmd.value("day_time", 0x8000); // noon by default
+            Sim::StartDebugGame(spec);
+            req->Reply({ { "ok", true }, { "tick", sFrame } });
         }
     } else if (name == "cvar.get") {
         std::string var = cmd.value("name", std::string());
@@ -446,6 +586,9 @@ void Dispatch(const RequestPtr& req) {
         } else {
             req->Reply({ { "ok", false }, { "error", "unsupported cvar type" } });
         }
+    } else if (name == "cvar.set" && CVarProfile::Active() && CVarProfile::IsLocked(cmd.value("name", std::string()))) {
+        req->Reply(
+            { { "ok", false }, { "error", "locked CVar during a ZMP session: " + cmd.value("name", std::string()) } });
     } else if (name == "cvar.set") {
         std::string var = cmd.value("name", std::string());
         const json& v = cmd.contains("value") ? cmd["value"] : json();
@@ -497,9 +640,17 @@ static void UpdateWaits() {
                 it->satisfiedFrames = GameStateName() == it->gameState ? it->satisfiedFrames + 1 : 0;
                 done = it->satisfiedFrames >= 2;
                 break;
+            case WaitKind::SimTick:
+                done = Sim::CurrentTick() >= it->targetTick;
+                break;
+            case WaitKind::ReplayEnd: {
+                auto st = Sim::GetStatus();
+                done = st.mode != Sim::Mode::Replaying || st.replayFinished;
+                break;
+            }
         }
         if (done) {
-            it->req->Reply({ { "ok", true }, { "tick", sFrame } });
+            it->req->Reply({ { "ok", true }, { "tick", sFrame }, { "sim_tick", Sim::CurrentTick() } });
             it = sWaits.erase(it);
         } else if (now > it->deadline) {
             it->req->Reply({ { "ok", false },
@@ -514,8 +665,8 @@ static void UpdateWaits() {
     }
 }
 
-void Frame(void* padsV, uint32_t frame) {
-    sFrame = frame;
+void OnFrameBegin(uint32_t tick) {
+    sFrame = tick;
     for (auto& req : TakeRequests()) {
         try {
             Dispatch(req);
@@ -524,12 +675,15 @@ void Frame(void* padsV, uint32_t frame) {
         }
     }
     UpdateWaits();
-    ApplyInput((OSContPad*)padsV);
     if (sQuitRequested) {
         sQuitRequested = false;
         Log("harness: quit requested");
         Ship::Context::GetRawInstance()->GetWindow()->Close();
     }
+}
+
+void ApplyInput(void* padsV) {
+    ApplyScriptInput((OSContPad*)padsV);
 }
 
 } // namespace Zmp::Harness

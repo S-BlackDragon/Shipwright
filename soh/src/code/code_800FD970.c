@@ -20,6 +20,20 @@ void Rand_Seed(u32 seed) {
     sRandInt = seed;
 }
 
+// ZMP: RNG state access for the state hash and the portable save state (PLAN.md 8.2, 8.3).
+u32 Rand_ZmpGetState(u32* randFloat) {
+    if (randFloat != NULL) {
+        *randFloat = sRandFloat;
+    }
+    return sRandInt;
+}
+
+// ZMP
+void Rand_ZmpSetState(u32 randInt, u32 randFloat) {
+    sRandInt = randInt;
+    sRandFloat = randFloat;
+}
+
 /**
  * Returns a pseudo-random floating-point number between 0.0f and 1.0f, by generating
  * the next integer and masking it to an IEEE-754 compliant floating-point number

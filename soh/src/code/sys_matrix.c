@@ -28,6 +28,19 @@ void Matrix_SaveState(SaveStateCtx* ctx) {
     SaveState_Blob(ctx, sCurrentMatrix, sizeof(MtxF));
 }
 
+// ZMP: the stack pointers point into the game state arena; the portable save state carries them so
+// they match the heap it restores (Zmp/State/StateBlob.cpp).
+void Matrix_ZmpGetPointers(MtxF** stack, MtxF** current) {
+    *stack = sMatrixStack;
+    *current = sCurrentMatrix;
+}
+
+// ZMP
+void Matrix_ZmpSetPointers(MtxF* stack, MtxF* current) {
+    sMatrixStack = stack;
+    sCurrentMatrix = current;
+}
+
 void Matrix_Init(GameState* gameState) {
     sCurrentMatrix = GAMESTATE_ALLOC_MC(gameState, 20 * sizeof(MtxF));
     sMatrixStack = sCurrentMatrix;

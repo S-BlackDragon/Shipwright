@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpSim.h" // ZMP
 #include "vt.h"
 
 #include "overlays/actors/ovl_Arms_Hook/z_arms_hook.h"
@@ -2677,8 +2678,11 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
                 actor->yawTowardsPlayer = Actor_WorldYawTowardActor(actor, &player->actor);
                 actor->flags &= ~ACTOR_FLAG_SFX_FOR_PLAYER_BODY_HIT;
 
+                // ZMP: the update no longer depends on the camera culling volume (each player has a camera in
+                // lockstep); every actor updates. Draw culling is untouched (PLAN.md 2.4 point 4).
                 if ((DECR(actor->freezeTimer) == 0) &&
-                    (actor->flags & (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_INSIDE_CULLING_VOLUME))) {
+                    (Zmp_IgnoreUpdateCulling() ||
+                     (actor->flags & (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_INSIDE_CULLING_VOLUME)))) {
                     if (actor == player->focusActor) {
                         actor->isTargeted = true;
                     } else {

@@ -8,6 +8,7 @@
 
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/Net/ZmpClient.h"
+#include "soh/Zmp/Sim/Session.h"
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
 
@@ -67,6 +68,36 @@ void RoomWindow::DrawOverlay() {
                       IM_COL32(0, 0, 0, 150), 3.0f);
     ImVec4 c = StatusColor(st.state);
     dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str(), nullptr, wrap);
+
+    // Second line: determinism session (replay against the recorded hashes, recording, pause).
+    auto ss = Sim::GetStatus();
+    if (ss.mode == Sim::Mode::Off) {
+        return;
+    }
+    std::string line;
+    ImU32 color = IM_COL32(230, 230, 230, 255);
+    if (ss.armed) {
+        line = ss.mode == Sim::Mode::Replaying ? "REPLAY preparando..." : "GRABACION preparando...";
+    } else if (ss.mode == Sim::Mode::Recording) {
+        line = "GRABANDO tick " + std::to_string(ss.tick);
+        color = IM_COL32(255, 200, 80, 255);
+    } else if (ss.mismatches > 0) {
+        line = "HASH MISMATCH (tick " + std::to_string(ss.firstMismatch) + ") | tick " + std::to_string(ss.tick);
+        color = IM_COL32(255, 80, 80, 255);
+    } else {
+        line = std::string(ss.replayFinished ? "HASH OK | FIN " : "HASH OK | tick ") + std::to_string(ss.tick) + " / " +
+               std::to_string(ss.replayLength);
+        color = IM_COL32(120, 255, 120, 255);
+    }
+    if (ss.paused) {
+        line += " | PAUSA";
+    }
+    float bigSize = ImGui::GetFontSize() * 1.1f;
+    ImVec2 pos2(pos.x, pos.y + size.y + 6.0f);
+    ImVec2 size2 = ImGui::GetFont()->CalcTextSizeA(bigSize, FLT_MAX, 0.0f, line.c_str());
+    dl->AddRectFilled(ImVec2(pos2.x - 3, pos2.y - 2), ImVec2(pos2.x + size2.x + 3, pos2.y + size2.y + 2),
+                      IM_COL32(0, 0, 0, 170), 3.0f);
+    dl->AddText(ImGui::GetFont(), bigSize, pos2, color, line.c_str());
 }
 
 void RoomWindow::DrawConnectionForm() {

@@ -22,4 +22,7 @@ uint32_t Zmp_GetFrameCount(void);
 
 #ifdef __cplusplus
 }
+// Audio thread: true while the instance's audio must be silent (window without focus and
+// gZmp.Audio.MuteWhenUnfocused set). Presentation only.
+bool Zmp_AudioMuted();
 #endif

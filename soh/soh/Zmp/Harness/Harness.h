@@ -15,10 +15,13 @@ void Stop();
 bool IsRunning();
 uint16_t GetPort();
 
-// Called on the game thread once per game frame, right after the physical pads were read.
-// Executes queued commands, resolves waits, and replaces the port 0 pad when a script or
-// an input.set override is active. `pads` is an OSContPad array.
-void Frame(void* pads, uint32_t frame);
+// Called on the game thread at the top of every RunFrame iteration (between two ticks, also while
+// the simulation is paused): executes queued commands and resolves waits. `tick` is the number of
+// logic ticks run since boot.
+void OnFrameBegin(uint32_t tick);
+// Called once per logic tick right after the physical pads were read: replaces the port 0 pad when
+// a script or an input.set override is active. `pads` is an OSContPad array.
+void ApplyInput(void* pads);
 
 } // namespace Zmp::Harness
 

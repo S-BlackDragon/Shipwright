@@ -1797,6 +1797,8 @@ void Math3D_DrawCylinder(PlayState* play, Cylinder16* cyl);
 s16 Math_Atan2S(f32 x, f32 y);
 f32 Math_Atan2F(f32 x, f32 y);
 void Matrix_Init(GameState* gameState);
+void Matrix_ZmpGetPointers(MtxF** stack, MtxF** current); // ZMP
+void Matrix_ZmpSetPointers(MtxF* stack, MtxF* current);   // ZMP
 void Matrix_Push(void);
 void Matrix_Pop(void);
 void Matrix_Get(MtxF* dest);
@@ -2250,6 +2252,8 @@ void SystemArena_Cleanup(void);
 u8 SystemArena_IsInitalized(void);
 u32 Rand_Next(void);
 void Rand_Seed(u32 seed);
+u32 Rand_ZmpGetState(u32* randFloat);              // ZMP
+void Rand_ZmpSetState(u32 randInt, u32 randFloat); // ZMP
 f32 Rand_ZeroOne(void);
 f32 Rand_Centered(void);
 void Rand_Seed_Variable(u32* rndNum, u32 seed);

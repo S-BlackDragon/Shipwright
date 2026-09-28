@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpSim.h" // ZMP: logic tick hooks
 #include "vt.h"
 #include "regs.h"
 
@@ -473,18 +474,27 @@ static void RunFrame() {
             // uint64_t ticksA, ticksB;
             // ticksA = GetPerfCounter();
 
+            Zmp_OnFrameBegin(); // ZMP: harness commands and session control, between ticks
             Graph_StartFrame();
 
-            PadMgr_ThreadEntry(&gPadMgr);
+            // ZMP: one iteration of this loop is one logic tick (pad read + GameState_Update) followed by
+            // rendering (Graph_ProcessGfxCommands, several interpolated frames per tick). When the tick gate
+            // is closed (lockstep waiting for a bundle, harness pause) only the last frame is drawn again.
+            if (Zmp_ShouldRunTick()) {
+                PadMgr_ThreadEntry(&gPadMgr);
 
-            Graph_Update(&runFrameContext.gfxCtx, gGameState);
+                Graph_Update(&runFrameContext.gfxCtx, gGameState);
+                Zmp_OnTickEnd(); // ZMP: state hash, recording, replay check
+            }
             // ticksB = GetPerfCounter();
 
             if (GfxDebuggerIsDebuggingRequested()) {
                 GfxDebuggerDebugDisplayList(runFrameContext.gfxCtx.workBuffer);
             }
 
+            Zmp_BeforeRender(); // ZMP: rendering must not leave traces in the matrix stack
             Graph_ProcessGfxCommands(runFrameContext.gfxCtx.workBuffer);
+            Zmp_AfterRender(); // ZMP
 
             // uint64_t diff = (ticksB - ticksA) / (freq / 1000);
             // printf("Frame simulated in %ims\n", diff);

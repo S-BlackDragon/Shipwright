@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpSim.h" // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -518,7 +519,7 @@ void Play_Init(GameState* thisx) {
     gTrnsnUnkState = 0;
     play->transitionMode = TRANS_MODE_OFF;
     FrameAdvance_Init(&play->frameAdvCtx);
-    Rand_Seed((u32)osGetTime());
+    Rand_Seed(Zmp_PlaySeed((u32)osGetTime())); // ZMP: deterministic seed during a ZMP session
     Matrix_Init(&play->state);
     play->state.main = Play_Main;
     play->state.destroy = Play_Destroy;
