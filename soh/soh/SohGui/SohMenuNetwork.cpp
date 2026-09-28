@@ -173,6 +173,9 @@ void SohMenu::AddMenuNetwork() {
                                            "rooms\", so they don't need to be killed to complete these rooms."));
     path.sidebarName = "Anchor";
     AddSidebarEntry("Network", path.sidebarName, 2);
+    // ZMP: cooperative room settings (widgets registered in soh/Zmp/Ui/ZmpWindow.cpp)
+    path.sidebarName = "ZMP";
+    AddSidebarEntry("Network", path.sidebarName, 1);
 }
 
 } // namespace SohGui

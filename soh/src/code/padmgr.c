@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Zmp.h" // ZMP: per-frame hook
 #include "vt.h"
 #include <string.h>
 
@@ -317,6 +318,7 @@ void PadMgr_HandleRetraceMsg(PadMgr* padMgr) {
     }
     osRecvMesg(queue, NULL, OS_MESG_BLOCK);
     osContGetReadData(padMgr->pads);
+    Zmp_OnPadRead(padMgr->pads); // ZMP: harness input injection, once per game frame
 
     Mouse_UpdateAll();
 
