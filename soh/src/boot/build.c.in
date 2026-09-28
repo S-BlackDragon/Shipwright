@@ -10,5 +10,5 @@ const char gGitCommitHash[] = "@CMAKE_PROJECT_GIT_COMMIT_HASH@";
 const char gGitCommitTag[] = "@CMAKE_PROJECT_GIT_COMMIT_TAG@";
 
 const char gBuildTeam[] = "@PROJECT_TEAM@";
-const char gBuildDate[] = __DATE__ " " __TIME__;
+const char gBuildDate[] = "@ZMP_BUILD_DATE@"; // ZMP: commit date, reproducible (was __DATE__ " " __TIME__)
 const char gBuildMakeOption[] = "";

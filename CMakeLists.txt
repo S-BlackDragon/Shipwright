@@ -13,6 +13,9 @@ set(SPDLOG_LEVEL_TRACE 0)
 set(SPDLOG_LEVEL_OFF 6)
 set(SPDLOG_MIN_CUTOFF SPDLOG_LEVEL_TRACE CACHE STRING "cutoff at trace")
 option(USE_ASAN "Use Address Sanitizer" OFF)
+# ZMP: test harness (localhost control server, PLAN.md 5.2). ON for development and test
+# builds; the distribution build is configured with -DZMP_HARNESS=OFF.
+option(ZMP_HARNESS "Build the ZMP test harness" ON)
 
 option(SUPPRESS_WARNINGS "Suppress warnings in LUS and src (decomp)" ON)
 if(SUPPRESS_WARNINGS)
@@ -75,6 +78,17 @@ if(NOT GIT_COMMIT_TAG)
 endif()
 
 set(CMAKE_PROJECT_GIT_COMMIT_TAG "${GIT_COMMIT_TAG}" CACHE STRING "Git commit tag" FORCE)
+
+# ZMP: the build date shown in the menu is the commit date instead of __DATE__/__TIME__, so two
+# builds of the same commit are byte-identical (reproducible build, the handshake compares the
+# executable hash).
+execute_process(
+    COMMAND git log -1 --format=%cd --date=format:%Y-%m-%d_%H:%M:%S
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ZMP_BUILD_DATE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REPLACE "_" " " ZMP_BUILD_DATE "${ZMP_BUILD_DATE}")
 
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT soh)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
@@ -146,6 +160,15 @@ add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fno-fast-math>)
 add_compile_options($<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/fp:precise>)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/fp:except->)
+# ZMP: /fp:precise is the MSVC equivalent of -ffp-contract=off: since VS 2022 it never
+# contracts a*b+c into an FMA unless /fp:contract is given. Refuse any flag that would
+# reintroduce contraction or fast math (lockstep determinism, PLAN.md 2.4).
+foreach(_zmp_flagvar CMAKE_C_FLAGS CMAKE_CXX_FLAGS CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
+    if("${${_zmp_flagvar}}" MATCHES "/fp:fast|/fp:contract|-ffast-math|-ffp-contract=fast")
+        message(FATAL_ERROR "ZMP: ${_zmp_flagvar} contains a non-deterministic floating point flag")
+    endif()
+endforeach()
 
 if(NOT CMAKE_BUILD_TYPE )
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build." FORCE)

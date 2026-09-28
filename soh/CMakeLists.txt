@@ -159,6 +159,11 @@ else()
     list(FILTER soh__ EXCLUDE REGEX "soh/Enhancements/speechsynthesizer/(Darwin|SAPI)")
 endif()
 
+# ZMP: the harness sources only exist in test builds.
+if(NOT ZMP_HARNESS)
+    list(FILTER soh__ EXCLUDE REGEX "soh/Zmp/Harness/")
+endif()
+
 find_library(ESPEAK espeak-ng)
 if (NOT ESPEAK)
     list(FILTER soh__ EXCLUDE REGEX "soh/Enhancements/speechsynthesizer/ESpeak")
@@ -227,6 +232,12 @@ set(ALL_FILES
 # Target
 ################################################################################
 add_executable(${PROJECT_NAME} ${ALL_FILES})
+
+# ZMP: harness define (see ZMP_HARNESS option in the root CMakeLists.txt)
+if(ZMP_HARNESS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ZMP_HARNESS=1)
+    message(STATUS "ZMP: test harness enabled")
+endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 use_props(${PROJECT_NAME} "${CMAKE_CONFIGURATION_TYPES}" "${DEFAULT_CXX_PROPS}")
