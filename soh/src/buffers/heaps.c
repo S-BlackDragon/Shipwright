@@ -4,6 +4,7 @@
 #include <malloc.h>
 #endif
 #include <stdlib.h>
+#include <string.h> // ZMP: memset
 
 #ifndef _MSC_VER
 #include <unistd.h>
@@ -25,6 +26,15 @@ void Heaps_Alloc(void) {
     gAudioHeap = (u8*)memalign(0x10, AUDIO_HEAP_SIZE);
     gSystemHeap = (u8*)memalign(0x10, SYSTEM_HEAP_SIZE);
 #endif
+
+    // ZMP: start both heaps zeroed so uninitialized reads are identical on every machine
+    // (determinism, PLAN.md 2.4 point 2).
+    if (gAudioHeap != NULL) {
+        memset(gAudioHeap, 0, AUDIO_HEAP_SIZE);
+    }
+    if (gSystemHeap != NULL) {
+        memset(gSystemHeap, 0, SYSTEM_HEAP_SIZE);
+    }
 
     assert(gAudioHeap != NULL);
     assert(gSystemHeap != NULL);
