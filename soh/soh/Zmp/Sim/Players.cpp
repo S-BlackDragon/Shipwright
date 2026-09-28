@@ -177,7 +177,7 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     }
     Camera_InitPlayerSettings(&play->mainCamera, player);
     Camera_RequestMode(&play->mainCamera, CAM_MODE_NORMAL);
-    if (bgCamIndex != 0xFF) {
+    if (bgCamIndex != 0xFF && bgCamIndex >= 0) {
         Camera_ChangeDataIdx(&play->mainCamera, bgCamIndex);
     }
     Attention_Init(&play->actorCtx.targetCtx, &player->actor, play);
@@ -484,7 +484,10 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     sSimView = sim;
     sDrawBegun = true;
     int L = sLocalSlot;
-    if (play->activeCamera == CAM_ID_MAIN && L != gZmpSim.anchor && Present(L) && Slot(L).hasView) {
+    // Rooms with a pre-rendered background (houses, shops) only look right from their one fixed camera:
+    // everybody draws with the canonical view there.
+    bool prerendered = play->roomCtx.curRoom.meshHeader != nullptr && play->roomCtx.curRoom.meshHeader->base.type == 1;
+    if (!prerendered && play->activeCamera == CAM_ID_MAIN && L != gZmpSim.anchor && Present(L) && Slot(L).hasView) {
         play->view = Slot(L).view;
     }
 }
@@ -669,7 +672,8 @@ void Spawn(int slot) {
     // Next to the entrance of the scene, standing (start mode "idle"), no start camera.
     Vec3f pos = SideOffset(base, yaw, slot + 1);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
-    Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, 0xFF);
+    // Same background camera data as the anchor (fixed cameras of rooms and houses).
+    Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, play->mainCamera.camDataIdx);
     Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED"));
 }
 
