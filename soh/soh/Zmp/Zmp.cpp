@@ -1,5 +1,6 @@
 #include "Zmp.h"
 #include "Sim/ZmpSim.h"
+#include "Sim/ZmpPlayers.h"
 
 #include <atomic>
 #include <cstring>
@@ -120,6 +121,12 @@ static void RegisterConsoleCommands() {
                                  return 1;
                              }
                              Player* player = GET_PLAYER(gPlayState);
+                             if (args.size() > 5 && Zmp_MultiActive()) { // optional slot (lockstep events)
+                                 player = Zmp::Players::SlotPlayer(std::stoi(args[5]));
+                                 if (player == nullptr) {
+                                     return 1;
+                                 }
+                             }
                              Vec3f pos = { std::stof(args[1]), std::stof(args[2]), std::stof(args[3]) };
                              player->actor.world.pos = pos;
                              player->actor.prevPos = pos;
@@ -134,7 +141,8 @@ static void RegisterConsoleCommands() {
                           { { "x", Ship::ArgumentType::TEXT },
                             { "y", Ship::ArgumentType::TEXT },
                             { "z", Ship::ArgumentType::TEXT },
-                            { "yaw", Ship::ArgumentType::TEXT, true } } });
+                            { "yaw", Ship::ArgumentType::TEXT, true },
+                            { "slot", Ship::ArgumentType::TEXT, true } } });
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {
