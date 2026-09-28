@@ -13,6 +13,7 @@
 #include <libultraship/libultra/controller.h>
 
 #include "ZmpClient.h"
+#include "soh/Zmp/ZmpCVars.h"
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 #include "soh/Zmp/ZmpLog.h"
@@ -98,10 +99,14 @@ uint32_t sResyncsSeen = 0;
 uint32_t sLastResyncTick = 0;
 bool sLeader = false;
 uint32_t sDumpTicks[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
+uint32_t sTickDumpTicks[64] = {};
 Sim::PadRecord sLastLocal; // last pad read from the local controller (or the harness)
 bool sLocalInputBlocked = false;
 std::string sLastError;
 std::map<int, Player*> sTagged;
+// Per-player blocks saved with the leader's game (name -> zmp_block payload after the slot), loaded when this
+// client founds the group; sent as an event when that player appears.
+std::map<std::string, std::string> sSavedBlocks;
 std::map<int, std::string> sTagNames;
 
 bool InPlay() {
@@ -116,6 +121,53 @@ bool InRealGame() {
 
 bool InFileSelect() {
     return gGameState != nullptr && gGameState->main == FileChoose_Main;
+}
+
+std::string BlocksPath(int fileNum) {
+    return "Save/zmp-players-file" + std::to_string(fileNum + 1) + ".txt";
+}
+
+// "name<TAB>payload" lines, payload = what follows the slot in a zmp_block event.
+void LoadSavedBlocks() {
+    sSavedBlocks.clear();
+    if (gSaveContext.fileNum < 0 || gSaveContext.fileNum >= 3) {
+        return;
+    }
+    FILE* f = fopen(BlocksPath(gSaveContext.fileNum).c_str(), "r");
+    if (f == nullptr) {
+        return;
+    }
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) {
+            l.pop_back();
+        }
+        size_t tab = l.find('\t');
+        if (tab != std::string::npos && tab > 0) {
+            sSavedBlocks[l.substr(0, tab)] = l.substr(tab + 1);
+        }
+    }
+    fclose(f);
+    Log("net: " + std::to_string(sSavedBlocks.size()) + " saved player blocks for this game");
+}
+
+std::string BlockPayload(const ZmpPlayerBlock& b) {
+    std::string p = std::to_string(b.magic);
+    for (int i = 0; i < 8; i++) {
+        p += " " + std::to_string(b.equips.buttonItems[i]);
+    }
+    for (int i = 0; i < 7; i++) {
+        p += " " + std::to_string(b.equips.cButtonSlots[i]);
+    }
+    p += " " + std::to_string(b.equips.equipment);
+    for (int i = 0; i < 16; i++) {
+        p += " " + std::to_string(b.ammo[i]);
+    }
+    for (int i = 0; i < 4; i++) {
+        p += " " + std::to_string(b.bottles[i]);
+    }
+    return p;
 }
 
 std::string Hex(uint64_t v) {
@@ -235,6 +287,7 @@ void HandleControl(json& msg) {
         Players::Found(slot);
         Players::SetLocalSlot(slot);
         sSlot = slot;
+        LoadSavedBlocks();
         sNextInputTick = msg.value("tick0", 0u);
         StartRunning(sNextInputTick);
         Log("net: GROUP_FOUND group=" + std::to_string(sGroupId) + " slot=" + std::to_string(slot) +
@@ -287,6 +340,19 @@ void HandleControl(json& msg) {
                 std::filesystem::copy_file("logs/hashdump-" + std::to_string(i) + ".txt",
                                            "logs/desync-" + std::to_string(bad) + "-exact.txt",
                                            std::filesystem::copy_options::overwrite_existing, ec);
+            }
+        }
+        if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
+            std::error_code ec;
+            std::string dir = "logs/desync-" + std::to_string(bad) + "-ticks";
+            std::filesystem::create_directories(dir, ec);
+            for (int i = 0; i < 64; i++) {
+                uint32_t t = sTickDumpTicks[i];
+                if (t != 0 && t + 40 >= bad && t <= bad + 2) {
+                    std::filesystem::copy_file("logs/tickdump-" + std::to_string(i) + ".txt",
+                                               dir + "/" + std::to_string(t) + ".txt",
+                                               std::filesystem::copy_options::overwrite_existing, ec);
+                }
             }
         }
         bool target = false;
@@ -447,7 +513,48 @@ void RunConsoleInContext(void* p) {
 // Game events that travel as console events (the server stamps the sender's slot; docs/PROTOCOLO.md, phase 3).
 // "zmp_equip b0..b7 c0..c6 equipment": the pause menu of the sender changed its buttons or its worn equipment
 // (PLAN.md 2.7, EQUIP with absolute values).
+std::vector<int> ParseInts(const std::string& cmd, size_t pos) {
+    std::vector<int> v;
+    while (pos < cmd.size()) {
+        size_t next = cmd.find(' ', pos);
+        std::string tok = cmd.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        if (!tok.empty()) {
+            v.push_back(atoi(tok.c_str()));
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+    }
+    return v;
+}
+
 bool ApplyGameEvent(int slot, const std::string& cmd) {
+    if (cmd.rfind("zmp_block ", 0) == 0) {
+        // "zmp_block target magic b0..b7 c0..c6 equipment ammo0..15 bottle0..3" (saved per-player block)
+        std::vector<int> v = ParseInts(cmd, 10);
+        if (v.size() != 38) {
+            Log("net: malformed block event: " + cmd);
+            return true;
+        }
+        ZmpPlayerBlock b{};
+        b.magic = (s8)v[1];
+        for (int i = 0; i < 8; i++) {
+            b.equips.buttonItems[i] = (u8)v[2 + i];
+        }
+        for (int i = 0; i < 7; i++) {
+            b.equips.cButtonSlots[i] = (u8)v[10 + i];
+        }
+        b.equips.equipment = (u16)v[17];
+        for (int i = 0; i < 16; i++) {
+            b.ammo[i] = (s8)v[18 + i];
+        }
+        for (int i = 0; i < 4; i++) {
+            b.bottles[i] = (u8)v[34 + i];
+        }
+        Players::ApplySavedBlock(v[0], b);
+        return true;
+    }
     if (cmd.rfind("zmp_equip ", 0) != 0) {
         return false;
     }
@@ -668,6 +775,7 @@ void OnPadRead(void* padsV) {
     local.rStickX = pads[0].right_stick_x;
     local.rStickY = pads[0].right_stick_y;
     Pause::OnLocalPad(pads[0]);
+    Players::RandTraceBegin(CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0) != 0);
     if (sLocalInputBlocked) {
         local = Sim::PadRecord{}; // the pause menu is open: this player's Link stands still (PLAN.md 2.7)
     }
@@ -684,6 +792,14 @@ void OnPadRead(void* padsV) {
     for (auto& e : b.events) {
         if (e.kind == "SPAWN") {
             Players::Spawn(e.slot);
+            if (sLeader) {
+                auto it = sSavedBlocks.find(SlotName(e.slot));
+                if (it != sSavedBlocks.end() && e.slot != sSlot) {
+                    // This player's equipment, buttons, ammo and bottles from the saved game (PLAN.md 2.6).
+                    SendConsoleEvent("zmp_block " + std::to_string(e.slot) + " " + it->second);
+                    sSavedBlocks.erase(it);
+                }
+            }
         } else if (e.kind == "DESPAWN") {
             Players::Despawn(e.slot);
         } else if (e.kind == "CONSOLE" && !e.cmd.empty()) {
@@ -715,6 +831,19 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
     if (sPhase != Phase::Running) {
         return;
     }
+    if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
+        // Debug (desync hunting): a readable dump of every tick, 64 rotating files; a RESYNC keeps the ones before
+        // the bad tick.
+        std::string err;
+        std::string tpath = "logs/tickdump-" + std::to_string(tick % 64) + ".txt";
+        Sim::DumpState(tpath, tick, &err);
+        if (FILE* f = fopen(tpath.c_str(), "a")) {
+            std::string tr = Players::RandTraceText();
+            fwrite(tr.data(), 1, tr.size(), f);
+            fclose(f);
+        }
+        sTickDumpTicks[tick % 64] = tick;
+    }
     if (tick % 20 == 0) {
         // Readable dump of every hashed tick (4 rotating files): a RESYNC names the tick whose hash
         // differed, and the dumps of that exact tick on each machine are what explains it.
@@ -740,6 +869,30 @@ int CatchUpSpeed() {
     }
     std::lock_guard<std::mutex> lock(sMutex);
     return sBundles.size() > (size_t)(sDelay + 3) ? 2 : 0;
+}
+
+void SaveGroupBlocks(int fileNum) {
+    if (sPhase != Phase::Running || !Zmp_MultiActive() || fileNum < 0 || fileNum >= 3) {
+        return;
+    }
+    std::string out;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!gZmpSim.slots[k].active || k == sSlot) {
+            continue; // the leader's own block is in the save file itself
+        }
+        out += SlotName(k) + "\t" + BlockPayload(Players::SlotBlock(k)) + "\n";
+    }
+    // Players saved earlier who are not here now keep their entry.
+    for (auto& [name, payload] : sSavedBlocks) {
+        if (out.find(name + "\t") == std::string::npos) {
+            out += name + "\t" + payload + "\n";
+        }
+    }
+    if (FILE* f = fopen(BlocksPath(fileNum).c_str(), "w")) {
+        fwrite(out.data(), 1, out.size(), f);
+        fclose(f);
+        Log("net: player blocks saved with the game (" + BlocksPath(fileNum) + ")");
+    }
 }
 
 void SetLocalInputBlocked(bool blocked) {

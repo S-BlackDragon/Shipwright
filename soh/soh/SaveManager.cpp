@@ -1,4 +1,5 @@
 #include "SaveManager.h"
+#include "soh/Zmp/Net/Lockstep.h" // ZMP
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "OTRGlobals.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
@@ -1359,6 +1360,9 @@ void SaveManager::SaveSection(int fileNum, int sectionID, bool threaded) {
 
 void SaveManager::SaveFile(int fileNum) {
     SaveSection(fileNum, SECTION_ID_BASE, true);
+    if (Zmp_AllowSaveWrite()) {
+        Zmp::Lockstep::SaveGroupBlocks(fileNum); // ZMP: the other players' blocks, next to the save (PLAN.md 2.6)
+    }
 }
 
 void SaveManager::SaveGlobal() {

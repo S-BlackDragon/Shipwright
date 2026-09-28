@@ -2211,6 +2211,9 @@ s8 PadUtils_GetRelYImpl(Input* input);
 s8 PadUtils_GetRelX(Input* input);
 s8 PadUtils_GetRelY(Input* input);
 void PadUtils_UpdateRelXY(Input* input);
+// ZMP: EffectSs free-slot search index (simulation state carried by the portable save state)
+s32 EffectSs_ZmpGetSearchIndex(void);
+void EffectSs_ZmpSetSearchIndex(s32 index);
 s8 PadUtils_GetCurRX(Input* input);
 s8 PadUtils_GetCurRY(Input* input);
 void PadUtils_SetRelRXY(Input* input, s32 x, s32 y);

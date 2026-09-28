@@ -13,6 +13,12 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #include <imgui.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -610,6 +616,34 @@ void Dispatch(const RequestPtr& req) {
         std::string path = std::filesystem::absolute(cmd.value("path", std::string("census.txt"))).string();
         bool ok = State::Census(path, &summary);
         req->Reply({ { "ok", ok }, { "path", path }, { "summary", summary } });
+    } else if (name == "debug.dump_data") {
+        // Desync hunting: raw copy of every writable section of the executable (its globals and file statics; the
+        // image lives at a fixed address, D-016), to compare two instances at the same tick.
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("data.bin"))).string();
+        uint8_t* base = (uint8_t*)&__ImageBase;
+        auto* dos = (IMAGE_DOS_HEADER*)base;
+        auto* nt = (IMAGE_NT_HEADERS64*)(base + dos->e_lfanew);
+        IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+        json sections = json::array();
+        FILE* f = fopen(path.c_str(), "wb");
+        bool ok = f != nullptr;
+        for (int i = 0; ok && i < nt->FileHeader.NumberOfSections; i++) {
+            if (!(sec[i].Characteristics & IMAGE_SCN_MEM_WRITE)) {
+                continue;
+            }
+            uint32_t rva = sec[i].VirtualAddress;
+            uint32_t size = sec[i].Misc.VirtualSize;
+            fwrite(&rva, 4, 1, f);
+            fwrite(&size, 4, 1, f);
+            fwrite(base + rva, 1, size, f);
+            char nm[9] = {};
+            memcpy(nm, sec[i].Name, 8);
+            sections.push_back({ { "name", nm }, { "rva", rva }, { "size", size } });
+        }
+        if (f != nullptr) {
+            fclose(f);
+        }
+        req->Reply({ { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame } });
     } else if (name == "debug.floor") {
         // Exploration tool (not simulation): floor heights under a list of points, [[x, y, z], ...].
         if (!InPlay()) {

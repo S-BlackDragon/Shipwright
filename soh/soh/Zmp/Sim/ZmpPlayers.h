@@ -140,6 +140,8 @@ void Zmp_PauseLocalUpdate(PlayState* play);
 void Zmp_PauseLocalDraw(PlayState* play);
 // Kaleido: true while it runs for the local menu (it must not touch simulation memory: object space, collision).
 s32 Zmp_PauseRunningLocal(void);
+// Low health alarm (a sound, presentation): the local player's health, not the anchor's.
+s32 Zmp_LocalHealthCritical(void);
 // Player_DrawImpl: per-player tunic tone (cosmetic). Returns 1 and fills *out for the players after the first.
 s32 Zmp_TunicColor(s32 tunic, const Color_RGB8* base, Color_RGB8* out);
 // Kaleido: buffer for the menu's Link preview while it runs for the local menu (NULL otherwise).
@@ -179,7 +181,12 @@ s32 Zmp_AllowSaveWrite(void);
 #ifdef __cplusplus
 }
 
+#include <string>
+
 namespace Zmp::Players {
+// Debug RNG trace of the tick (desync hunting).
+void RandTraceBegin(bool enabled);
+std::string RandTraceText();
 // Local slot (presentation only; not simulation state).
 void SetLocalSlot(int slot);
 int LocalSlot();
@@ -204,6 +211,8 @@ int SlotReviveProgress(int slot);
 int SlotReviver(int slot);
 // EQUIP event (from the pause menu of `slot`): absolute buttons and worn equipment.
 void ApplyEquip(int slot, const ItemEquips& equips);
+// Saved per-player block (loaded game): equipment, buttons, ammo, bottles; full health (PLAN.md 2.6).
+void ApplySavedBlock(int slot, const ZmpPlayerBlock& block);
 // Runs `fn` in the context of `slot` (console events run for the player who sent them).
 void RunInContext(int slot, void (*fn)(void*), void* arg);
 int PresentCount();

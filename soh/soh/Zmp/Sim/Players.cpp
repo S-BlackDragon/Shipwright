@@ -5,6 +5,8 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
+#include <cstdio>
 
 #include "soh/Zmp/ZmpLog.h"
 
@@ -23,6 +25,7 @@ void Player_ReleaseLockOn(Player* player);
 }
 
 extern "C" {
+s32 gZmpRandTrace = 0;
 ZmpSimState gZmpSim;
 void* gZmpCtxPlayer = nullptr;
 s32 gZmpCameraInterfaceMuted = 0;
@@ -32,6 +35,18 @@ namespace {
 
 constexpr u32 kSimMagic = 0x33534D5A; // "ZMS3" (phase 3 layout)
 int sLocalSlot = -1;
+
+// Debug RNG trace (desync hunting): who drew random numbers this tick, in order (run-length compressed).
+struct RandTraceEntry {
+    char phase;
+    s16 actorId;
+    s16 params;
+    uintptr_t caller;
+    int count;
+};
+std::vector<RandTraceEntry> sRandTrace;
+const Actor* sTraceActor = nullptr;
+char sTracePhase = '-';
 
 // Render helpers (not simulation state).
 bool sDrawBegun = false;
@@ -417,13 +432,30 @@ extern "C" void Zmp_SetContext(PlayState* play, s32 slot) {
 }
 
 extern "C" void Zmp_RestoreAnchor(PlayState* play) {
+    sTraceActor = nullptr;
+    sTracePhase = '-';
     if (!Zmp_MultiActive()) {
         return;
     }
     SwitchTo(play, gZmpSim.anchor);
 }
 
+extern "C" void Zmp_RandTraceHit(void* caller) {
+    RandTraceEntry e{ sTracePhase, sTraceActor ? sTraceActor->id : (s16)-1, sTraceActor ? sTraceActor->params : (s16)0,
+                      (uintptr_t)caller - (uintptr_t)0x140000000, 1 };
+    if (!sRandTrace.empty()) {
+        RandTraceEntry& b = sRandTrace.back();
+        if (b.phase == e.phase && b.actorId == e.actorId && b.params == e.params && b.caller == e.caller) {
+            b.count++;
+            return;
+        }
+    }
+    sRandTrace.push_back(e);
+}
+
 extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
+    sTraceActor = actor;
+    sTracePhase = 'U';
     int k = ContextSlot(actor);
     if (Present(k)) {
         SwitchTo(play, k);
@@ -438,6 +470,8 @@ extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
 }
 
 extern "C" void Zmp_UpdateAttentionAll(PlayState* play) {
+    sTraceActor = nullptr;
+    sTracePhase = 'A';
     ActorContext* actorCtx = &play->actorCtx;
     int anchor = gZmpSim.anchor;
     for (int pass = 0; pass < 2; pass++) {
@@ -789,6 +823,18 @@ extern "C" s32 Zmp_TunicColor(s32 tunic, const Color_RGB8* base, Color_RGB8* out
     return 1;
 }
 
+extern "C" s32 Zmp_LocalHealthCritical(void) {
+    int k = sLocalSlot;
+    if (!Present(k) || Slot(k).downed) {
+        return 0;
+    }
+    s16 keep = gSaveContext.health;
+    gSaveContext.health = (s16)Zmp::Players::SlotHealth(k);
+    s32 critical = HealthMeter_IsCritical() ? 1 : 0;
+    gSaveContext.health = keep;
+    return critical;
+}
+
 extern "C" s32 Zmp_PauseIsLocal(void) {
     return Zmp_MultiActive();
 }
@@ -849,6 +895,8 @@ extern "C" s32 Zmp_DrawAllActors(void) {
 }
 
 extern "C" void Zmp_DrawActorContext(PlayState* play, Actor* actor) {
+    sTraceActor = actor;
+    sTracePhase = 'D';
     if (!sDrawBegun) {
         return;
     }
@@ -969,6 +1017,24 @@ extern "C" s32 Zmp_LanguageLocked(void) {
 // C++ API
 
 namespace Zmp::Players {
+
+void RandTraceBegin(bool enabled) {
+    gZmpRandTrace = enabled ? 1 : 0;
+    sRandTrace.clear();
+    sTraceActor = nullptr;
+    sTracePhase = 'P'; // pad / events before the update
+}
+
+std::string RandTraceText() {
+    std::string out = "\n[rand_trace] (phase actor params caller_rva x count)\n";
+    char line[96];
+    for (auto& e : sRandTrace) {
+        snprintf(line, sizeof(line), "%c %04X %04X +0x%llX x%d\n", e.phase, (unsigned)(u16)e.actorId,
+                 (unsigned)(u16)e.params, (unsigned long long)e.caller, e.count);
+        out += line;
+    }
+    return out;
+}
 
 void SetLocalSlot(int slot) {
     sLocalSlot = slot;
@@ -1206,6 +1272,44 @@ void ApplyEquipInContext(void* p) {
     }
 }
 } // namespace
+
+namespace {
+struct BlockArg {
+    int slot;
+    ZmpPlayerBlock block;
+};
+void ApplyBlockInContext(void* p) {
+    BlockArg* a = (BlockArg*)p;
+    ZmpPlayerBlock b;
+    SaveToBlock(b);
+    b.magic = (s8)MIN((s16)a->block.magic, gSaveContext.magicCapacity);
+    b.equips = a->block.equips;
+    memcpy(b.ammo, a->block.ammo, sizeof(b.ammo));
+    for (int i = 0; i < 4; i++) {
+        // having a bottle is shared: only its contents come from the save
+        if (b.bottles[i] != ITEM_NONE && a->block.bottles[i] != ITEM_NONE) {
+            b.bottles[i] = a->block.bottles[i];
+        }
+    }
+    FixBottleButtons(b);
+    b.health = gSaveContext.healthCapacity;
+    b.healthAccumulator = 0;
+    LoadFromBlock(b);
+    Player* player = Zmp::Players::SlotPlayer(a->slot);
+    if (player != nullptr && gPlayState != nullptr) {
+        Player_SetEquipmentData(gPlayState, player);
+    }
+}
+} // namespace
+
+void ApplySavedBlock(int slot, const ZmpPlayerBlock& block) {
+    if (!Valid(slot) || !Present(slot)) {
+        return;
+    }
+    BlockArg a{ slot, block };
+    RunInContext(slot, ApplyBlockInContext, &a);
+    Zmp::Log("zmp: saved block applied to slot " + std::to_string(slot));
+}
 
 void ApplyEquip(int slot, const ItemEquips& equips) {
     if (!Valid(slot) || !Slot(slot).active) {

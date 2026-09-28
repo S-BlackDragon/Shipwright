@@ -49,11 +49,12 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(Lights)                                                                                                         \
     X(DoorWarp1)                                                                                                      \
     X(MapMark)                                                                                                        \
-    X(Camera) X(OnePointCutscene) X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago)     \
-        X(BgHakaTrap) X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) \
-            X(BossGanon) X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai)     \
-                X(EnBw) X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan)    \
-                    X(EnXc) X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player)
+    X(Camera)                                                                                                         \
+    X(OnePointCutscene) X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago) X(BgHakaTrap) \
+        X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) X(BossGanon)  \
+            X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai) X(EnBw)          \
+                X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan) X(EnXc)    \
+                    X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player)
 
 #define ZMP_DECLARE_SAVESTATE(Tag) extern "C" void Tag##_SaveState(SaveStateCtx* ctx);
 ZMP_STATIC_SAVESTATES(ZMP_DECLARE_SAVESTATE)
@@ -84,7 +85,8 @@ enum SectionId : uint32_t {
     SEC_RESOURCES,
     SEC_HEAP_POINTER_STATICS,
     SEC_PADMGR,
-    SEC_ZMPSIM, // multiplayer simulation state (slots, parked cameras, per-player inputs, audio counters)
+    SEC_ZMPSIM,      // multiplayer simulation state (slots, parked cameras, per-player inputs, audio counters)
+    SEC_GAMESTATICS, // file statics of the game code that are simulation state (docs/DECISIONES.md D-044)
 };
 
 #pragma pack(push, 1)
@@ -392,6 +394,10 @@ bool Save(std::vector<uint8_t>& out, uint32_t tick, uint64_t hash, std::string* 
     }
     // Controller history: press/rel edges of the next tick are computed from it.
     w.Section(SEC_PADMGR, gPadMgr.inputs, sizeof(gPadMgr.inputs));
+    {
+        int32_t gs[1] = { EffectSs_ZmpGetSearchIndex() };
+        w.Section(SEC_GAMESTATICS, gs, sizeof(gs));
+    }
     w.Section(SEC_ZMPSIM, &gZmpSim, sizeof(gZmpSim));
     {
         auto ptrs = HeapPointerStatics();
@@ -643,6 +649,11 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         if ((size_t)count != n) {
             AppendNote(info, "actor table size differs");
         }
+    }
+    if (sections.count(SEC_GAMESTATICS) && sections[SEC_GAMESTATICS].second == sizeof(int32_t) * 1) {
+        int32_t gs[1];
+        memcpy(gs, sections[SEC_GAMESTATICS].first, sizeof(gs));
+        EffectSs_ZmpSetSearchIndex(gs[0]);
     }
     if (sections.count(SEC_PADMGR) && sections[SEC_PADMGR].second == sizeof(gPadMgr.inputs)) {
         memcpy(gPadMgr.inputs, sections[SEC_PADMGR].first, sizeof(gPadMgr.inputs));

@@ -15,6 +15,8 @@
 // Test builds only: replaces the build hash sent in the handshake (used by the
 // handshake rejection test).
 #define ZMP_CVAR_DEBUG_BUILD_HASH CVAR_ZMP("Debug.BuildHashOverride")
+// Debug: readable dump of every lockstep tick (desync hunting; RESYNC keeps the last 40 in logs/desync-<t>-ticks/).
+#define ZMP_CVAR_DEBUG_TICK_DUMPS CVAR_ZMP("Debug.TickDumps")
 
 // Replay (phase 1): a .zmpinput started automatically when the game reaches the file select
 // screen; optional save state to start from; speed factor (presentation only).

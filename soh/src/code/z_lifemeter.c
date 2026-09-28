@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "textures/parameter_static/parameter_static.h"
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
@@ -653,7 +654,8 @@ void HealthMeter_HandleCriticalAlarm(PlayState* play) {
             interfaceCtx->unk_22A = 0;
             interfaceCtx->unk_22C = 0;
             if (CVarGetInteger(CVAR_AUDIO("LowHpAlarm"), 0) == 0 && !Player_InCsMode(play) &&
-                (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) && HealthMeter_IsCritical() &&
+                (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) &&
+                (Zmp_MultiActive() ? Zmp_LocalHealthCritical() : HealthMeter_IsCritical()) && // ZMP: local player
                 !Play_InCsMode(play)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_HITPOINT_ALARM);
             }

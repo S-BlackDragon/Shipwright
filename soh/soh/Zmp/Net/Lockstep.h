@@ -64,6 +64,8 @@ void Leave();
 void SendConsoleEvent(const std::string& cmd);
 // Applies a console event of `slot` (game events like "zmp_equip", or a console command run in that player's context).
 void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd);
+// The leader saved the game: the other players' blocks are written next to it (Save/zmp-players-fileN.txt).
+void SaveGroupBlocks(int fileNum);
 // True while this client's pause menu is open: its input to the group is neutral (PLAN.md 2.7).
 void SetLocalInputBlocked(bool blocked);
 
