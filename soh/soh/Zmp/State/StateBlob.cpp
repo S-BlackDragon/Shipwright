@@ -26,6 +26,7 @@
 #include "soh/Enhancements/savestate_serialize.h"
 #include "soh/Zmp/ZmpLog.h"
 #include "soh/Zmp/Sim/ZmpSim.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h"
 
 extern "C" {
 #include <z64.h>
@@ -62,6 +63,10 @@ namespace Zmp::State {
 
 namespace {
 
+// Lockstep: the text language and the Z-target setting come from the shared game (the group), not
+// from this client (PLAN.md 2.4 point 8 applies per client only outside lockstep).
+bool sKeepSharedSettings = false;
+
 constexpr uint32_t kMagic = 0x53504D5A; // "ZMPS"
 constexpr uint32_t kVersion = 1;
 
@@ -79,6 +84,7 @@ enum SectionId : uint32_t {
     SEC_RESOURCES,
     SEC_HEAP_POINTER_STATICS,
     SEC_PADMGR,
+    SEC_ZMPSIM, // multiplayer simulation state (slots, parked cameras, per-player inputs, audio counters)
 };
 
 #pragma pack(push, 1)
@@ -386,6 +392,7 @@ bool Save(std::vector<uint8_t>& out, uint32_t tick, uint64_t hash, std::string* 
     }
     // Controller history: press/rel edges of the next tick are computed from it.
     w.Section(SEC_PADMGR, gPadMgr.inputs, sizeof(gPadMgr.inputs));
+    w.Section(SEC_ZMPSIM, &gZmpSim, sizeof(gZmpSim));
     {
         auto ptrs = HeapPointerStatics();
         w.Section(SEC_HEAP_POINTER_STATICS, ptrs.data(), ptrs.size() * sizeof(ptrs[0]));
@@ -590,9 +597,11 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
 
     memcpy(gSystemHeap, heap, SYSTEM_HEAP_SIZE);
     memcpy(&gSaveContext, saveCtx, sizeof(gSaveContext));
-    gSaveContext.language = language;
+    if (!sKeepSharedSettings) {
+        gSaveContext.language = language;
+        gSaveContext.zTargetSetting = zTargetSetting;
+    }
     gSaveContext.audioSetting = audioSetting;
-    gSaveContext.zTargetSetting = zTargetSetting;
     gSaveContext.ship.filenameLanguage = filenameLanguage;
     gSaveContext.ship.stats = stats;
     memcpy(gGameInfo, gameInfo, sizeof(*gGameInfo));
@@ -638,6 +647,12 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     if (sections.count(SEC_PADMGR) && sections[SEC_PADMGR].second == sizeof(gPadMgr.inputs)) {
         memcpy(gPadMgr.inputs, sections[SEC_PADMGR].first, sizeof(gPadMgr.inputs));
     }
+    if (sections.count(SEC_ZMPSIM) && sections[SEC_ZMPSIM].second == sizeof(gZmpSim)) {
+        memcpy(&gZmpSim, sections[SEC_ZMPSIM].first, sizeof(gZmpSim));
+    } else {
+        memset(&gZmpSim, 0, sizeof(gZmpSim));
+    }
+    Zmp::Players::AfterStateLoad();
     if (!LoadStatics(statics)) {
         *err = "static data layout differs (different build?) - state partially loaded";
         return false;
@@ -781,4 +796,10 @@ bool Census(const std::string& path, std::string* summary) {
     return true;
 }
 
+} // namespace Zmp::State
+
+namespace Zmp::State {
+void SetKeepSharedSettings(bool keep) {
+    sKeepSharedSettings = keep;
+}
 } // namespace Zmp::State

@@ -9,7 +9,7 @@
 
 namespace Zmp::Sim {
 
-enum class Mode { Off, Recording, Replaying };
+enum class Mode { Off, Recording, Replaying, Net };
 
 // How a recording starts. Cold: a new game with the debug save at an entrance (same as the map
 // select), RNG seeded with `seed`. State: from a portable save state blob embedded in the file.
@@ -94,6 +94,15 @@ void OnPadRead(void* pads);
 void OnFrameBegin();
 // End of a logic tick: hash, replay check, pause-at.
 void OnTickEnd();
+
+// Lockstep (Net mode, Zmp/Net/Lockstep.cpp): the session tick continues from `tick`; the tick gate belongs
+// to the lockstep; the CVar profile is locked.
+void BeginNet(uint32_t tick);
+void EndNet();
+// After loading a state within a Net session (resync).
+void SetTick(uint32_t tick);
+// logs/desync-<tick>.txt and .zmps with the current state (RESYNC diagnostics).
+void WriteDesyncDump(uint32_t badTick);
 
 uint64_t HashState(uint32_t tick);
 bool DumpState(const std::string& path, uint32_t tick, std::string* err);

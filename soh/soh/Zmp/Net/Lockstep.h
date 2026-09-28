@@ -1,0 +1,68 @@
+#pragma once
+
+// ZMP lockstep session (PLAN.md 2.2, docs/PROTOCOLO.md): the game ticks only when the server's bundle for
+// the tick arrived; the local pad is sent for tick + D; founding, joining, rejoin and resync go through
+// portable save states of the group leader.
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
+namespace Zmp::Lockstep {
+
+enum class Phase { Idle, WaitingGroup, Joining, Running };
+
+struct SlotInfo {
+    int slot = -1;
+    std::string name;
+    std::string state;
+    int rtt = -1;
+    bool leader = false;
+    uint32_t id = 0;
+};
+
+struct Status {
+    Phase phase = Phase::Idle;
+    int slot = -1;
+    uint32_t tick = 0;
+    int delay = 2;
+    size_t queued = 0;
+    bool waiting = false;      // tick gate closed for more than 250 ms
+    int waitMs = 0;            // time the current tick has been waiting
+    std::string waitingFor;    // names from the server's WAIT message
+    uint32_t stalls = 0;       // waits over 250 ms
+    uint32_t maxStallMs = 0;
+    uint32_t resyncs = 0;      // RESYNC messages that targeted this client
+    uint32_t resyncsSeen = 0;  // RESYNC messages received
+    uint32_t lastResyncTick = 0;
+    bool leader = false;
+    uint32_t groupTick = 0;    // last tick emitted by the server
+    std::string lastError;
+    std::vector<SlotInfo> players;
+    int countdown = 0;         // group scene change countdown (ticks)
+};
+
+const char* PhaseName(Phase phase);
+
+// Network thread.
+void OnConnected(bool rejoin);
+void OnDisconnected();
+void OnNetMessage(nlohmann::json&& msg);
+
+// Game thread.
+void OnFrameBegin();
+bool ShouldRunTick();
+void OnPadRead(void* pads);
+void OnTickEnd(uint32_t tick, uint64_t hash);
+// Presentation speed-up while this client is behind the group (queued bundles).
+int CatchUpSpeed();
+// Leaves the group (LEAVE_GROUP): the local Link disappears for the others.
+void Leave();
+
+Status GetStatus();
+bool Active();
+std::string SlotName(int slot);
+
+} // namespace Zmp::Lockstep

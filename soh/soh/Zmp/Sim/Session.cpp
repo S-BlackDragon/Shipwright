@@ -16,6 +16,7 @@
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/ZmpLog.h"
 #include "soh/Zmp/State/StateBlob.h"
+#include "soh/Zmp/Net/Lockstep.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
@@ -382,12 +383,63 @@ void StartDebugGame(const StartSpec& spec) {
     StartDebugGameImpl(spec, false);
 }
 
+void BeginNet(uint32_t tick) {
+    if (sMode == Mode::Recording || sMode == Mode::Replaying) {
+        StopSession();
+    }
+    bool wasNet = sMode == Mode::Net;
+    sMode = Mode::Net;
+    sPending = Pending::None;
+    sArmed = false;
+    sFile = "lockstep";
+    sTick = tick;
+    ResetHashes(tick);
+    if (!wasNet) {
+        CVarProfile::BeginSession();
+    }
+    Log("zmp: lockstep session active at tick " + std::to_string(tick));
+}
+
+void EndNet() {
+    if (sMode != Mode::Net) {
+        return;
+    }
+    Log("zmp: lockstep session ended at tick " + std::to_string(sTick));
+    sMode = Mode::Off;
+    sPaused = false;
+    sPauseAt = UINT32_MAX;
+    CVarProfile::EndSession();
+}
+
+void SetTick(uint32_t tick) {
+    sTick = tick;
+    ResetHashes(tick);
+}
+
+void WriteDesyncDump(uint32_t badTick) {
+    std::error_code ec;
+    std::filesystem::create_directories("logs", ec);
+    std::string base = "logs/desync-" + std::to_string(badTick);
+    std::string err;
+    if (InPlay()) {
+        DumpState(base + ".txt", sTick > 0 ? sTick - 1 : 0, &err);
+        std::vector<uint8_t> blob;
+        if (State::Save(blob, sTick, sLastHash, &err)) {
+            State::WriteFile(base + ".zmps", blob, &err);
+        }
+    }
+    Log("zmp: desync dump (bad tick " + std::to_string(badTick) + ", state at tick " + std::to_string(sTick) + ") in " +
+        base + ".txt");
+}
+
 const char* ModeName(Mode mode) {
     switch (mode) {
         case Mode::Recording:
             return "recording";
         case Mode::Replaying:
             return "replaying";
+        case Mode::Net:
+            return "lockstep";
         default:
             return "off";
     }
@@ -684,6 +736,13 @@ bool DebugSetActorHealth(int category, int index, int health, std::string* err) 
 
 void OnPadRead(void* padsV) {
     OSContPad* pads = (OSContPad*)padsV;
+    if (sMode == Mode::Net) {
+        pads[0].gyro_x = 0;
+        pads[0].gyro_y = 0;
+        pads[0].err_no = 0;
+        Lockstep::OnPadRead(padsV);
+        return;
+    }
     if (sMode == Mode::Off) {
         return;
     }
@@ -753,6 +812,7 @@ void OnFrameBegin() {
     if (sPending != Pending::None) {
         HandlePending();
     }
+    Lockstep::OnFrameBegin();
     CVarProfile::Enforce();
 }
 
@@ -767,7 +827,7 @@ void OnTickEnd() {
         ResetHashes(t);
     }
     sHashes.push_back(h);
-    if (sMode == Mode::Off && sHashes.size() > 200000) {
+    if ((sMode == Mode::Off || sMode == Mode::Net) && sHashes.size() > 200000) {
         sHashes.erase(sHashes.begin(), sHashes.begin() + 100000);
         sHashBase += 100000;
     }
@@ -793,7 +853,9 @@ void OnTickEnd() {
         }
     }
     int interval = CVarGetInteger(ZMP_CVAR_HASH_LOG_INTERVAL, 20);
-    if (interval > 0 && InPlay() && (t % (uint32_t)interval) == 0) {
+    if (sMode == Mode::Net) {
+        Lockstep::OnTickEnd(t, h);
+    } else if (interval > 0 && InPlay() && (t % (uint32_t)interval) == 0) {
         Log("tick=" + std::to_string(t) + " hash=" + Hex(h) + refNote);
     }
     sTick = t + 1;
@@ -822,10 +884,28 @@ extern "C" int32_t Zmp_IgnoreUpdateCulling(void) {
     return 1;
 }
 
+static bool sLockstepWaiting = false;
+
 extern "C" int32_t Zmp_ShouldRunTick(void) {
-    return Zmp::Sim::sPaused ? 0 : 1;
+    sLockstepWaiting = false;
+    if (Zmp::Sim::sPaused) {
+        return 0;
+    }
+    if (Zmp::Sim::sMode == Zmp::Sim::Mode::Net) {
+        bool run = Zmp::Lockstep::ShouldRunTick();
+        sLockstepWaiting = !run;
+        return run ? 1 : 0;
+    }
+    return 1;
+}
+
+extern "C" int32_t Zmp_ShortFrame(void) {
+    // The lockstep is waiting for a bundle: draw a single frame and check the tick gate again soon
+    // (instead of the 3 interpolated frames of a tick, 50 ms), so a late bundle costs at most one frame.
+    return sLockstepWaiting ? 1 : 0;
 }
 
 extern "C" int32_t Zmp_PresentationSpeed(void) {
-    return Zmp::Sim::sSpeed;
+    int catchUp = Zmp::Lockstep::CatchUpSpeed();
+    return catchUp > 0 ? catchUp : Zmp::Sim::sSpeed;
 }

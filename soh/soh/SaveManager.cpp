@@ -1,4 +1,5 @@
 #include "SaveManager.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "OTRGlobals.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/SeedContext.h"
@@ -1332,6 +1333,12 @@ void SaveManager::SaveFileThreaded(int fileNum, SaveContext* saveContext, int se
 // SaveSection creates a copy of gSaveContext to prevent mid-save data modification, and passes its reference to
 // SaveFileThreaded This should never be called with threaded == false except during file creation
 void SaveManager::SaveSection(int fileNum, int sectionID, bool threaded) {
+    // ZMP: in a multiplayer session only the group leader writes the shared game to disk; a joiner never
+    // overwrites its own save slot with it.
+    if (!Zmp_AllowSaveWrite()) {
+        SPDLOG_INFO("ZMP: save skipped (not the group leader)");
+        return;
+    }
     // Don't save in Boss rush.
     if (fileNum == 0xFF || fileNum == 0xFE) {
         return;

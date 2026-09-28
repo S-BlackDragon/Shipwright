@@ -18,6 +18,7 @@
 
 #include "soh/ActorDB.h"
 #include "soh/Zmp/State/FixedHeap.h"
+#include "ZmpPlayers.h"
 
 extern "C" {
 #include <z64.h>
@@ -225,6 +226,45 @@ void VisitSaveContext(Visitor& v) {
     v.U("ship.reset_to_spawn", ship.resetToSpawn);
 }
 
+// Multiplayer simulation (ZmpPlayers.h): per-player blocks, owners, deterministic audio counters.
+void VisitZmp(Visitor& v) {
+    // Only in lockstep: recordings of phase 1 keep their hashes.
+    if (!gZmpSim.enabled) {
+        return;
+    }
+    v.Section("zmp");
+    v.prefix = "zmp.";
+    v.U("audio_tasks", gZmpSim.audioTaskCount);
+    v.U("audio_random", gZmpSim.audioRandom);
+    v.S("anchor", gZmpSim.anchor);
+    v.S("ctx", gZmpSim.ctx);
+    v.S("msg_owner", gZmpSim.msgOwner);
+    v.S("pause_owner", gZmpSim.pauseOwner);
+    v.S("transition_countdown", gZmpSim.transitionCountdown);
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        const ZmpPlayerSlot& s = gZmpSim.slots[k];
+        v.prefix = "zmp.slot" + std::to_string(k) + ".";
+        v.U("active", s.active);
+        v.U("present", s.present);
+        if (!s.present) {
+            continue;
+        }
+        bool live = k == gZmpSim.ctx && InPlay();
+        v.S("health", live ? gSaveContext.health : s.health);
+        v.S("health_acc", live ? gSaveContext.healthAccumulator : s.healthAccumulator);
+        const Camera* cam = live ? &gPlayState->mainCamera : &s.camera;
+        Vec(v, "cam.at", cam->at);
+        Vec(v, "cam.eye", cam->eye);
+        v.S("cam.setting", cam->setting);
+        v.S("cam.mode", cam->mode);
+        const Input* in = live ? &gPlayState->state.input[0] : &s.input;
+        v.U("input.buttons", in->cur.button);
+        v.S("input.stick_x", in->cur.stick_x);
+        v.S("input.stick_y", in->cur.stick_y);
+        v.U("player_actor", s.player != nullptr ? (uint64_t)s.player->actor.id : 0xFFFF);
+    }
+}
+
 void VisitAll(Visitor& v, uint32_t tick) {
     v.Section("tick");
     v.prefix = "";
@@ -243,6 +283,7 @@ void VisitAll(Visitor& v, uint32_t tick) {
         VisitPlay(v);
     }
     VisitSaveContext(v);
+    VisitZmp(v);
 }
 
 class HashVisitor : public Visitor {

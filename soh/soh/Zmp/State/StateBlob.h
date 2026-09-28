@@ -39,3 +39,8 @@ bool WriteFile(const std::string& path, const std::vector<uint8_t>& data, std::s
 bool Census(const std::string& path, std::string* summary);
 
 } // namespace Zmp::State
+
+namespace Zmp::State {
+// Lockstep sessions: loads keep the language and Z-target setting of the blob (shared game).
+void SetKeepSharedSettings(bool keep);
+} // namespace Zmp::State

@@ -9,6 +9,9 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "ZmpProtocol.h"
+#include "Lockstep.h"
+#include "soh/Zmp/Sim/CVarProfile.h"
+#include "soh/Zmp/State/ResourceSlots.h"
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/ZmpLog.h"
 
@@ -66,11 +69,18 @@ Handshake Client::GetHandshake() {
     std::lock_guard<std::mutex> lock(mHandshakeMutex);
     if (!mHandshakeReady) {
         mHandshake.buildHash = HashFile(ExecutablePath());
-        mHandshake.ootHash = HashFile(Ship::Context::LocateFileAcrossAppDirs("oot.o2r"));
+        // Content hash of the simulation resources: two extractions of the same ROM match even though the
+        // zip files differ (reports/fase2/ROMS.md), plus the list of resource paths (save states need it).
+        uint32_t simEntries = 0;
+        std::string sim = HashAssetsSim(Ship::Context::LocateFileAcrossAppDirs("oot.o2r"), &simEntries);
+        char files[24];
+        snprintf(files, sizeof(files), "%016llx", (unsigned long long)ResSlots::FileListHash());
+        mHandshake.ootHash = sim + "-" + files;
         mHandshake.sohHash = HashFile(Ship::Context::LocateFileAcrossAppDirs("soh.o2r"));
-        // The locked CVar profile is defined in phase 1 (PLAN.md 8.4). Until then every
-        // client reports the same placeholder.
-        mHandshake.cvarProfileHash = "none";
+        char prof[24];
+        snprintf(prof, sizeof(prof), "%016llx", (unsigned long long)CVarProfile::Hash());
+        mHandshake.cvarProfileHash = prof;
+        Log("handshake: oot sim entries=" + std::to_string(simEntries));
         mHandshake.randoSeed = 0;
         mHandshakeReady = true;
         Log("handshake hashes: build=" + mHandshake.buildHash + " oot=" + mHandshake.ootHash +
@@ -135,6 +145,15 @@ static bool SendAll(TCPsocket sock, const std::vector<uint8_t>& data) {
     return SDLNet_TCP_Send(sock, data.data(), (int)data.size()) == (int)data.size();
 }
 
+bool Client::Send(const nlohmann::json& msg) {
+    std::vector<uint8_t> frame = EncodeFrame(msg);
+    std::lock_guard<std::mutex> lock(mSendMutex);
+    if (mSock == nullptr) {
+        return false;
+    }
+    return SendAll((TCPsocket)mSock, frame);
+}
+
 static uint64_t SteadyMs() {
     return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now().time_since_epoch())
@@ -150,6 +169,10 @@ static void ReadPlayers(const nlohmann::json& msg, std::vector<NetPlayer>& out) 
         NetPlayer np;
         np.id = p.value("id", 0u);
         np.name = p.value("name", std::string());
+        np.slot = p.value("slot", -1);
+        np.rtt = p.value("rtt", -1);
+        np.state = p.value("state", std::string());
+        np.leader = p.value("leader", false);
         out.push_back(np);
     }
 }
@@ -189,7 +212,13 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
         };
         SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
         SDLNet_TCP_AddSocket(set, sock);
-        bool ok = SendAll(sock, EncodeFrame(hello));
+        bool ok;
+        {
+            std::lock_guard<std::mutex> lock(mSendMutex);
+            mSock = sock;
+            ok = SendAll(sock, EncodeFrame(hello));
+        }
+        bool welcomed = false;
         FrameReader reader;
         uint64_t lastPing = 0;
         uint64_t pingNonce = 0;
@@ -221,7 +250,10 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
                             mStatus.playerId = msg.value("player_id", 0u);
                             mStatus.room = msg.value("room", room);
                             ReadPlayers(msg, mStatus.players);
-                            Log("net: WELCOME player_id=" + std::to_string(mStatus.playerId) + " room=" + mStatus.room);
+                            Log("net: WELCOME player_id=" + std::to_string(mStatus.playerId) + " room=" + mStatus.room +
+                                (msg.value("rejoin", false) ? " (rejoin)" : ""));
+                            welcomed = true;
+                            Lockstep::OnConnected(msg.value("rejoin", false));
                         } else if (t == "REJECT") {
                             std::string reason = msg.value("reason", std::string("rejected"));
                             std::string detail = msg.value("detail", std::string());
@@ -229,8 +261,11 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
                             Log("net: REJECT reason=" + reason + " detail=" + detail);
                             rejected = true;
                         } else if (t == "PLAYER_LIST") {
-                            std::lock_guard<std::mutex> lock(mMutex);
-                            ReadPlayers(msg, mStatus.players);
+                            {
+                                std::lock_guard<std::mutex> lock(mMutex);
+                                ReadPlayers(msg, mStatus.players);
+                            }
+                            Lockstep::OnNetMessage(std::move(msg));
                         } else if (t == "PONG") {
                             uint64_t sentAt = msg.value("sent_at", (uint64_t)0);
                             std::lock_guard<std::mutex> lock(mMutex);
@@ -239,10 +274,12 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
                             nlohmann::json pong = { { "t", "PONG" },
                                                     { "nonce", msg.value("nonce", (uint64_t)0) },
                                                     { "sent_at", msg.value("sent_at", (uint64_t)0) } };
-                            ok = SendAll(sock, EncodeFrame(pong));
+                            ok = Send(pong);
                         } else if (t == "KICK") {
                             SetState(NetState::Rejected, "kicked", msg.value("reason", std::string()));
                             rejected = true;
+                        } else if (!t.empty()) {
+                            Lockstep::OnNetMessage(std::move(msg));
                         }
                     }
                 } catch (const std::exception& e) {
@@ -257,10 +294,17 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
             if (ok && GetStatus().state == NetState::Connected && now - lastPing >= 1000) {
                 lastPing = now;
                 nlohmann::json ping = { { "t", "PING" }, { "nonce", ++pingNonce }, { "sent_at", now } };
-                ok = SendAll(sock, EncodeFrame(ping));
+                ok = Send(ping);
             }
         }
 
+        {
+            std::lock_guard<std::mutex> lock(mSendMutex);
+            mSock = nullptr;
+        }
+        if (welcomed) {
+            Lockstep::OnDisconnected();
+        }
         SDLNet_TCP_DelSocket(set, sock);
         SDLNet_FreeSocketSet(set);
         SDLNet_TCP_Close(sock);

@@ -1871,6 +1871,11 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     }
 
     int step = original_fps;
+    // ZMP: while the lockstep waits for a bundle, redraw the last frame once and return to the tick gate.
+    if (Zmp_ShortFrame() && count > 1) {
+        start_time = next_original_frame - step;
+        count = 1;
+    }
     // When the gfx debugger is active, only run with the final mtx
     if (GfxDebuggerIsDebugging()) {
         start_time = next_original_frame;

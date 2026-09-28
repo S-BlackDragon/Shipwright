@@ -1,5 +1,6 @@
 #include "global.h"
 #include "soh/Zmp/Sim/ZmpSim.h" // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
 #include "overlays/actors/ovl_Arms_Hook/z_arms_hook.h"
@@ -2639,6 +2640,16 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
 
             actor->sfx = 0;
 
+            // ZMP: the actor runs in the context of its player (its own slot, its parent's, or the nearest)
+            if (Zmp_MultiActive()) {
+                player = Zmp_ContextForActor(play, actor);
+                unkFlag = (player->stateFlags2 & PLAYER_STATE2_OCARINA_PLAYING) ? ACTOR_FLAG_UPDATE_DURING_OCARINA : 0;
+                sp74 = ((player->stateFlags1 & PLAYER_STATE1_TALKING) && ((player->actor.textId & 0xFF00) != 0x600))
+                           ? player->talkActor
+                           : NULL;
+                unkCondition = (*sp80 & player->stateFlags1);
+            }
+
             if (actor->init != NULL) {
                 if (Object_IsLoaded(&play->objectCtx, actor->objBankIndex)) {
                     Actor_SetObjectDependency(play, actor);
@@ -2715,22 +2726,27 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
         }
     }
 
-    actor = player->focusActor;
+    if (Zmp_MultiActive()) {
+        // ZMP: lock-on and Z-target context of every player, each with its own targeting state
+        Zmp_UpdateAttentionAll(play);
+    } else {
+        actor = player->focusActor;
 
-    if ((actor != NULL) && (actor->update == NULL)) {
-        actor = NULL;
-        Player_ReleaseLockOn(player);
-    }
-
-    if ((actor == NULL) || (player->zTargetActiveTimer < 5)) {
-        actor = NULL;
-        if (actorCtx->targetCtx.unk_4B != 0) {
-            actorCtx->targetCtx.unk_4B = 0;
-            Sfx_PlaySfxCentered(NA_SE_SY_LOCK_OFF);
+        if ((actor != NULL) && (actor->update == NULL)) {
+            actor = NULL;
+            Player_ReleaseLockOn(player);
         }
-    }
 
-    Attention_Update(&actorCtx->targetCtx, player, actor, play);
+        if ((actor == NULL) || (player->zTargetActiveTimer < 5)) {
+            actor = NULL;
+            if (actorCtx->targetCtx.unk_4B != 0) {
+                actorCtx->targetCtx.unk_4B = 0;
+                Sfx_PlaySfxCentered(NA_SE_SY_LOCK_OFF);
+            }
+        }
+
+        Attention_Update(&actorCtx->targetCtx, player, actor, play);
+    }
     TitleCard_Update(play, &actorCtx->titleCtx);
     DynaPoly_UpdateBgActorTransforms(play, &play->colCtx.dyna);
 }
@@ -3073,7 +3089,8 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
             HREG(66) = i;
 
             if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(68) == 0)) {
-                SkinMatrix_Vec3fMtxFMultXYZW(&play->viewProjectionMtxF, &actor->world.pos, &actor->projectedPos,
+                // ZMP: projected with the canonical camera of the simulation (not the local one)
+                SkinMatrix_Vec3fMtxFMultXYZW(Zmp_SimViewProjection(play), &actor->world.pos, &actor->projectedPos,
                                              &actor->projectedW);
             }
 
@@ -3111,7 +3128,7 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
             if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(71) == 0)) {
                 if ((actor->init == NULL) && (actor->draw != NULL) &&
                     ((actor->flags & (ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_INSIDE_CULLING_VOLUME)) ||
-                     shipShouldDraw)) {
+                     shipShouldDraw || Zmp_DrawAllActors())) { // ZMP: draw side effects must not depend on the camera
                     // #endregion
                     if ((actor->flags & ACTOR_FLAG_REACT_TO_LENS) &&
                         ((play->roomCtx.curRoom.lensMode == LENS_MODE_HIDE_ACTORS) || play->actorCtx.lensActive ||
@@ -3121,6 +3138,7 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
                         invisibleActorCounter++;
                     } else {
                         if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(72) == 0)) {
+                            Zmp_DrawActorContext(play, actor); // ZMP
                             Actor_Draw(play, actor);
                             actor->isDrawn = true;
                         }
@@ -3131,6 +3149,8 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
             actor = actor->next;
         }
     }
+
+    Zmp_RestoreAnchor(play); // ZMP
 
     if ((HREG(64) != 1) || (HREG(73) != 0)) {
         Effect_DrawAll(play->state.gfxCtx);

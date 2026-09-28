@@ -27,6 +27,8 @@ int32_t Zmp_IgnoreUpdateCulling(void);
 // Graph_ProcessGfxCommands: replay speed-up factor (presentation only). 1 = normal speed; N > 1 =
 // N ticks per 50 ms with one drawn frame per tick; 0 = as fast as the machine can.
 int32_t Zmp_PresentationSpeed(void);
+// Graph_ProcessGfxCommands: true while the lockstep waits for a bundle (draw one frame, re-check soon).
+int32_t Zmp_ShortFrame(void);
 
 // Around Graph_ProcessGfxCommands: keep the game's matrix stack as the tick left it (frame
 // interpolation reuses it while drawing intermediate frames).

@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "message_data_static.h"
 #include "vt.h"
 
@@ -2859,6 +2860,7 @@ void Message_StartTextbox(PlayState* play, u16 textId, Actor* actor) {
     osSyncPrintf("めっせーじ＝%x(%d)\n", textId, actor);
     osSyncPrintf(VT_RST);
 
+    Zmp_OnMessageStart(); // ZMP: the player in context owns the text box
     msgCtx->ocarinaAction = 0xFFFF;
     Message_OpenText(play, textId);
     msgCtx->talkActor = actor;
@@ -2914,6 +2916,7 @@ void Message_StartOcarina(PlayState* play, u16 ocarinaActionId) {
     s16 noStop;
     s32 k;
 
+    Zmp_OnMessageStart(); // ZMP: the player in context owns the ocarina
     osSyncPrintf(VT_FGCOL(GREEN));
 
     for (i = sOcarinaSongBitFlags = 0; i < (QUEST_KOKIRI_EMERALD - QUEST_SONG_MINUET); i++) {

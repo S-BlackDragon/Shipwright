@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 /*
  * File: z_player.c
  * Overlay: ovl_player_actor
@@ -10793,6 +10794,8 @@ void Player_Init(Actor* thisx, PlayState* play2) {
     s32 respawnFlag;
     s32 respawnMode;
 
+    Zmp_OnPlayerInit(this, play); // ZMP: registers the Player of the slot being spawned
+
     play->shootingGalleryStatus = play->bombchuBowlingStatus = 0;
 
     play->playerInit = Player_InitCommon;
@@ -12551,6 +12554,8 @@ void Player_Draw(Actor* thisx, PlayState* play2) {
 
 void Player_Destroy(Actor* thisx, PlayState* play) {
     Player* this = (Player*)thisx;
+
+    Zmp_OnPlayerDestroy(this); // ZMP
 
     Effect_Delete(play, this->meleeWeaponEffectIndex);
 

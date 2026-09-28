@@ -7,6 +7,8 @@
 #include <thread>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace Zmp {
 
 enum class NetState { Disconnected, Connecting, Connected, Rejected, Error };
@@ -14,6 +16,10 @@ enum class NetState { Disconnected, Connecting, Connected, Rejected, Error };
 struct NetPlayer {
     uint32_t id = 0;
     std::string name;
+    int slot = -1;
+    int rtt = -1;
+    std::string state;
+    bool leader = false;
 };
 
 struct NetStatus {
@@ -51,6 +57,8 @@ class Client {
     Handshake GetHandshake();
 
     static const char* StateName(NetState state);
+    // Sends one message on the current connection (any thread). False if not connected.
+    bool Send(const nlohmann::json& msg);
 
   private:
     void Run(std::string host, uint16_t port, std::string room, std::string name);
@@ -63,6 +71,8 @@ class Client {
     std::mutex mHandshakeMutex;
     bool mHandshakeReady = false;
     Handshake mHandshake;
+    std::mutex mSendMutex;
+    void* mSock = nullptr; // TCPsocket of the current connection (guarded by mSendMutex)
 };
 
 } // namespace Zmp

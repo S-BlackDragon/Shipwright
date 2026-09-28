@@ -49,7 +49,14 @@
 
 #define RGBA8(r, g, b, a) ((((r) & 0xFF) << 24) | (((g) & 0xFF) << 16) | (((b) & 0xFF) << 8) | (((a) & 0xFF) << 0))
 
-#define GET_PLAYER(play) ((Player*)(play)->actorCtx.actorLists[ACTORCAT_PLAYER].head)
+// ZMP: with several Player actors the engine asks for the *context* player (the one the running code
+// acts for, soh/soh/Zmp/Sim/ZmpPlayers.h). Outside a multiplayer simulation it is NULL: vanilla.
+#ifdef __cplusplus
+extern "C" void* gZmpCtxPlayer;
+#else
+extern void* gZmpCtxPlayer;
+#endif
+#define GET_PLAYER(play)     ((Player*)(gZmpCtxPlayer != NULL ? gZmpCtxPlayer : (void*)(play)->actorCtx.actorLists[ACTORCAT_PLAYER].head))
 
 #define GET_ACTIVE_CAM(play) ((play)->cameraPtrs[(play)->activeCamera]) // Upstream TODO: Camera
 

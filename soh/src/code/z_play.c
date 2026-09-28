@@ -1,5 +1,6 @@
 #include "global.h"
 #include "soh/Zmp/Sim/ZmpSim.h" // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -200,6 +201,7 @@ void Play_Destroy(GameState* thisx) {
     Player* player = GET_PLAYER(play);
 
     GameInteractor_ExecuteOnPlayDestroy();
+    Zmp_PlayDestroy(play); // ZMP
 
     play->state.gfxCtx->callback = NULL;
     play->state.gfxCtx->callbackParam = 0;
@@ -564,6 +566,7 @@ void Play_Init(GameState* thisx) {
     gItemAgeReqs[ITEM_ROCS_FEATHER] = AGE_REQ_NONE;
     gSlotAgeReqs[SLOT_NAYRUS_LOVE] = AGE_REQ_NONE;
 
+    Zmp_PlayInitBegin(play); // ZMP: the scene's Player becomes the anchor slot
     Actor_InitContext(play, &play->actorCtx, play->linkActorEntry);
 
     while (!func_800973FC(play, &play->roomCtx)) {
@@ -593,6 +596,8 @@ void Play_Init(GameState* thisx) {
         osSyncPrintf("player has start camera ID (" VT_FGCOL(BLUE) "%d" VT_RST ")\n", playerStartBgCamIndex);
         Camera_ChangeDataIdx(&play->mainCamera, playerStartBgCamIndex);
     }
+
+    Zmp_PlayInitPlayers(play, playerStartBgCamIndex); // ZMP: the Player actors of the other players
 
     if (YREG(15) == 32) {
         play->unk_1242B = 2;
@@ -697,7 +702,9 @@ void Play_Update(PlayState* play) {
     gSegments[2] = VIRTUAL_TO_PHYSICAL(play->sceneSegment);
 
     if (FrameAdvance_Update(&play->frameAdvCtx, &input[1])) {
-        if ((play->transitionMode == TRANS_MODE_OFF) && (play->transitionTrigger != TRANS_TRIGGER_OFF)) {
+        // ZMP: with several players a scene change waits for a group countdown (provisional, phase 2)
+        if ((play->transitionMode == TRANS_MODE_OFF) && (play->transitionTrigger != TRANS_TRIGGER_OFF) &&
+            !Zmp_TransitionGate(play)) {
             play->transitionMode = TRANS_MODE_SETUP;
         }
 
@@ -1110,7 +1117,11 @@ void Play_Update(PlayState* play) {
 
             if ((gSaveContext.gameMode == GAMEMODE_NORMAL) && (play->msgCtx.msgMode == MSGMODE_NONE) &&
                 (play->gameOverCtx.state == GAMEOVER_INACTIVE)) {
-                KaleidoSetup_Update(play);
+                if (Zmp_MultiActive()) {
+                    Zmp_KaleidoSetupAll(play); // ZMP: any player can open the menu and becomes its owner
+                } else {
+                    KaleidoSetup_Update(play);
+                }
             }
 
             PLAY_LOG(3551);
@@ -1227,19 +1238,26 @@ void Play_Update(PlayState* play) {
 
             if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
                 PLAY_LOG(3721);
+                Zmp_EnterOwner(play, 1); // ZMP: the menu reads its owner's input
                 KaleidoScopeCall_Update(play);
+                Zmp_RestoreAnchor(play); // ZMP
             } else if (play->gameOverCtx.state != GAMEOVER_INACTIVE) {
                 PLAY_LOG(3727);
+                Zmp_EnterOwner(play, 1); // ZMP
                 GameOver_Update(play);
+                Zmp_RestoreAnchor(play); // ZMP
             } else {
                 PLAY_LOG(3733);
+                Zmp_EnterOwner(play, 0); // ZMP: the text box reads the input of whoever opened it
                 Message_Update(play);
+                Zmp_RestoreAnchor(play); // ZMP
             }
 
             PLAY_LOG(3737);
 
             PLAY_LOG(3742);
             Interface_Update(play);
+            Zmp_UpdateHealthAccumulators(play); // ZMP: heart refills of the other players
 
             PLAY_LOG(3765);
             AnimationContext_Update(play, &play->animationCtx);
@@ -1274,11 +1292,19 @@ skip:
         for (i = 0; i < NUM_CAMS; i++) {
             if ((i != play->nextCamera) && (play->cameraPtrs[i] != NULL)) {
                 PLAY_LOG(3809);
-                Camera_Update(play->cameraPtrs[i]);
+                if ((i == CAM_ID_MAIN) && Zmp_MultiActive()) {
+                    Zmp_UpdateMainCameras(play); // ZMP: one main camera per player
+                } else {
+                    Camera_Update(play->cameraPtrs[i]);
+                }
             }
         }
 
-        Camera_Update(play->cameraPtrs[play->nextCamera]);
+        if ((play->nextCamera == CAM_ID_MAIN) && Zmp_MultiActive()) {
+            Zmp_UpdateMainCameras(play); // ZMP: anchor last, its view stays in play->view
+        } else {
+            Camera_Update(play->cameraPtrs[play->nextCamera]);
+        }
 
         PLAY_LOG(3814);
     }
@@ -1289,6 +1315,8 @@ skip:
 }
 
 void Play_DrawOverlayElements(PlayState* play) {
+    Zmp_OverlayBegin(play); // ZMP: HUD and menus show the local player
+
     if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
         KaleidoScopeCall_Draw(play);
     }
@@ -1302,6 +1330,8 @@ void Play_DrawOverlayElements(PlayState* play) {
     if (play->gameOverCtx.state != GAMEOVER_INACTIVE) {
         GameOver_FadeInLights(play);
     }
+
+    Zmp_OverlayEnd(play); // ZMP
 }
 
 void Play_Draw(PlayState* play) {
@@ -1358,6 +1388,7 @@ void Play_Draw(PlayState* play) {
         POLY_OPA_DISP = Play_SetFog(play, POLY_OPA_DISP);
         POLY_XLU_DISP = Play_SetFog(play, POLY_XLU_DISP);
 
+        Zmp_DrawBeginView(play); // ZMP: canonical matrices for the simulation, local view for the picture
         func_800AA460(&play->view, play->view.fovy, play->view.zNear, play->lightCtx.fogFar);
         func_800AAA50(&play->view, 15);
 
@@ -1621,6 +1652,7 @@ void Play_Draw(PlayState* play) {
     }
 
 Play_Draw_skip:
+    Zmp_DrawEndView(play); // ZMP: the simulation keeps the canonical view and matrices
 
     if (play->view.unk_124 != 0) {
         Camera_Update(GET_ACTIVE_CAM(play));

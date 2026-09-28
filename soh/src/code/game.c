@@ -1,5 +1,6 @@
 #include <string.h>
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 #include <libultraship/bridge/resourcebridge.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -251,6 +252,7 @@ void PadMgr_RequestPadData(PadMgr*, Input*, s32);
 
 void GameState_ReqPadData(GameState* gameState) {
     PadMgr_RequestPadData(&gPadMgr, &gameState->input[0], 1);
+    Zmp_OnInputCopied(gameState); // ZMP: per-player input slots in the multiplayer simulation
 }
 
 // Framebuffer for the Link preview on the pause menu equipment sub-screen
@@ -344,7 +346,9 @@ void GameState_Update(GameState* gameState) {
         func_800C49F4(gfxCtx);
     }
 
-    gSaveContext.language = CVarGetInteger(CVAR_SETTING("Languages"), LANGUAGE_ENG);
+    if (!Zmp_LanguageLocked()) { // ZMP: in lockstep the text language is part of the shared game
+        gSaveContext.language = CVarGetInteger(CVAR_SETTING("Languages"), LANGUAGE_ENG);
+    }
 
     if (gSaveContext.language == LANGUAGE_JPN && sJpnMessageEntryTablePtr == NULL) {
         gSaveContext.language = LANGUAGE_ENG;

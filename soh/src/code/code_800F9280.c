@@ -1,5 +1,6 @@
 #include <libultraship/libultra.h>
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "soh/mixer.h"
 
 #include "soh/Enhancements/audio/AudioEditor.h"
@@ -398,7 +399,9 @@ void Audio_ProcessSeqCmds(void) {
 }
 
 u16 func_800FA0B4(u8 playerIdx) {
-    if (!gAudioContext.seqPlayers[playerIdx].enabled) {
+    // ZMP: `enabled` is written by the audio thread; in a session game logic only sees what the game thread
+    // requested (docs/DETERMINISMO_AUDITORIA.md 5.2)
+    if (!Zmp_AudioSession() && !gAudioContext.seqPlayers[playerIdx].enabled) {
         return NA_BGM_DISABLED;
     }
     return gActiveSeqs[playerIdx].seqId;

@@ -2,6 +2,8 @@
 
 #include <ship/window/gui/GuiWindow.h>
 
+#include "soh/Zmp/Net/Lockstep.h"
+
 namespace Zmp {
 
 // Room window (connection settings, status, player list) plus a small always-on overlay
@@ -20,6 +22,7 @@ class RoomWindow : public Ship::GuiWindow {
     // Connection form shared by this window and the Network > ZMP menu.
     static void DrawConnectionForm();
     static void DrawOverlay();
+    static void DrawLockstepOverlay(const Lockstep::Status& ls, float y);
 };
 
 } // namespace Zmp

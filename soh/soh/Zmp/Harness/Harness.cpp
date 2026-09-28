@@ -23,6 +23,8 @@
 #include "soh/Zmp/Net/ZmpClient.h"
 #include "soh/Zmp/Sim/CVarProfile.h"
 #include "soh/Zmp/Sim/Session.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h"
+#include "soh/Zmp/Net/Lockstep.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -193,8 +195,13 @@ void ApplyScriptInput(OSContPad* pads) {
     }
 }
 
-json PlayerJson(Player* player) {
+json PlayerJson(Player* player, int slot = 0) {
     Actor* a = &player->actor;
+    // Multiplayer simulation: the slot's own health and camera (live when it is the context player).
+    bool multi = Zmp_MultiActive() && slot >= 0;
+    bool live = !multi || slot == gZmpSim.ctx;
+    const Camera* cam = live ? &gPlayState->mainCamera : &gZmpSim.slots[slot].camera;
+    int health = multi ? Zmp::Players::SlotHealth(slot) : gSaveContext.health;
     json eq = json::object();
     eq["button_items"] = json::array();
     for (int i = 0; i < 8; i++) {
@@ -203,13 +210,13 @@ json PlayerJson(Player* player) {
     eq["equipment"] = gSaveContext.equips.equipment;
     return {
         { "ok", true },
-        { "index", 0 },
+        { "index", slot },
         { "pos", Vec3(a->world.pos) },
         { "rot", Rot3(a->world.rot) },
         { "shape_rot", Rot3(a->shape.rot) },
         { "yaw", player->yaw },
         { "speed", player->linearVelocity },
-        { "health", gSaveContext.health },
+        { "health", health },
         { "health_capacity", gSaveContext.healthCapacity },
         { "magic", gSaveContext.magic },
         { "rupees", gSaveContext.rupees },
@@ -220,10 +227,10 @@ json PlayerJson(Player* player) {
         { "age", gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult" },
         { "downed", false },
         { "camera",
-          { { "eye", Vec3(gPlayState->mainCamera.eye) },
-            { "at", Vec3(gPlayState->mainCamera.at) },
-            { "setting", gPlayState->mainCamera.setting },
-            { "mode", gPlayState->mainCamera.mode } } },
+          { { "eye", Vec3(cam->eye) },
+            { "at", Vec3(cam->at) },
+            { "setting", cam->setting },
+            { "mode", cam->mode } } },
         { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
         { "action_offset", (uint64_t)((uintptr_t)player->actionFunc - (uintptr_t)&__ImageBase) },
         { "bg_flags", a->bgCheckFlags },
@@ -272,11 +279,41 @@ bool IsPlayOnlyConsoleCommand(const std::string& cmdline) {
     return true;
 }
 
+json LockstepJson() {
+    auto ls = Zmp::Lockstep::GetStatus();
+    json players = json::array();
+    for (auto& p : ls.players) {
+        players.push_back(
+            { { "slot", p.slot }, { "name", p.name }, { "state", p.state }, { "rtt", p.rtt }, { "leader", p.leader } });
+    }
+    return { { "phase", Zmp::Lockstep::PhaseName(ls.phase) },
+             { "slot", ls.slot },
+             { "tick", ls.tick },
+             { "delay", ls.delay },
+             { "queued", ls.queued },
+             { "waiting", ls.waiting },
+             { "wait_ms", ls.waitMs },
+             { "waiting_for", ls.waitingFor },
+             { "stalls", ls.stalls },
+             { "max_stall_ms", ls.maxStallMs },
+             { "resyncs", ls.resyncs },
+             { "resyncs_seen", ls.resyncsSeen },
+             { "last_resync_tick", ls.lastResyncTick },
+             { "leader", ls.leader },
+             { "group_tick", ls.groupTick },
+             { "countdown", ls.countdown },
+             { "error", ls.lastError },
+             { "present", Zmp::Players::PresentCount() },
+             { "anchor", gZmpSim.anchor },
+             { "multi", Zmp_MultiActive() != 0 },
+             { "players", players } };
+}
+
 json NetStatusJson() {
     auto st = Zmp::Client::Get().GetStatus();
     json players = json::array();
     for (auto& p : st.players) {
-        players.push_back({ { "id", p.id }, { "name", p.name } });
+        players.push_back({ { "id", p.id }, { "name", p.name }, { "slot", p.slot }, { "state", p.state } });
     }
     auto hs = Zmp::Client::Get().GetHandshake();
     return { { "ok", true },
@@ -293,7 +330,8 @@ json NetStatusJson() {
              { "build_hash", hs.buildHash },
              { "oot_hash", hs.ootHash },
              { "soh_hash", hs.sohHash },
-             { "cvar_profile_hash", hs.cvarProfileHash } };
+             { "cvar_profile_hash", hs.cvarProfileHash },
+             { "lockstep", LockstepJson() } };
 }
 
 std::string Hex(uint64_t v) {
@@ -379,8 +417,16 @@ void Dispatch(const RequestPtr& req) {
     } else if (name == "query.player") {
         if (!InPlay() || GET_PLAYER(gPlayState) == nullptr) {
             req->Reply({ { "ok", false }, { "error", "not in play" }, { "state", GameStateName() } });
+        } else if (Zmp_MultiActive()) {
+            int slot = cmd.value("index", Zmp::Players::LocalSlot());
+            Player* p = Zmp::Players::SlotPlayer(slot);
+            if (p == nullptr) {
+                req->Reply({ { "ok", false }, { "error", "no player in slot " + std::to_string(slot) } });
+            } else {
+                req->Reply(PlayerJson(p, slot));
+            }
         } else if (cmd.value("index", 0) != 0) {
-            req->Reply({ { "ok", false }, { "error", "only player 0 exists in phase 0" } });
+            req->Reply({ { "ok", false }, { "error", "only player 0 exists outside a multiplayer game" } });
         } else {
             req->Reply(PlayerJson(GET_PLAYER(gPlayState)));
         }
@@ -404,7 +450,8 @@ void Dispatch(const RequestPtr& req) {
                       { "cvar_profile_hash", Hex(CVarProfile::Hash()) },
                       { "cvar_reverts", CVarProfile::RevertCount() },
                       { "audio_muted", Zmp_AudioMuted() },
-                      { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) } };
+                      { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) },
+                      { "lockstep", LockstepJson() } };
         if (st.hasHash) {
             resp["hash"] = Hex(st.lastHash);
             resp["hash_tick"] = st.tick - 1;
@@ -541,10 +588,15 @@ void Dispatch(const RequestPtr& req) {
         }
     } else if (name == "debug.teleport") {
         // Exploration tool: puts the player exactly at a position (never used in recordings).
-        if (!InPlay() || GET_PLAYER(gPlayState) == nullptr) {
-            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        // In lockstep tests every instance applies the same teleport at the same paused tick (slot = player).
+        Player* pl = nullptr;
+        if (InPlay()) {
+            pl = (Zmp_MultiActive() && cmd.contains("slot")) ? Zmp::Players::SlotPlayer(cmd["slot"].get<int>())
+                                                              : GET_PLAYER(gPlayState);
+        }
+        if (pl == nullptr) {
+            req->Reply({ { "ok", false }, { "error", "not in play or no such player" } });
         } else {
-            Player* pl = GET_PLAYER(gPlayState);
             Vec3f pos = { cmd["pos"][0].get<float>(), cmd["pos"][1].get<float>(), cmd["pos"][2].get<float>() };
             pl->actor.world.pos = pos;
             pl->actor.prevPos = pos;
@@ -642,6 +694,9 @@ void Dispatch(const RequestPtr& req) {
         std::string room = cmd.value("room", std::string(CVarGetString("gZmp.Room", "zmp")));
         std::string pname = cmd.value("name", std::string(CVarGetString("gZmp.Name", "Player")));
         Zmp::Client::Get().Connect(host, port, room, pname);
+        req->Reply({ { "ok", true } });
+    } else if (name == "net.leave") {
+        Zmp::Lockstep::Leave();
         req->Reply({ { "ok", true } });
     } else if (name == "net.disconnect") {
         Zmp::Client::Get().Disconnect();

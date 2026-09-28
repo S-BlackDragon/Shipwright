@@ -10,6 +10,8 @@
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/Net/ZmpClient.h"
 #include "soh/Zmp/Sim/Session.h"
+#include "soh/Zmp/Net/Lockstep.h"
+#include <chrono>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
 
@@ -51,6 +53,68 @@ static ImVec4 StatusColor(NetState state) {
     }
 }
 
+static void CenteredLine(float y, const std::string& text, ImU32 color, float scale) {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList* dl = ImGui::GetForegroundDrawList(vp);
+    float fontSize = ImGui::GetFontSize() * scale;
+    ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text.c_str());
+    ImVec2 pos(vp->Pos.x + std::max(6.0f, (vp->Size.x - size.x) * 0.5f), y);
+    dl->AddRectFilled(ImVec2(pos.x - 4, pos.y - 2), ImVec2(pos.x + size.x + 4, pos.y + size.y + 2),
+                      IM_COL32(0, 0, 0, 170), 3.0f);
+    dl->AddText(ImGui::GetFont(), fontSize, pos, color, text.c_str());
+}
+
+void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
+    using Clock = std::chrono::steady_clock;
+    static uint32_t sSeenResyncs = 0;
+    static Clock::time_point sResyncShownAt;
+    if (ls.resyncsSeen != sSeenResyncs) {
+        sSeenResyncs = ls.resyncsSeen;
+        sResyncShownAt = Clock::now();
+    }
+    bool recentResync =
+        ls.resyncsSeen > 0 && std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - sResyncShownAt).count() < 8;
+    std::string line;
+    ImU32 color = IM_COL32(120, 255, 120, 255);
+    switch (ls.phase) {
+        case Lockstep::Phase::WaitingGroup:
+            line = "Esperando a que alguien cargue una partida para crear el grupo";
+            color = IM_COL32(255, 230, 120, 255);
+            break;
+        case Lockstep::Phase::Joining:
+            line = "Entrando en la partida del grupo...";
+            color = IM_COL32(255, 230, 120, 255);
+            break;
+        case Lockstep::Phase::Running: {
+            std::string me = Lockstep::SlotName(ls.slot);
+            line = me + " | tick " + std::to_string(ls.tick) + " | D=" + std::to_string(ls.delay) + " | " +
+                   (recentResync ? "DESYNC: resincronizado" : "HASH OK");
+            if (recentResync) {
+                color = IM_COL32(255, 160, 60, 255);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    CenteredLine(y, line, color, 1.0f);
+    float big = ImGui::GetFontSize() * 1.4f + 10.0f;
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    float mid = vp->Pos.y + vp->Size.y * 0.30f;
+    if (ls.phase == Lockstep::Phase::Running && ls.waiting) {
+        std::string who = ls.waitingFor.empty() ? "otro jugador" : ls.waitingFor;
+        CenteredLine(mid, "Esperando a " + who + "...", IM_COL32(255, 230, 120, 255), 1.4f);
+        mid += big;
+    }
+    if (ls.countdown > 0) {
+        int secs = (ls.countdown + 19) / 20;
+        CenteredLine(mid, "Cambio de zona en " + std::to_string(secs) + " s", IM_COL32(140, 200, 255, 255), 1.4f);
+    }
+    if (!ls.lastError.empty() && ls.phase != Lockstep::Phase::Running) {
+        CenteredLine(mid + big, ls.lastError, IM_COL32(255, 90, 90, 255), 1.0f);
+    }
+}
+
 void RoomWindow::DrawOverlay() {
     if (!CVarGetInteger(ZMP_CVAR_OVERLAY, 1)) {
         return;
@@ -72,7 +136,12 @@ void RoomWindow::DrawOverlay() {
     ImVec4 c = StatusColor(st.state);
     dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str(), nullptr, wrap);
 
-    // Second line: determinism session (replay against the recorded hashes, recording, pause).
+    // Second line: lockstep (multiplayer) or determinism session (replay, recording, pause).
+    auto ls = Lockstep::GetStatus();
+    if (ls.phase != Lockstep::Phase::Idle) {
+        DrawLockstepOverlay(ls, pos.y + size.y + 6.0f);
+        return;
+    }
     auto ss = Sim::GetStatus();
     if (ss.mode == Sim::Mode::Off) {
         return;
@@ -149,13 +218,46 @@ void RoomWindow::DrawConnectionForm() {
     ImGui::Separator();
     ImGui::TextColored(StatusColor(st.state), "%s", StatusLine(st).c_str());
     if (st.state == NetState::Connected) {
-        ImGui::Text("RTT: %d ms", st.rttMs);
-        for (auto& p : st.players) {
-            if (p.id == st.playerId) {
-                ImGui::TextColored(ImVec4(0.8f, 1.0f, 0.8f, 1.0f), "#%u %s (tu)", p.id, p.name.c_str());
-            } else {
-                ImGui::Text("#%u %s", p.id, p.name.c_str());
+        auto ls = Lockstep::GetStatus();
+        ImGui::Text("RTT: %d ms | Retraso D: %d ticks | %s", st.rttMs, ls.delay, Lockstep::PhaseName(ls.phase));
+        if (ls.phase == Lockstep::Phase::Running) {
+            ImGui::Text("Tick %u | esperas >250 ms: %u | resincronizaciones: %u", ls.tick, ls.stalls, ls.resyncsSeen);
+        }
+        if (ImGui::BeginTable("##ZmpPlayers", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Jugador");
+            ImGui::TableSetupColumn("Estado");
+            ImGui::TableSetupColumn("RTT");
+            ImGui::TableSetupColumn("");
+            ImGui::TableHeadersRow();
+            for (auto& p : st.players) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                bool me = p.id == st.playerId;
+                if (me) {
+                    ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f), "%s (tu)", p.name.c_str());
+                } else {
+                    ImGui::Text("%s", p.name.c_str());
+                }
+                ImGui::TableNextColumn();
+                const char* state = p.state == "playing"        ? "jugando"
+                                    : p.state == "joining"      ? "entrando"
+                                    : p.state == "disconnected" ? "desconectado"
+                                    : p.state == "waiting"      ? "esperando"
+                                                                : "en sala";
+                ImGui::Text("%s", state);
+                ImGui::TableNextColumn();
+                if (p.rtt >= 0) {
+                    ImGui::Text("%d ms", p.rtt);
+                } else {
+                    ImGui::Text("-");
+                }
+                ImGui::TableNextColumn();
+                ImGui::Text("%s", p.leader ? "lider" : "");
             }
+            ImGui::EndTable();
+        }
+        if (ls.phase == Lockstep::Phase::Running && ImGui::Button("Salir de la partida del grupo")) {
+            Lockstep::Leave();
         }
     }
 }

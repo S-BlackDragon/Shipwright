@@ -1,6 +1,7 @@
 #include <libultraship/libultra.h>
 #include <libultraship/bridge/audiobridge.h>
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/audio/AudioEditor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -1477,7 +1478,9 @@ void AudioOcarina_ReadControllerInput(void) {
     Input* input = &inputs[0];
     u32 ocarinaInputButtonPrev = sOcarinaInputButtonCur;
 
-    PadMgr_RequestPadData(&gPadMgr, inputs, false);
+    if (!Zmp_OcarinaInput(input)) { // ZMP: in lockstep, the input of the player who plays
+        PadMgr_RequestPadData(&gPadMgr, inputs, false);
+    }
     sOcarinaInputButtonCur = input->cur.button;
     sOcarinaInputButtonPrev = ocarinaInputButtonPrev;
     sOcarinaInputStickAdj.x = input->rel.stick_x;
@@ -2429,7 +2432,7 @@ s32 AudioOcarina_MemoryGameNextNote(void) {
         return 1;
     }
 
-    randomButtonIndex = Audio_NextRandom();
+    randomButtonIndex = Zmp_AudioSession() ? Zmp_AudioRandom() : Audio_NextRandom(); // ZMP
     randomPitch = sButtonToPitchMap[randomButtonIndex % 5];
 
     if (sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos - 1].pitch == randomPitch) {
@@ -2454,7 +2457,8 @@ s32 AudioOcarina_MemoryGameNextNote(void) {
 }
 
 void AudioOcarina_Update(void) {
-    sOcarinaUpdateTaskStart = gAudioContext.totalTaskCnt;
+    // ZMP: in a session the ocarina advances with the game ticks, not with the audio thread
+    sOcarinaUpdateTaskStart = Zmp_AudioTaskCount(gAudioContext.totalTaskCnt);
     if (sOcarinaInstrumentId != OCARINA_INSTRUMENT_OFF) {
         if (sIsOcarinaInputEnabled == true) {
             AudioOcarina_ReadControllerInput();
@@ -3925,7 +3929,16 @@ void Audio_UpdateFanfare(void);
  * This is Audio_Update for the graph thread
  */
 void Audio_Update(void) {
-    if (func_800FAD34() == 0) {
+    Zmp_AudioTick(); // ZMP: deterministic audio task counter (3 per tick) in a session
+    if (func_800FAD34() != 0) {
+        // ZMP: the audio thread is still changing its configuration. The ocarina is game logic: in a session
+        // it keeps running on the game ticks instead of waiting for the audio thread.
+        if (Zmp_AudioSession()) {
+            AudioOcarina_Update();
+        }
+        return;
+    }
+    {
         sAudioUpdateTaskStart = gAudioContext.totalTaskCnt;
         sAudioUpdateStartTime = osGetTime();
         AudioOcarina_Update();
