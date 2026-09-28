@@ -107,6 +107,12 @@ bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
 }
 
+// A game a group can be founded on: Play in normal mode (not the title screen's attract demo, not the
+// credits).
+bool InRealGame() {
+    return InPlay() && gSaveContext.gameMode == GAMEMODE_NORMAL;
+}
+
 bool InFileSelect() {
     return gGameState != nullptr && gGameState->main == FileChoose_Main;
 }
@@ -169,7 +175,7 @@ void Send(const json& msg) {
 }
 
 void SendJoin() {
-    bool inPlay = InPlay();
+    bool inPlay = InRealGame();
     json msg = { { "t", "JOIN_GROUP" },
                  { "scene", inPlay ? (int)gPlayState->sceneNum : -1 },
                  { "entrance", (int)gSaveContext.entranceIndex },
@@ -219,7 +225,7 @@ void HandleControl(json& msg) {
         int slot = msg.value("slot", 0);
         sGroupId = msg.value("group_id", 0u);
         sDelay = msg.value("delay", 2);
-        if (!InPlay()) {
+        if (!InRealGame()) {
             sLastError = "grupo fundado sin partida cargada";
             Log("net: GROUP_FOUND but not in play; leaving");
             Send({ { "t", "LEAVE_GROUP" } });
@@ -359,8 +365,9 @@ void LoadPendingBlob() {
         sHavePendingBlob = false;
         return;
     }
-    if (!InPlay()) {
-        // A joiner outside a game first starts one (any), then loads the leader's state on it.
+    if (!InRealGame()) {
+        // A joiner outside a game (or in the title screen's attract demo) first starts one, then loads the
+        // leader's state on it.
         // (from the file select, the title screen or the intro: any game state can start one)
         if (!sStartedGameForLoad && gGameState != nullptr) {
             Sim::StartSpec plain;
@@ -545,7 +552,7 @@ void OnFrameBegin() {
     if (sConnected && !sJoinSent) {
         SendJoin();
     }
-    if (sConnected && sPhase == Phase::WaitingGroup && !sJoinInPlaySent && InPlay()) {
+    if (sConnected && sPhase == Phase::WaitingGroup && !sJoinInPlaySent && InRealGame()) {
         SendJoin(); // this client now has a game: it can found the group
     }
     LoadPendingBlob();
