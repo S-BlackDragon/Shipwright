@@ -1,4 +1,5 @@
 #include "soh/resource/importer/scenecommand/SetAlternateHeadersFactory.h"
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "soh/resource/type/scenecommand/SetAlternateHeaders.h"
 #include "soh/resource/logging/SceneCommandLoggers.h"
 #include <ship/Context.h>
@@ -19,7 +20,8 @@ SetAlternateHeadersFactory::ReadResource(std::shared_ptr<Ship::ResourceInitData>
         auto headerName = reader->ReadString();
         if (!headerName.empty()) {
             setAlternateHeaders->headers.push_back(std::static_pointer_cast<Scene>(
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(headerName.c_str())));
+                Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                    headerName.c_str())));
             setAlternateHeaders->headerFileNames.push_back(headerName);
         } else {
             setAlternateHeaders->headers.push_back(nullptr);
@@ -49,7 +51,8 @@ SetAlternateHeadersFactoryXML::ReadResource(std::shared_ptr<Ship::ResourceInitDa
                 auto headerName = std::string(child->Attribute("Path"));
                 if (!headerName.empty()) {
                     setAlternateHeaders->headers.push_back(std::static_pointer_cast<Scene>(
-                        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(
+                        Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+
                             headerName.c_str())));
                 } else {
                     setAlternateHeaders->headers.push_back(nullptr);

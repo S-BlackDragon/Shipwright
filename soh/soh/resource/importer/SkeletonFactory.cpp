@@ -1,4 +1,5 @@
 #include "soh/resource/importer/SkeletonFactory.h"
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "soh/resource/type/Skeleton.h"
 #include <ship/Context.h>
 #include <ship/resource/ResourceManager.h>
@@ -47,7 +48,8 @@ ResourceFactoryBinarySkeletonV0::ReadResource(std::shared_ptr<Ship::File> file,
 
     for (size_t i = 0; i < skeleton->limbTable.size(); i++) {
         std::string limbStr = skeleton->limbTable[i];
-        auto limb = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(limbStr.c_str());
+        auto limb = Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+            limbStr.c_str());
         skeleton->skeletonHeaderSegments.push_back(limb ? limb->GetRawPointer() : nullptr);
     }
 
@@ -117,7 +119,8 @@ ResourceFactoryXMLSkeletonV0::ReadResource(std::shared_ptr<Ship::File> file,
             std::string limbName = child->Attribute("Path");
             skel->limbTable.push_back(limbName);
 
-            auto limb = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(limbName.c_str());
+            auto limb = Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                limbName.c_str());
             skel->skeletonHeaderSegments.push_back(limb ? limb->GetRawPointer() : nullptr);
         }
 

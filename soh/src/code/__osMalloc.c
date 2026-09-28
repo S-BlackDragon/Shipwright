@@ -38,9 +38,10 @@
 
 #define FILL_UNINIT_BLOCK(arena, node, size) memset(node, BLOCK_UNINIT_MAGIC, size)
 
-#define FILL_ALLOC_BLOCK(arena, alloc, size)   \
-    if ((arena)->flag & FILL_ALLOC_BLOCK_FLAG) \
-    memset(alloc, BLOCK_ALLOC_MAGIC, size)
+// ZMP: every allocation starts zeroed (was: left as is unless the debug fill flag is set), so a read of
+// memory the game never initialized gives the same value on every machine and in every run (PLAN.md 2.4).
+#define FILL_ALLOC_BLOCK(arena, alloc, size) \
+    memset(alloc, ((arena)->flag & FILL_ALLOC_BLOCK_FLAG) ? BLOCK_ALLOC_MAGIC : 0, size)
 
 #define FILL_FREE_BLOCK_HEADER(arena, node)   \
     if ((arena)->flag & FILL_FREE_BLOCK_FLAG) \
@@ -63,7 +64,7 @@
 
 #define SET_DEBUG_INFO(node, file, line, arena) (void)0
 #define FILL_UNINIT_BLOCK(arena, node, size) (void)0
-#define FILL_ALLOC_BLOCK(arena, alloc, size) (void)0
+#define FILL_ALLOC_BLOCK(arena, alloc, size) memset(alloc, 0, size) // ZMP: zeroed allocations (see above)
 #define FILL_FREE_BLOCK_HEADER(arena, node) (void)0
 #define FILL_FREE_BLOCK_CONTENTS(arena, node) (void)0
 #define CHECK_FREE_BLOCK(arena, node) (void)0

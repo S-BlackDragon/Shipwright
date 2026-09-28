@@ -1,4 +1,5 @@
 #include "soh/resource/importer/AnimationFactory.h"
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "soh/resource/type/Animation.h"
 #include <ship/resource/ResourceManager.h>
 #include "spdlog/spdlog.h"
@@ -87,7 +88,8 @@ ResourceFactoryBinaryAnimationV0::ReadResource(std::shared_ptr<Ship::File> file,
         // Read the segment pointer (always 32 bit, doesn't adjust for system pointer size)
         std::string path = reader->ReadString();
         auto animData = std::static_pointer_cast<Animation>(
-            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(path.c_str()));
+            Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                path.c_str()));
 
         // If direct load failed and alt assets are enabled, try with alt/ prefix
         if (animData == nullptr && Ship::Context::GetRawInstance()->GetResourceManager()->IsAltAssetsEnabled()) {
@@ -97,7 +99,8 @@ ResourceFactoryBinaryAnimationV0::ReadResource(std::shared_ptr<Ship::File> file,
             }
             altPath = "alt/" + altPath;
             animData = std::static_pointer_cast<Animation>(
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(altPath.c_str()));
+                Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                    altPath.c_str()));
         }
 
         if (animData != nullptr) {

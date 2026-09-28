@@ -1,4 +1,5 @@
 #include "soh/resource/importer/scenecommand/SetPathwaysFactory.h"
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "soh/resource/type/scenecommand/SetPathways.h"
 #include "soh/resource/logging/SceneCommandLoggers.h"
 #include <ship/Context.h>
@@ -17,7 +18,8 @@ std::shared_ptr<Ship::IResource> SetPathwaysFactory::ReadResource(std::shared_pt
     for (uint32_t i = 0; i < setPathways->numPaths; i++) {
         std::string pathFileName = reader->ReadString();
         auto path = std::static_pointer_cast<Path>(
-            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(pathFileName.c_str()));
+            Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                pathFileName.c_str()));
         setPathways->paths.push_back(path->GetPointer());
         setPathways->pathFileNames.push_back(pathFileName);
     }
@@ -42,7 +44,8 @@ std::shared_ptr<Ship::IResource> SetPathwaysFactoryXML::ReadResource(std::shared
         if (childName == "Pathway") {
             std::string pathFileName = child->Attribute("FilePath");
             auto path = std::static_pointer_cast<Path>(
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(pathFileName.c_str()));
+                Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+                    pathFileName.c_str()));
             setPathways->paths.push_back(path->GetPointer());
             setPathways->pathFileNames.push_back(pathFileName);
         }

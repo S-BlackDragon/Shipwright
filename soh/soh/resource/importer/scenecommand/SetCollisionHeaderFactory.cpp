@@ -1,4 +1,5 @@
 #include "soh/resource/importer/scenecommand/SetCollisionHeaderFactory.h"
+#include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "soh/resource/type/scenecommand/SetCollisionHeader.h"
 #include "soh/resource/logging/SceneCommandLoggers.h"
 #include <ship/Context.h>
@@ -15,7 +16,8 @@ SetCollisionHeaderFactory::ReadResource(std::shared_ptr<Ship::ResourceInitData> 
 
     setCollisionHeader->fileName = reader->ReadString();
     setCollisionHeader->collisionHeader = std::static_pointer_cast<CollisionHeader>(
-        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(
+        Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+
             setCollisionHeader->fileName.c_str()));
 
     if (CVarGetInteger(CVAR_DEVELOPER_TOOLS("ResourceLogging"), 0)) {
@@ -34,7 +36,8 @@ SetCollisionHeaderFactoryXML::ReadResource(std::shared_ptr<Ship::ResourceInitDat
 
     setCollisionHeader->fileName = reader->Attribute("FileName");
     setCollisionHeader->collisionHeader = std::static_pointer_cast<CollisionHeader>(
-        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(
+        Zmp::ResSlots::NestedLoad( // ZMP: nested load outside the parent resource slot
+
             setCollisionHeader->fileName.c_str()));
 
     return setCollisionHeader;

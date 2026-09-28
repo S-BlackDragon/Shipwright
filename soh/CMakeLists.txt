@@ -233,6 +233,13 @@ set(ALL_FILES
 ################################################################################
 add_executable(${PROJECT_NAME} ${ALL_FILES})
 
+# ZMP: fixed image base. Game memory stores pointers to functions and constant data of the
+# executable (actor update functions, asset names); a save state can only be loaded by another
+# process if the executable sits at the same address there (PLAN.md 8.3, docs/DECISIONES.md).
+if (MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE /DYNAMICBASE:NO)
+endif()
+
 # ZMP: harness define (see ZMP_HARNESS option in the root CMakeLists.txt)
 if(ZMP_HARNESS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ZMP_HARNESS=1)
@@ -727,6 +734,13 @@ endif()
 
 find_package(libzip REQUIRED)
 list(APPEND ADDITIONAL_LIBRARY_DEPENDENCIES libzip::zip)
+
+# ZMP: zstd for the portable save states; dbghelp names the globals a state load could not restore.
+find_package(zstd CONFIG REQUIRED)
+list(APPEND ADDITIONAL_LIBRARY_DEPENDENCIES $<IF:$<TARGET_EXISTS:zstd::libzstd_shared>,zstd::libzstd_shared,zstd::libzstd_static>)
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    list(APPEND ADDITIONAL_LIBRARY_DEPENDENCIES dbghelp)
+endif()
 
 if(USE_ASAN)
     target_compile_options(libultraship PRIVATE -fsanitize=address)
