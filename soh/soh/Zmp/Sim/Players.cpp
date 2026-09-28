@@ -452,7 +452,8 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
 extern "C" s32 Zmp_TransitionGate(PlayState* play) {
     if (!Zmp_MultiActive() || Zmp::Players::PresentCount() < 2 || play->transitionTrigger != TRANS_TRIGGER_START ||
         play->transitionMode != TRANS_MODE_OFF || gSaveContext.respawnFlag != 0 ||
-        play->gameOverCtx.state != GAMEOVER_INACTIVE) {
+        play->gameOverCtx.state != GAMEOVER_INACTIVE || play->csCtx.state != CS_STATE_IDLE ||
+        gSaveContext.nextCutsceneIndex >= 0xFFF0) {
         gZmpSim.transitionArmed = 0;
         gZmpSim.transitionCountdown = 0;
         return 0;
@@ -487,7 +488,10 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     // Rooms with a pre-rendered background (houses, shops) only look right from their one fixed camera:
     // everybody draws with the canonical view there.
     bool prerendered = play->roomCtx.curRoom.meshHeader != nullptr && play->roomCtx.curRoom.meshHeader->base.type == 1;
-    if (!prerendered && play->activeCamera == CAM_ID_MAIN && L != gZmpSim.anchor && Present(L) && Slot(L).hasView) {
+    // A cutscene is seen by everybody through the same camera (PLAN.md 2.9: scripted cutscenes are GLOBAL).
+    bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
+    if (!prerendered && !cutscene && play->activeCamera == CAM_ID_MAIN && L != gZmpSim.anchor && Present(L) &&
+        Slot(L).hasView) {
         play->view = Slot(L).view;
     }
 }
