@@ -240,7 +240,10 @@ uint64_t ComputeHash(const std::map<std::string, std::string>& snap) {
     uint64_t h = 0xCBF29CE484222325ULL;
     for (auto& [name, value] : snap) {
         // An empty string is the same as unset (SoH writes some string CVars as "" on first use).
-        if (IsDerived(name) || value.empty() || value == "s") {
+        // Zero is how SoH reads an unset CVar almost everywhere (CVarGetInteger(name, 0)): a CVar that a
+        // menu once wrote as 0 and one that was never written count the same (two fresh installs differ
+        // only in which UI screens were visited).
+        if (IsDerived(name) || value.empty() || value == "s" || value == "i0" || value == "f0") {
             continue;
         }
         std::string line = name + "=" + value + "\n";

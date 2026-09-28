@@ -360,8 +360,9 @@ void LoadPendingBlob() {
         return;
     }
     if (!InPlay()) {
-        // A joiner at the file select screen first starts a game (any), then loads the leader's state on it.
-        if (InFileSelect() && !sStartedGameForLoad) {
+        // A joiner outside a game first starts one (any), then loads the leader's state on it.
+        // (from the file select, the title screen or the intro: any game state can start one)
+        if (!sStartedGameForLoad && gGameState != nullptr) {
             Sim::StartSpec plain;
             Sim::StartDebugGame(plain);
             sStartedGameForLoad = true;
