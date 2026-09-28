@@ -60,6 +60,8 @@ void OnTickEnd(uint32_t tick, uint64_t hash);
 int CatchUpSpeed();
 // Leaves the group (LEAVE_GROUP): the local Link disappears for the others.
 void Leave();
+// Console command applied by every client at the same tick (lockstep EVENT).
+void SendConsoleEvent(const std::string& cmd);
 
 Status GetStatus();
 bool Active();

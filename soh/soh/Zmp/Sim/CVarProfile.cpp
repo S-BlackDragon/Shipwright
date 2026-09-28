@@ -239,7 +239,8 @@ std::vector<std::string> AllCVarNames() {
 uint64_t ComputeHash(const std::map<std::string, std::string>& snap) {
     uint64_t h = 0xCBF29CE484222325ULL;
     for (auto& [name, value] : snap) {
-        if (IsDerived(name) || value.empty()) {
+        // An empty string is the same as unset (SoH writes some string CVars as "" on first use).
+        if (IsDerived(name) || value.empty() || value == "s") {
             continue;
         }
         std::string line = name + "=" + value + "\n";
@@ -389,7 +390,22 @@ uint64_t Hash() {
     if (sActive) {
         return sHash;
     }
-    return ComputeHash(Snapshot());
+    // Before a session: the profile the session will use (forced CVars at their forced value). The list
+    // goes to logs/cvar_profile.txt so two clients that differ can be compared.
+    auto snap = Snapshot();
+    char buf[24];
+    for (auto& f : kForced) {
+        snprintf(buf, sizeof(buf), "i%d", f.value);
+        snap[f.name] = buf;
+    }
+    FILE* out = fopen("logs/cvar_profile.txt", "w");
+    if (out != nullptr) {
+        for (auto& [name, value] : snap) {
+            fprintf(out, "%s=%s\n", name.c_str(), value.c_str());
+        }
+        fclose(out);
+    }
+    return ComputeHash(snap);
 }
 
 uint32_t RevertCount() {

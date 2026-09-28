@@ -12,6 +12,8 @@
 #include <libultraship/libultra/controller.h>
 
 #include "ZmpClient.h"
+#include <ship/Context.h>
+#include <ship/debug/Console.h>
 #include "soh/Zmp/ZmpLog.h"
 #include "soh/Zmp/Sim/Session.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h"
@@ -38,6 +40,7 @@ using Clock = std::chrono::steady_clock;
 struct Event {
     std::string kind;
     int slot = -1;
+    std::string cmd;
 };
 
 struct Bundle {
@@ -93,6 +96,7 @@ uint32_t sResyncs = 0;
 uint32_t sResyncsSeen = 0;
 uint32_t sLastResyncTick = 0;
 bool sLeader = false;
+Sim::PadRecord sLastLocal; // last pad read from the local controller (or the harness)
 std::string sLastError;
 std::map<int, Player*> sTagged;
 std::map<int, std::string> sTagNames;
@@ -197,6 +201,7 @@ void ResetGame(const char* why) {
 
 void StartRunning(uint32_t tick) {
     sPhase = Phase::Running;
+    sLastLocal = Sim::PadRecord{};
     sWaitingNow = false;
     Sim::BeginNet(tick);
     State::SetKeepSharedSettings(true);
@@ -282,6 +287,20 @@ void HandleControl(json& msg) {
             sResyncHold = true;
             sResyncTick = T;
         }
+    }
+}
+
+// Sends the local pad for every tick up to the current one + D. Runs every frame (also while the tick gate
+// is closed, otherwise nobody could ever send the input the gate is waiting for). The pad is the last one
+// read in a tick.
+void SendPendingInputs() {
+    if (sPhase != Phase::Running) {
+        return;
+    }
+    uint32_t target = Sim::CurrentTick() + (uint32_t)std::max(1, sDelay);
+    while (sNextInputTick <= target) {
+        Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
+        sNextInputTick++;
     }
 }
 
@@ -443,7 +462,7 @@ void OnNetMessage(json&& msg) {
         }
         if (msg.contains("events") && msg["events"].is_array()) {
             for (auto& e : msg["events"]) {
-                b.events.push_back({ e.value("k", std::string()), e.value("slot", -1) });
+                b.events.push_back({ e.value("k", std::string()), e.value("slot", -1), e.value("cmd", std::string()) });
             }
         }
         sServerDelay = b.delay;
@@ -520,6 +539,7 @@ void OnFrameBegin() {
     }
     LoadPendingBlob();
     ProcessBlobRequests();
+    SendPendingInputs();
     UpdateNameTags();
     if (sPhase == Phase::Running && !InPlay() && gGameState != nullptr && gGameState->main == FileChoose_Main) {
         // The shared game went back to the file select screen (game over, reset): the session ends here.
@@ -577,11 +597,7 @@ void OnPadRead(void* padsV) {
     local.stickY = pads[0].stick_y;
     local.rStickX = pads[0].right_stick_x;
     local.rStickY = pads[0].right_stick_y;
-    uint32_t target = tick + (uint32_t)std::max(1, sDelay);
-    while (sNextInputTick <= target) {
-        Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(local)) } });
-        sNextInputTick++;
-    }
+    sLastLocal = local;
     Bundle b;
     {
         std::lock_guard<std::mutex> lock(sMutex);
@@ -596,6 +612,11 @@ void OnPadRead(void* padsV) {
             Players::Spawn(e.slot);
         } else if (e.kind == "DESPAWN") {
             Players::Despawn(e.slot);
+        } else if (e.kind == "CONSOLE" && !e.cmd.empty()) {
+            // Same console command on every machine at the start of the same tick (PLAN.md 1.3.3).
+            std::string output;
+            Ship::Context::GetRawInstance()->GetConsole()->Run(e.cmd, &output);
+            Log("net: event at tick " + std::to_string(tick) + " from slot " + std::to_string(e.slot) + ": " + e.cmd);
         }
     }
     bool seen[ZMP_MAX_PLAYERS] = {};
@@ -642,6 +663,10 @@ int CatchUpSpeed() {
     }
     std::lock_guard<std::mutex> lock(sMutex);
     return sBundles.size() > (size_t)(sDelay + 3) ? 2 : 0;
+}
+
+void SendConsoleEvent(const std::string& cmd) {
+    Send({ { "t", "EVENT" }, { "kind", "CONSOLE" }, { "payload", cmd } });
 }
 
 void Leave() {

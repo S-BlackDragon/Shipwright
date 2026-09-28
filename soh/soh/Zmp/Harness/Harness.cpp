@@ -695,6 +695,9 @@ void Dispatch(const RequestPtr& req) {
         std::string pname = cmd.value("name", std::string(CVarGetString("gZmp.Name", "Player")));
         Zmp::Client::Get().Connect(host, port, room, pname);
         req->Reply({ { "ok", true } });
+    } else if (name == "net.event") {
+        Zmp::Lockstep::SendConsoleEvent(cmd.value("cmd", std::string()));
+        req->Reply({ { "ok", true } });
     } else if (name == "net.leave") {
         Zmp::Lockstep::Leave();
         req->Reply({ { "ok", true } });
