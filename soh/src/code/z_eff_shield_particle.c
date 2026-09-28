@@ -65,7 +65,8 @@ void EffectShieldParticle_Init(void* thisx, void* initParamsx) {
 void EffectShieldParticle_Destroy(void* thisx) {
     EffectShieldParticle* this = (EffectShieldParticle*)thisx;
 
-    if ((this != NULL) && (this->lightDecay == true)) {
+    // ZMP: the light buffer can be full (many shield hits at once, several players): the effect then has no light
+    if ((this != NULL) && (this->lightDecay == true) && (this->lightNode != NULL)) {
         if (this->lightNode == Effect_GetPlayState()->lightCtx.listHead) {
             Effect_GetPlayState()->lightCtx.listHead = this->lightNode->next;
         }
