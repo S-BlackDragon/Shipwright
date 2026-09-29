@@ -572,6 +572,8 @@ void Dispatch(const RequestPtr& req) {
             resp["cs_state"] = gPlayState->csCtx.state;
             resp["cs_frames"] = gPlayState->csCtx.frames;
             resp["msg_mode"] = gPlayState->msgCtx.msgMode;
+            resp["msg_text_id"] = gPlayState->msgCtx.textId;
+            resp["talk_state"] = Message_GetState(&gPlayState->msgCtx);
             // The simulation's pause context: the group game over menu (D-058).
             resp["pause_state"] = gPlayState->pauseCtx.state;
             resp["prompt_choice"] = gPlayState->pauseCtx.promptChoice;

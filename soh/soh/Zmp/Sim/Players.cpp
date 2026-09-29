@@ -1582,6 +1582,18 @@ void Spawn(int slot, const std::string& infoText) {
         n = slot + 1;
         where = "next to the anchor";
     }
+    if (infoText.rfind("zmp_spawn_near ", 0) == 0) {
+        // Phase 5: a player without a game of its own who asked to join this one appears next to it.
+        int k = atoi(infoText.c_str() + 15);
+        if (Present(k)) {
+            Player* f = Slot(k).player;
+            base = f->actor.world.pos;
+            yaw = f->actor.shape.rot.y;
+            spawnRoom = Slot(k).room;
+            n = 1;
+            where = "next to the player it follows";
+        }
+    }
     Vec3f pos = SafeSpawnPos(play, base, yaw, n);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
