@@ -211,6 +211,17 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
         DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
+        // Group game over (D-058): the menu reads the anchor's pad; the others see who decides.
+        std::string chooser = Lockstep::GameOverChooser();
+        if (!chooser.empty()) {
+            CenteredLine(vp->Pos.y + vp->Size.y * 0.16f, chooser + " (el anfitrion) elige si guardar y continuar",
+                         IM_COL32(255, 230, 120, 255), 1.2f);
+        }
+        // A save from the pause menu (or the game over menu) of a player that is not the leader writes nothing.
+        if (ls.saveSkipped) {
+            CenteredLine(vp->Pos.y + vp->Size.y * 0.80f, "Solo el anfitrion guarda la partida",
+                         IM_COL32(255, 230, 150, 255), 1.1f);
+        }
         // Phase 4: "Guardado" for 2 s on the leader's screen after an autosave (D-054).
         if (ls.leader && Autosave::SecondsSinceSave() < 2.0) {
             ImDrawList* sdl = ImGui::GetForegroundDrawList(vp);
@@ -272,6 +283,10 @@ void RoomWindow::DrawOverlay() {
 
     // Second line: lockstep (multiplayer) or determinism session (replay, recording, pause).
     auto ls = Lockstep::GetStatus();
+    if (!ls.endNotice.empty()) {
+        // After a group game over "no" (D-058), on the file select screen.
+        CenteredLine(vp->Pos.y + vp->Size.y * 0.30f, ls.endNotice, IM_COL32(255, 230, 120, 255), 1.4f);
+    }
     if (ls.phase != Lockstep::Phase::Idle) {
         DrawLockstepOverlay(ls, pos.y + size.y + 6.0f);
         return;

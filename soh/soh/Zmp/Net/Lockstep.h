@@ -41,7 +41,9 @@ struct Status {
     uint32_t groupTick = 0; // last tick emitted by the server
     std::string lastError;
     std::vector<SlotInfo> players;
-    int countdown = 0; // group scene change countdown (ticks)
+    int countdown = 0;        // group scene change countdown (ticks)
+    std::string endNotice;    // "X ha terminado la partida" for 15 s after a group game over "no" (D-058)
+    bool saveSkipped = false; // this machine skipped a save in the last 3 s (not the leader)
 };
 
 const char* PhaseName(Phase phase);
@@ -72,5 +74,7 @@ void SetLocalInputBlocked(bool blocked);
 Status GetStatus();
 bool Active();
 std::string SlotName(int slot);
+// Name of the player that answers the group game over menu, when it is shown and that player is not this one.
+std::string GameOverChooser();
 
 } // namespace Zmp::Lockstep

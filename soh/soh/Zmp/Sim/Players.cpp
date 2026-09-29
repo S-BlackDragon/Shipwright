@@ -1194,6 +1194,10 @@ bool IsPresent(int slot) {
     return Present(slot);
 }
 
+int ActorTargetSlot(const Actor* actor) {
+    return ContextSlot(actor);
+}
+
 const Actor* CurrentActor() {
     return sTracePhase == 'U' ? sTraceActor : nullptr;
 }

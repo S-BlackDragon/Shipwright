@@ -290,6 +290,11 @@ s32 Zmp_LanguageLocked(void);
 // Save files are written only by the group leader (a joiner never overwrites its own slot with the
 // shared game).
 s32 Zmp_AllowSaveWrite(void);
+// Phase 4 (D-058): "continue? no" of the group game over. In a multiplayer session it notes that the group ends and
+// returns 1 (the menu then goes to the file select instead of the title screen); 0 outside a session.
+s32 Zmp_GameOverQuit(void);
+// A save that this machine skipped because it is not the leader (the notice "Solo el anfitrion guarda la partida").
+void Zmp_NoteSaveSkipped(void);
 
 #ifdef __cplusplus
 }
@@ -349,6 +354,8 @@ void SwitchContext(PlayState* play, int slot);
 // Actor whose update is running (NULL outside actor updates).
 const Actor* CurrentActor();
 bool IsPresent(int slot);
+// Slot whose Player is "the player" of this actor in its update (read only, same rule as the update).
+int ActorTargetSlot(const Actor* actor);
 const View* LocalPicture(PlayState* play, int slot);
 int CamScope(int camId);
 bool GlobalCutscene();

@@ -4803,6 +4803,10 @@ void KaleidoScope_Update(PlayState* play) {
                         osSyncPrintf("MAGIC_NOW=%d ", gSaveContext.magic);
                         osSyncPrintf("Z_MAGIC_NOW_NOW=%d\n", gSaveContext.magicFillTarget);
                         osSyncPrintf(VT_RST);
+                    } else if (Zmp_GameOverQuit()) { // ZMP: the group ends in order, everybody to the file select
+                        play->state.running = 0;
+                        SET_NEXT_GAMESTATE(&play->state, FileChoose_Init, FileChooseContext);
+                        GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
                     } else {
                         play->state.running = 0;
                         SET_NEXT_GAMESTATE(&play->state, Opening_Init, OpeningContext);

@@ -114,6 +114,14 @@ std::map<int, std::string> sTagNames;
 // health, position and room), sent as events when they appear.
 bool sForceAutosave = false;
 std::map<std::string, nlohmann::json> sResumePlayers;
+// Group game over (D-058): the anchor answered "continue? no"; the session ends at the file select with a notice.
+bool sGameOverQuit = false;
+std::string sGameOverQuitBy;
+bool sGameOverQuitMine = false;
+std::string sEndNotice;
+std::chrono::steady_clock::time_point sEndNoticeAt;
+std::chrono::steady_clock::time_point sSaveSkippedAt;
+bool sSaveSkipped = false;
 
 bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
@@ -911,6 +919,15 @@ void OnFrameBegin() {
         // The shared game went back to the file select screen (game over, reset): the session ends here.
         Send({ { "t", "LEAVE_GROUP" } });
         ResetGame("file select");
+        if (sGameOverQuit) {
+            // Game over, "continue? no" (D-058): every client leaves the room in order; nobody waits for anybody.
+            sGameOverQuit = false;
+            sEndNotice = sGameOverQuitMine ? std::string("Has terminado la partida del grupo")
+                                           : sGameOverQuitBy + " (el anfitrion) ha terminado la partida";
+            sEndNoticeAt = Clock::now();
+            Log("net: group game over, the session ends (" + sEndNotice + ")");
+            Client::Get().Disconnect();
+        }
     }
 }
 
@@ -1139,7 +1156,22 @@ Status GetStatus() {
     s.waitingFor = sWaitingFor;
     s.players = sPlayers;
     s.groupTick = sGroupTick;
+    if (!sEndNotice.empty() && std::chrono::duration<double>(Clock::now() - sEndNoticeAt).count() < 15.0) {
+        s.endNotice = sEndNotice;
+    }
+    s.saveSkipped = sSaveSkipped && std::chrono::duration<double>(Clock::now() - sSaveSkippedAt).count() < 3.0;
     return s;
+}
+
+std::string GameOverChooser() {
+    // The group game over menu is the simulation's and reads the anchor's pad (D-036): the others see who decides.
+    if (sPhase != Phase::Running || !InPlay() || !gZmpSim.enabled) {
+        return std::string();
+    }
+    if (gPlayState->gameOverCtx.state != GAMEOVER_DEATH_MENU || sSlot == gZmpSim.anchor) {
+        return std::string();
+    }
+    return SlotName(gZmpSim.anchor);
 }
 
 bool Active() {
@@ -1157,6 +1189,23 @@ std::string SlotName(int slot) {
 }
 
 } // namespace Zmp::Lockstep
+
+extern "C" s32 Zmp_GameOverQuit(void) {
+    using namespace Zmp::Lockstep;
+    if (!gZmpSim.enabled || sPhase != Phase::Running) {
+        return 0;
+    }
+    sGameOverQuit = true;
+    sGameOverQuitMine = sSlot == gZmpSim.anchor;
+    sGameOverQuitBy = SlotName(gZmpSim.anchor);
+    return 1;
+}
+
+extern "C" void Zmp_NoteSaveSkipped(void) {
+    using namespace Zmp::Lockstep;
+    sSaveSkipped = true;
+    sSaveSkippedAt = std::chrono::steady_clock::now();
+}
 
 extern "C" s32 Zmp_AllowSaveWrite(void) {
     if (!gZmpSim.enabled) {

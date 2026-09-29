@@ -312,6 +312,10 @@ json ActorsJson(const json& cmd) {
                 { "room", a->room },
                 { "freeze_timer", a->freezeTimer },
                 { "proj", Vec3(a->projectedPos) },
+                // The player its logic acts on and the yaw to that player computed by the simulation this tick.
+                { "target_slot", Zmp::Players::ActorTargetSlot(a) },
+                { "yaw_to_player", a->yawTowardsPlayer },
+                { "dist_to_player", a->xzDistToPlayer },
             });
             if (a->id == ACTOR_BOSS_GOMA) {
                 // Tests of phase 4 (Gohma in co-op): its state machine and its children.
@@ -364,6 +368,9 @@ json LockstepJson() {
              { "present", Zmp::Players::PresentCount() },
              { "anchor", gZmpSim.anchor },
              { "multi", Zmp_MultiActive() != 0 },
+             { "game_over_chooser", Zmp::Lockstep::GameOverChooser() },
+             { "end_notice", ls.endNotice },
+             { "save_skipped", ls.saveSkipped },
              { "players", players } };
 }
 
@@ -541,6 +548,10 @@ void Dispatch(const RequestPtr& req) {
             resp["cs_state"] = gPlayState->csCtx.state;
             resp["cs_frames"] = gPlayState->csCtx.frames;
             resp["msg_mode"] = gPlayState->msgCtx.msgMode;
+            // The simulation's pause context: the group game over menu (D-058).
+            resp["pause_state"] = gPlayState->pauseCtx.state;
+            resp["prompt_choice"] = gPlayState->pauseCtx.promptChoice;
+            resp["game_over"] = gPlayState->gameOverCtx.state;
             resp["prev_room"] = gPlayState->roomCtx.prevRoom.num;
             resp["rooms_loaded"] = Zmp::Players::LoadedRooms(gPlayState);
             resp["text_hidden"] = Zmp::Players::LocalTextHidden();

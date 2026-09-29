@@ -1,5 +1,5 @@
 #include "SaveManager.h"
-#include "soh/Zmp/Net/Lockstep.h" // ZMP
+#include "soh/Zmp/Net/Lockstep.h"   // ZMP
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "OTRGlobals.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
@@ -1338,6 +1338,7 @@ void SaveManager::SaveSection(int fileNum, int sectionID, bool threaded) {
     // overwrites its own save slot with it.
     if (!Zmp_AllowSaveWrite()) {
         SPDLOG_INFO("ZMP: save skipped (not the group leader)");
+        Zmp_NoteSaveSkipped();
         return;
     }
     // Don't save in Boss rush.
