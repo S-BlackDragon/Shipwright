@@ -716,6 +716,12 @@ void LoadPendingBlob() {
         sLoadFrames = 0;
         return;
     }
+    if (joining && sFreeRun && !DetachArrived()) {
+        // Phase 5: on its way from another scene, the group's state is loaded once the local scene change finished
+        // (loading it in the middle of leaving a pre-rendered room, a house, crashed the renderer).
+        sLoadFrames = 0;
+        return;
+    }
     if (joining && ++sLoadFrames < 5) {
         return;
     }
