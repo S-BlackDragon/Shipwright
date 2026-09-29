@@ -45,6 +45,8 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
+#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
+#include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
@@ -319,6 +321,15 @@ json ActorsJson(const json& cmd) {
                 { "yaw_to_player", a->yawTowardsPlayer },
                 { "dist_to_player", a->xzDistToPlayer },
             });
+            if (a->id == ACTOR_EN_OSSAN) {
+                // Phase 5 tests (shop): the shopkeeper's state and the shelf slot under the cursor.
+                const EnOssan* o = (const EnOssan*)a;
+                list.back()["ossan_state"] = o->stateFlag;
+                list.back()["ossan_cursor"] = o->cursorIndex;
+                const EnGirlA* sel = o->cursorIndex < 8 ? o->shelfSlots[o->cursorIndex] : nullptr;
+                list.back()["ossan_item_price"] = sel != nullptr ? sel->basePrice : -1;
+                list.back()["ossan_item_params"] = sel != nullptr ? sel->actor.params : -1;
+            }
             if (a->id == ACTOR_BOSS_GOMA) {
                 // Tests of phase 4 (Gohma in co-op): its state machine and its children.
                 const BossGoma* g = (const BossGoma*)a;
@@ -538,7 +549,7 @@ void Dispatch(const RequestPtr& req) {
                       { "session", SessionJson() },
                       { "cvar_profile_hash", Hex(CVarProfile::Hash()) },
                       { "cvar_reverts", CVarProfile::RevertCount() },
-                      { "audio_muted", Zmp_AudioMuted() },
+                      { "audio_muted", Zmp_AudioMuted() }, { "audio_output_muted", Zmp_AudioOutputMuted() },
                       { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) },
                       { "lockstep", LockstepJson() },
                       { "fps", ImGui::GetCurrentContext() != nullptr ? ImGui::GetIO().Framerate : 0.0f },

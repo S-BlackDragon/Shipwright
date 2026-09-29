@@ -131,7 +131,11 @@ static void WatchdogLoop() {
 }
 #endif
 static std::shared_ptr<Zmp::RoomWindow> sRoomWindow;
+// sAudioMuted: what the mute logic decided (with the test focus override; reported to the harness).
+// sAudioOutputMuted: what the speakers get. It always follows the REAL window focus, so a test that tells an instance
+// "you have the focus" never makes it sound while Alex has not clicked on it (D-063).
 static std::atomic<bool> sAudioMuted{ false };
+static std::atomic<bool> sAudioOutputMuted{ false };
 
 // Console commands run inside the ImGui pass (in the middle of rendering); state changes are queued
 // and executed at the start of the next frame, between two ticks.
@@ -144,6 +148,10 @@ extern "C" uint32_t Zmp_GetFrameCount(void) {
 
 bool Zmp_AudioMuted() {
     return sAudioMuted.load(std::memory_order_relaxed);
+}
+
+bool Zmp_AudioOutputMuted() {
+    return sAudioOutputMuted.load(std::memory_order_relaxed);
 }
 
 static void QueueConsoleAction(std::function<void()> fn) {
@@ -420,24 +428,24 @@ extern "C" int Zmp_InstallNoActivateHook(void) {
 // Audio of an instance plays only while one of its windows has the focus (presentation only; the
 // mixer output is silenced, the game-side audio state is untouched).
 static void UpdateFocusMute() {
-    bool mute = false;
-    int override = CVarGetInteger(ZMP_CVAR_FOCUS_OVERRIDE, -1);
-    if (CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0) && override >= 0) {
-        // Tests: the focus the harness says this instance has (it never moves the real focus, D-063).
-        mute = override == 0;
-    } else if (CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0)) {
+    bool enabled = CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0) != 0;
+    bool realMute = false;
 #ifdef _WIN32
+    if (enabled) {
         HWND fg = GetForegroundWindow();
         DWORD pid = 0;
         if (fg != nullptr) {
             GetWindowThreadProcessId(fg, &pid);
         }
-        mute = pid != GetCurrentProcessId();
+        realMute = pid != GetCurrentProcessId();
+    }
 #endif
-    }
-    if (mute != sAudioMuted.load()) {
-        sAudioMuted.store(mute);
-    }
+    // The speakers always follow the real focus.
+    sAudioOutputMuted.store(realMute);
+    // Tests: the decision with the focus the harness says this instance has (it never moves the real focus and never
+    // unmutes the speakers, D-063).
+    int override = CVarGetInteger(ZMP_CVAR_FOCUS_OVERRIDE, -1);
+    sAudioMuted.store(enabled && override >= 0 ? override == 0 : realMute);
 }
 
 extern "C" void Zmp_Init(void) {

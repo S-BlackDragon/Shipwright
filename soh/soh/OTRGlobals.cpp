@@ -1076,7 +1076,7 @@ void OTRAudio_Thread() {
                                            num_audio_samples);
         }
 
-        if (Zmp_AudioMuted()) { // ZMP: silence the output while the window has no focus (presentation only)
+        if (Zmp_AudioOutputMuted()) { // ZMP: silence the output while the window has no real focus (presentation only)
             memset(audio_buffer, 0, total_samples * sizeof(int16_t));
         }
         AudioPlayer_Play(reinterpret_cast<u8*>(audio_buffer), total_samples * sizeof(int16_t));
