@@ -1324,7 +1324,9 @@ void Play_DrawOverlayElements(PlayState* play) {
     Zmp_OverlayBegin(play);   // ZMP
 
     if (gSaveContext.gameMode == GAMEMODE_NORMAL) {
+        Zmp_HudBegin(play); // ZMP: this player's HUD stays while another player reads its text
         Interface_Draw(play);
+        Zmp_HudEnd(play); // ZMP
     }
 
     // ZMP: the text box / ocarina runs part of its logic while drawing (it spawns the song effects): it
@@ -1367,6 +1369,8 @@ void Play_Draw(PlayState* play) {
     // #endregion
 
     OPEN_DISPS(gfxCtx);
+
+    Zmp_DrawPresentBegin(play); // ZMP: no black bars here for another player's private cutscene
 
     gSegments[4] = VIRTUAL_TO_PHYSICAL(play->objectCtx.status[play->objectCtx.mainKeepIndex].segment);
     gSegments[5] = VIRTUAL_TO_PHYSICAL(play->objectCtx.status[play->objectCtx.subKeepIndex].segment);
@@ -1663,7 +1667,8 @@ void Play_Draw(PlayState* play) {
 
 Play_Draw_skip:
     Zmp_DrawEndView(play);  // ZMP: the simulation keeps the canonical view and matrices
-    Zmp_DrawLightEnd(play); // ZMP: and its own lighting
+    Zmp_DrawLightEnd(play);    // ZMP: and its own lighting
+    Zmp_DrawPresentEnd(play);  // ZMP
 
     if (play->view.unk_124 != 0) {
         Camera_Update(GET_ACTIVE_CAM(play));

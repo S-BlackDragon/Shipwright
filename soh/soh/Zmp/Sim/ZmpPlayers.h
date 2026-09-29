@@ -101,7 +101,7 @@ typedef struct {
     u8 globalCs;      // a cutscene everybody watches is running (scripted cutscene or global sub camera)
     s8 csTrigger;     // player the running global cutscene is about (the others are frozen around it)
     s8 csStarter;     // context that last started a scripted cutscene
-    u8 pad3;
+    u8 skipRequested; // the host pressed START during a scripted cutscene (the skip happens at its next command)
     // Phase 4 (PLAN.md 2.10): several rooms loaded. The engine keeps two (curRoom, prevRoom); the others that some
     // player still stands in are kept here. While code runs for player k, curRoom is k's room.
     u8 extraRoomCount;
@@ -234,6 +234,12 @@ void Zmp_DrawLightBegin(PlayState* play);
 void Zmp_DrawLightEnd(PlayState* play);
 // The simulation's fog distance (the canonical view's far plane) while the local lighting is applied.
 f32 Zmp_SimFogFar(PlayState* play);
+// Presentation (phase 4): another player's private cutscene or text box does not put black bars on this picture nor
+// hide this player's HUD (letterbox and HUD alphas are shared state; they are swapped for the picture only).
+void Zmp_DrawPresentBegin(PlayState* play);
+void Zmp_DrawPresentEnd(PlayState* play);
+void Zmp_HudBegin(PlayState* play);
+void Zmp_HudEnd(PlayState* play);
 // Play_Draw: the rooms kept loaded besides curRoom and prevRoom.
 void Zmp_DrawExtraRooms(PlayState* play, u32 flags);
 // Actor_RemoveFromCategory: 1 when handled (the last enemy of a loaded room clears that room).

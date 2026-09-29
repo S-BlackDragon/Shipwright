@@ -250,6 +250,7 @@ void VisitZmp(Visitor& v) {
     v.U("global_cs", gZmpSim.globalCs);
     v.S("cs_trigger", gZmpSim.csTrigger);
     v.S("cs_starter", gZmpSim.csStarter);
+    v.U("skip_requested", gZmpSim.skipRequested);
     v.U("extra_rooms", gZmpSim.extraRoomCount);
     for (int i = 0; i < gZmpSim.extraRoomCount; i++) {
         v.S("extra_room", gZmpSim.extraRooms[i].num);

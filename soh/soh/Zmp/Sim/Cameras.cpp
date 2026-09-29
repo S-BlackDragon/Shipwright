@@ -235,6 +235,16 @@ bool AnyGlobalActive(PlayState* play, int* creator) {
 }
 
 void UpdateGlobalCutscene(PlayState* play) {
+    // Skip request of the host (the anchor): START during a scripted cutscene. It stays until the cutscene ends, so a
+    // press while the cutscene's own commands are not running (a text box) is not lost.
+    if (play->csCtx.state == CS_STATE_IDLE) {
+        gZmpSim.skipRequested = 0;
+    } else if (Present(gZmpSim.anchor)) {
+        const Input& in = gZmpSim.ctx == gZmpSim.anchor ? play->state.input[0] : gZmpSim.slots[gZmpSim.anchor].input;
+        if (CHECK_BTN_ALL(in.press.button, BTN_START)) {
+            gZmpSim.skipRequested = 1;
+        }
+    }
     int creator = -1;
     bool scripted = play->csCtx.state != CS_STATE_IDLE;
     bool active = scripted || AnyGlobalActive(play, &creator);
@@ -463,11 +473,10 @@ extern "C" s32 Zmp_PlayerHeldByCutscene(Player* player) {
 }
 
 extern "C" s32 Zmp_HostSkipsCutscene(PlayState* play) {
-    // Called in the anchor's context (Cutscene_Update runs outside actor updates): input[0] is the host's.
-    if (!Zmp_MultiActive() || gZmpSim.ctx != gZmpSim.anchor) {
+    if (!Zmp_MultiActive()) {
         return 0;
     }
-    return CHECK_BTN_ALL(play->state.input[0].press.button, BTN_START) ? 1 : 0;
+    return gZmpSim.skipRequested ? 1 : 0;
 }
 
 // Text box of another player: its display list is dropped (the simulation side effects already happened).

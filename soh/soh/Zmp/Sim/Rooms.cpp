@@ -143,6 +143,7 @@ extern "C" s32 Zmp_RoomRequest(PlayState* play, RoomContext* rc, s32 roomNum) {
         // Already loaded (another player is there, or it is loading): this player is in it now.
         Zmp::Players::SetSlotRoom(k, roomNum);
         Zmp::Players::ArrangeRooms(play, k);
+        Zmp::Log("zmp: rooms: slot " + std::to_string(k) + " -> room " + std::to_string(roomNum) + " (already loaded)");
         return 1;
     }
     if (rc->status != 0) {
@@ -393,7 +394,8 @@ void StepLocalLight(PlayState* play) {
     int L = Zmp::Players::LocalSlot();
     Player* p = Zmp::Players::SlotPlayer(L);
     EnvironmentContext* env = &play->envCtx;
-    if (p == nullptr || L == gZmpSim.anchor || env->numLightSettings == 0) {
+    // (SoH does not fill envCtx.numLightSettings: the light setting index is used as the floor gives it.)
+    if (p == nullptr || L == gZmpSim.anchor || env->lightSettingsList == nullptr) {
         sLocal.valid = false;
         return;
     }
@@ -410,9 +412,6 @@ void StepLocalLight(PlayState* play) {
         int idx = (int)SurfaceType_GetLightSettingIndex(&play->colCtx, p->actor.floorPoly, BGCHECK_SCENE);
         if (idx > 30) {
             idx = 0;
-        }
-        if (idx >= env->numLightSettings) {
-            idx = env->unk_BD;
         }
         if (idx != sLocal.index && sLocal.blend >= 1.0f) {
             sLocal.prev = sLocal.index;
@@ -503,6 +502,100 @@ extern "C" void Zmp_DrawLightEnd(PlayState* play) {
 
 extern "C" f32 Zmp_SimFogFar(PlayState* play) {
     return sSaved.active ? (f32)sSaved.fogFar : (f32)play->lightCtx.fogFar;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Letterbox and HUD of another player's private cutscene (presentation)
+
+extern "C" u32 ShrinkWindow_GetCurrentVal(void);
+
+namespace {
+bool sBarsSwapped = false;
+s32 sBarsKeep = 0;
+bool sHudSwapped = false;
+u16 sHudKeep[13];
+
+bool LocalIsFree(PlayState* play) {
+    int L = Zmp::Players::LocalSlot();
+    Player* p = Zmp::Players::SlotPlayer(L);
+    if (p == nullptr || gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE ||
+        Zmp::Players::SlotActiveCam(L) != CAM_ID_MAIN) {
+        return false;
+    }
+    if (p->stateFlags1 &
+        (PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_TALKING)) {
+        return false;
+    }
+    return !(play->msgCtx.msgMode != MSGMODE_NONE && gZmpSim.msgOwner == L);
+}
+
+bool OtherInPrivateCutscene(PlayState* play) {
+    int L = Zmp::Players::LocalSlot();
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp::Players::SlotPlayer(k);
+        if (k == L || p == nullptr) {
+            continue;
+        }
+        if (p->stateFlags1 & (PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_ITEM_CS |
+                              PLAYER_STATE1_TALKING)) {
+            return true;
+        }
+    }
+    return Zmp::Players::LocalTextHidden();
+}
+} // namespace
+
+extern "C" void Zmp_DrawPresentBegin(PlayState* play) {
+    sBarsSwapped = false;
+    if (!Zmp_MultiActive() || ShrinkWindow_GetCurrentVal() == 0 || !LocalIsFree(play) ||
+        !OtherInPrivateCutscene(play)) {
+        return;
+    }
+    sBarsKeep = (s32)ShrinkWindow_GetCurrentVal();
+    ShrinkWindow_SetCurrentVal(0);
+    sBarsSwapped = true;
+}
+
+extern "C" void Zmp_DrawPresentEnd(PlayState* play) {
+    if (sBarsSwapped) {
+        ShrinkWindow_SetCurrentVal(sBarsKeep);
+        sBarsSwapped = false;
+    }
+}
+
+extern "C" void Zmp_HudBegin(PlayState* play) {
+    sHudSwapped = false;
+    if (!Zmp_MultiActive() || !LocalIsFree(play) || !OtherInPrivateCutscene(play)) {
+        return;
+    }
+    InterfaceContext* ic = &play->interfaceCtx;
+    u16* f[13] = { &ic->aAlpha,      &ic->bAlpha,       &ic->cLeftAlpha,      &ic->cDownAlpha,    &ic->cRightAlpha,
+                   &ic->healthAlpha, &ic->dpadUpAlpha,  &ic->dpadDownAlpha,   &ic->dpadLeftAlpha, &ic->dpadRightAlpha,
+                   &ic->magicAlpha,  &ic->minimapAlpha, (u16*)&ic->startAlpha };
+    for (int i = 0; i < 13; i++) {
+        sHudKeep[i] = *f[i];
+    }
+    // The local player's HUD as when nothing is going on (this runs in the local player's context: its buttons).
+    static const int kStatus[13] = { 4, 0, 1, 2, 3, -1, 5, 6, 7, 8, -1, -1, -1 };
+    for (int i = 0; i < 12; i++) {
+        int b = kStatus[i];
+        *f[i] = (b >= 0 && gSaveContext.buttonStatus[b] == BTN_DISABLED) ? 70 : 255;
+    }
+    sHudSwapped = true;
+}
+
+extern "C" void Zmp_HudEnd(PlayState* play) {
+    if (!sHudSwapped) {
+        return;
+    }
+    InterfaceContext* ic = &play->interfaceCtx;
+    u16* f[13] = { &ic->aAlpha,      &ic->bAlpha,       &ic->cLeftAlpha,      &ic->cDownAlpha,    &ic->cRightAlpha,
+                   &ic->healthAlpha, &ic->dpadUpAlpha,  &ic->dpadDownAlpha,   &ic->dpadLeftAlpha, &ic->dpadRightAlpha,
+                   &ic->magicAlpha,  &ic->minimapAlpha, (u16*)&ic->startAlpha };
+    for (int i = 0; i < 13; i++) {
+        *f[i] = sHudKeep[i];
+    }
+    sHudSwapped = false;
 }
 
 namespace Zmp::Players {
