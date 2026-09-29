@@ -43,6 +43,7 @@ extern "C" {
 #include "variables.h"
 #include "functions.h"
 #include "macros.h"
+#include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
 void Opening_Main(GameState* thisx);
@@ -312,6 +313,14 @@ json ActorsJson(const json& cmd) {
                 { "freeze_timer", a->freezeTimer },
                 { "proj", Vec3(a->projectedPos) },
             });
+            if (a->id == ACTOR_BOSS_GOMA) {
+                // Tests of phase 4 (Gohma in co-op): its state machine and its children.
+                const BossGoma* g = (const BossGoma*)a;
+                list.back()["goma_action"] = (uint64_t)((uintptr_t)g->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["goma_state"] = g->actionState;
+                list.back()["goma_children"] = { g->childrenGohmaState[0], g->childrenGohmaState[1],
+                                                 g->childrenGohmaState[2] };
+            }
         }
     }
     return { { "ok", true }, { "tick", sFrame }, { "count", list.size() }, { "actors", list } };
