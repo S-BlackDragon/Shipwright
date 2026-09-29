@@ -34,6 +34,10 @@
 #define ZMP_CVAR_AUTOSAVE_MINUTES CVAR_ZMP("Autosave.Minutes")
 #define ZMP_CVAR_AUTOSAVE_TICKS CVAR_ZMP("Autosave.Ticks")
 #define ZMP_CVAR_RESUME_SESSION CVAR_ZMP("ResumeSession")
+// Phase 5: join the group of this player when connecting (empty: the group of the scene, or the biggest one); the
+// founder's own game replaces the room's game kept on the server (start the room over).
+#define ZMP_CVAR_FOLLOW CVAR_ZMP("Follow")
+#define ZMP_CVAR_OVERWRITE_ROOM_GAME CVAR_ZMP("OverwriteRoomGame")
 
 #define ZMP_DEFAULT_HOST "127.0.0.1"
 #define ZMP_DEFAULT_PORT 47100

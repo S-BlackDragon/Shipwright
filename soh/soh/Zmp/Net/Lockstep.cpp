@@ -21,7 +21,9 @@
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/nametag.h"
+#include "soh/util.h"
 #include "Autosave.h"
+#include "SharedGame.h"
 
 extern "C" {
 #include <z64.h>
@@ -29,6 +31,7 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+extern u16 gTimeSpeed;
 void FileChoose_Main(GameState* thisx);
 void Play_Main(GameState* thisx);
 void Play_PerformSave(PlayState* play);
@@ -45,6 +48,7 @@ struct Event {
     std::string kind;
     int slot = -1;
     std::string cmd;
+    std::vector<uint8_t> data; // SHARED: a patch of the shared game from another group
 };
 
 struct Bundle {
@@ -52,6 +56,7 @@ struct Bundle {
     std::vector<std::pair<int, Sim::PadRecord>> pads;
     std::vector<Event> events;
     int delay = 2;
+    int32_t dayTime = -1; // world clock (phase 5), -1 none
 };
 
 struct BlobRequest {
@@ -72,6 +77,14 @@ int sServerDelay = 2;
 uint32_t sGroupTick = 0;
 std::string sWaitingFor;
 uint32_t sWaitTick = 0;
+// Phase 5: last scene seen per player name, and the "X ha entrado en Y" notices.
+std::map<std::string, int> sLastScenes;
+struct Notice {
+    std::string name;
+    int scene;
+    std::chrono::steady_clock::time_point at;
+};
+std::deque<Notice> sNotices;
 
 // ---- game thread
 Phase sPhase = Phase::Idle;
@@ -122,6 +135,24 @@ std::string sEndNotice;
 std::chrono::steady_clock::time_point sEndNoticeAt;
 std::chrono::steady_clock::time_point sSaveSkippedAt;
 bool sSaveSkipped = false;
+// Phase 5: groups per scene.
+bool sFreeRun = false;            // detached, or joining after a detach: the local game ticks on its own
+int sDetachScene = -1;            // scene this client heads to
+int sDetachEntrance = -1;         // entrance it arrives by
+uint32_t sDetachInits = 0;        // Play inits counted when it left (arrived = a new scene loaded since)
+bool sDetachArrived = false;      // already in the destination (regroup)
+bool sDetachWaiting = false;      // the server has no group there yet: found it once arrived
+Clock::time_point sDetachAt;      // when it left (time to enter the next group)
+int sGroupScene = -1;             // scene of this client's group (reported to the server when the group moves)
+std::vector<uint8_t> sSentShared; // shared game sent with the last JOIN_GROUP in play
+bool sOwnsSave = false;           // this PC writes the save file (founded the room's game with its own save)
+bool sOwnershipKnown = false;
+int sLastRate = -1; // last world clock rate reported
+uint32_t sSharedSent = 0;
+uint32_t sSharedApplied = 0;
+std::string sLastShared;
+uint32_t sGroupJoins = 0;
+int sLastJoinMs = -1;
 
 bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
@@ -241,16 +272,48 @@ void Send(const json& msg) {
     Client::Get().Send(msg);
 }
 
+// Phase 5: the client of a detached player has arrived in the destination scene (a new scene finished loading).
+bool DetachArrived() {
+    if (!InRealGame() || gPlayState->transitionMode != TRANS_MODE_OFF ||
+        gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        return false;
+    }
+    return sDetachArrived || Players::PlayInitCount() != sDetachInits;
+}
+
 void SendJoin() {
     bool inPlay = InRealGame();
-    json msg = { { "t", "JOIN_GROUP" },
-                 { "scene", inPlay ? (int)gPlayState->sceneNum : -1 },
-                 { "entrance", (int)gSaveContext.entranceIndex },
-                 { "in_play", inPlay } };
+    int scene = inPlay ? (int)gPlayState->sceneNum : -1;
+    int entrance = (int)gSaveContext.entranceIndex;
+    bool place = inPlay; // a client already in a game (reconnection) appears where it is if that room is loaded
+    if (sPhase == Phase::Detached) {
+        // Walking into another scene: join its group right away (or found it once arrived).
+        inPlay = DetachArrived();
+        scene = inPlay ? (int)gPlayState->sceneNum : sDetachScene;
+        entrance = sDetachEntrance;
+        place = sDetachArrived;
+    }
+    json msg = { { "t", "JOIN_GROUP" }, { "scene", scene }, { "entrance", entrance }, { "in_play", inPlay } };
+    if (InPlay()) {
+        msg["spawn"] = Players::LocalSpawnInfo(entrance, place);
+    }
+    if (inPlay) {
+        sSentShared = SharedGame::Snapshot();
+        msg["shared"] = json::binary(sSentShared);
+        msg["shared_layout"] = SharedGame::LayoutHash();
+        if (CVarGetInteger(ZMP_CVAR_OVERWRITE_ROOM_GAME, 0)) {
+            msg["overwrite"] = true;
+        }
+    }
+    std::string follow = CVarGetString(ZMP_CVAR_FOLLOW, "");
+    if (!follow.empty() && sPhase != Phase::Detached) {
+        msg["follow"] = follow;
+    }
     Send(msg);
     sJoinSent = true;
     sJoinInPlaySent = inPlay;
-    Log(std::string("net: JOIN_GROUP in_play=") + (inPlay ? "1" : "0"));
+    Log(std::string("net: JOIN_GROUP scene=") + std::to_string(scene) + " entrance=" + std::to_string(entrance) +
+        " in_play=" + (inPlay ? "1" : "0") + (follow.empty() ? "" : " follow=" + follow));
 }
 
 void ResetGame(const char* why) {
@@ -263,7 +326,9 @@ void ResetGame(const char* why) {
     Players::Reset();
     Players::SetLocalSlot(-1);
     State::SetKeepSharedSettings(false);
+    SharedGame::ClearBaseline();
     sPhase = Phase::Idle;
+    sFreeRun = false;
     sBlobRequests.clear();
     sHavePendingBlob = false;
     sResyncHold = false;
@@ -275,7 +340,16 @@ void ResetGame(const char* why) {
 }
 
 void StartRunning(uint32_t tick) {
+    if (sFreeRun) {
+        sLastJoinMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sDetachAt).count();
+        Log("net: in the next group " + std::to_string(sLastJoinMs) + " ms after leaving the scene");
+    }
     sPhase = Phase::Running;
+    sFreeRun = false;
+    sDetachWaiting = false;
+    sLastRate = -1;
+    sGroupJoins++;
+    sGroupScene = InPlay() ? (int)gPlayState->sceneNum : -1;
     sLastLocal = Sim::PadRecord{};
     sWaitingNow = false;
     Sim::BeginNet(tick);
@@ -326,17 +400,32 @@ nlohmann::json SessionPlayers() {
 
 // End of a tick of the leader: every IntervalTicks() of simulation (or when an event forces it) the game is saved
 // normally and the exact state of the session is written for the resume.
+// Phase 5: every player of the room is in this client's group (the exact session state describes everybody).
+bool WholeRoomInGroup() {
+    std::lock_guard<std::mutex> lock(sMutex);
+    for (auto& p : sPlayers) {
+        if (p.group != sGroupId && p.state != "disconnected") {
+            return false;
+        }
+    }
+    return true;
+}
+
 void MaybeAutosave(uint32_t tick, uint64_t hash) {
     uint32_t every = Autosave::IntervalTicks();
     bool due = sForceAutosave || (every > 0 && (tick + 1) % every == 0);
     sForceAutosave = false;
-    if (!due || !sLeader || !InPlay() || !Zmp_MultiActive() || gPlayState->transitionMode != TRANS_MODE_OFF ||
-        gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) {
+    // Phase 5: the save file is written by the PC of the player who started the room's game (whatever group it is in);
+    // the exact session state by the leader of a group that has everybody.
+    bool writeGame = sOwnsSave && gSaveContext.fileNum >= 0 && gSaveContext.fileNum < 3;
+    bool writeSession = sLeader && WholeRoomInGroup();
+    if (!due || (!writeGame && !writeSession) || !InPlay() || !Zmp_MultiActive() ||
+        gPlayState->transitionMode != TRANS_MODE_OFF || gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) {
         return;
     }
     auto t0 = Clock::now();
     bool wroteGame = false;
-    if (gSaveContext.fileNum >= 0 && gSaveContext.fileNum < 3) {
+    if (writeGame) {
         Players::RunInContext(sSlot, SaveOnCopy, nullptr);
         wroteGame = true;
     }
@@ -344,7 +433,7 @@ void MaybeAutosave(uint32_t tick, uint64_t hash) {
     std::string err;
     State::BlobInfo info;
     bool wroteSession = false;
-    if (State::Save(blob, tick + 1, hash, &err, &info)) {
+    if (writeSession && State::Save(blob, tick + 1, hash, &err, &info)) {
         nlohmann::json desc = { { "version", 1 },
                                 { "room", RoomName() },
                                 { "tick", tick + 1 },
@@ -353,7 +442,7 @@ void MaybeAutosave(uint32_t tick, uint64_t hash) {
                                 { "file_num", gSaveContext.fileNum },
                                 { "players", SessionPlayers() } };
         wroteSession = Autosave::WriteSessionAsync(RoomName(), std::move(blob), std::move(desc));
-    } else {
+    } else if (writeSession) {
         Log("autosave: session state not saved: " + err);
     }
     Autosave::NoteSaved();
@@ -418,6 +507,9 @@ void HandleControl(json& msg) {
             Send({ { "t", "LEAVE_GROUP" } });
             return;
         }
+        // Phase 5: this client's shared game as the group and the server last agreed on it (kept across a scene
+        // change or a lost connection), merged with the room's canonical game below.
+        std::vector<uint8_t> oldBase = SharedGame::HasBaseline() ? SharedGame::Baseline() : std::vector<uint8_t>();
         bool resumed = TryResume(slot);
         if (!resumed) {
             Players::Found(slot);
@@ -429,13 +521,30 @@ void HandleControl(json& msg) {
         } else {
             sSavedBlocks.clear();
         }
+        if (!resumed && !oldBase.empty()) {
+            SharedGame::SetBaseline(oldBase);
+        }
+        std::vector<uint8_t> canonical = msg.contains("shared") ? BinaryOf(msg["shared"]) : std::vector<uint8_t>();
+        SharedGame::MergeOnFound(canonical, sSentShared);
+        int day = msg.value("day_time", -1);
+        if (day >= 0) {
+            gSaveContext.dayTime = (u16)day; // the world clock
+        }
+        if (!sOwnershipKnown) {
+            // The first time this client plays in the room it started the game with its own save: its PC writes it.
+            sOwnsSave = true;
+            sOwnershipKnown = true;
+        }
         sNextInputTick = msg.value("tick0", 0u);
         StartRunning(sNextInputTick);
         Log("net: GROUP_FOUND group=" + std::to_string(sGroupId) + " slot=" + std::to_string(slot) +
-            " (this client founded the shared game)");
+            " scene=" + std::to_string(msg.value("scene", -1)) + " (this client founded the group" +
+            (sOwnsSave ? ", its PC writes the save file)" : ")"));
     } else if (t == "GROUP_WAIT") {
         if (sPhase == Phase::Idle) {
             sPhase = Phase::WaitingGroup;
+        } else if (sPhase == Phase::Detached) {
+            sDetachWaiting = true; // nobody plays there: found the group once arrived
         }
         Log("net: GROUP_WAIT " + msg.value("reason", std::string()));
     } else if (t == "GROUP_JOIN_PENDING") {
@@ -447,13 +556,39 @@ void HandleControl(json& msg) {
             // Rejoin after a reconnection: the local simulation is replaced by the leader's.
             ResetGame("rejoin");
         }
+        bool fromDetach = sPhase == Phase::Detached;
         sPhase = Phase::Joining;
         sHavePendingBlob = false;
         sLoadFrames = 0;
         sStartedGameForLoad = false;
-        Players::SetLocalSlot(sSlot);
+        if (!fromDetach) {
+            // (a detached client keeps driving its own Link until the group's state arrives)
+            Players::SetLocalSlot(sSlot);
+        }
+        if (!sOwnershipKnown) {
+            sOwnsSave = false; // entered somebody else's game: its PC never writes a save file of this room
+            sOwnershipKnown = true;
+        }
         Log("net: GROUP_JOIN_PENDING slot=" + std::to_string(sSlot) + " T=" + std::to_string(sJoinTick) +
-            (sJoinIsRejoin ? " (rejoin)" : ""));
+            (sJoinIsRejoin ? " (rejoin)" : "") + (fromDetach ? " (from another scene)" : ""));
+    } else if (t == "REGROUP") {
+        // Phase 5: this group moved into a scene where another group already plays: join that one.
+        if (sPhase == Phase::Running && InPlay()) {
+            Log("net: REGROUP into the group of scene " + std::to_string(msg.value("scene", -1)));
+            Send({ { "t", "LEAVE_GROUP" } });
+            Players::KeepOnlyLocal();
+            sPhase = Phase::Detached;
+            sFreeRun = true;
+            sDetachScene = gPlayState->sceneNum;
+            sDetachEntrance = gSaveContext.entranceIndex;
+            sDetachInits = Players::PlayInitCount();
+            sDetachArrived = true;
+            sDetachWaiting = false;
+            sDetachAt = Clock::now();
+            sBlobRequests.clear();
+            sResyncHold = false;
+            sJoinSent = false;
+        }
     } else if (t == "STATE_BLOB") {
         int forSlot = msg.value("for_slot", -1);
         if (forSlot != sSlot) {
@@ -691,6 +826,21 @@ void ResumeHealthInContext(void* p) {
 }
 
 bool ApplyGameEvent(int slot, const std::string& cmd) {
+    if (cmd.rfind("zmp_exit ", 0) == 0) {
+        // Tests (phase 5): the sender's Link walks into an exit to that entrance (same effect as the collision exit:
+        // the transition is its own).
+        int entrance = (int)strtol(cmd.c_str() + 9, nullptr, 0);
+        Player* p = Players::SlotPlayer(slot);
+        if (p != nullptr && gPlayState != nullptr && gPlayState->transitionTrigger == TRANS_TRIGGER_OFF) {
+            gPlayState->nextEntranceIndex = (s16)entrance;
+            gPlayState->transitionTrigger = TRANS_TRIGGER_START;
+            gPlayState->transitionType = TRANS_TYPE_FADE_BLACK;
+            gSaveContext.nextTransitionType = TRANS_TYPE_FADE_BLACK;
+            p->stateFlags1 |= PLAYER_STATE1_LOADING | PLAYER_STATE1_IN_CUTSCENE;
+            Zmp_NoteTransitionBy(p);
+        }
+        return true;
+    }
     if (cmd == "zmp_autosave") {
         // Forced autosave (tests): the leader saves at the end of this tick.
         sForceAutosave = true;
@@ -804,6 +954,8 @@ const char* PhaseName(Phase phase) {
             return "joining";
         case Phase::Running:
             return "running";
+        case Phase::Detached:
+            return "detached";
         default:
             return "idle";
     }
@@ -827,6 +979,7 @@ void OnNetMessage(json&& msg) {
         Bundle b;
         b.tick = msg.value("tick", 0u);
         b.delay = msg.value("delay", 2);
+        b.dayTime = msg.value("day_time", -1);
         if (msg.contains("slots") && msg.contains("pads")) {
             auto& slots = msg["slots"];
             auto& pads = msg["pads"];
@@ -836,7 +989,11 @@ void OnNetMessage(json&& msg) {
         }
         if (msg.contains("events") && msg["events"].is_array()) {
             for (auto& e : msg["events"]) {
-                b.events.push_back({ e.value("k", std::string()), e.value("slot", -1), e.value("cmd", std::string()) });
+                Event ev{ e.value("k", std::string()), e.value("slot", -1), e.value("cmd", std::string()) };
+                if (e.contains("data")) {
+                    ev.data = BinaryOf(e["data"]);
+                }
+                b.events.push_back(std::move(ev));
             }
         }
         sServerDelay = b.delay;
@@ -844,6 +1001,7 @@ void OnNetMessage(json&& msg) {
         sBundles[b.tick] = std::move(b);
     } else if (t == "PLAYER_LIST") {
         sPlayers.clear();
+        std::string me = Client::Get().GetStatus().name;
         if (msg.contains("players")) {
             for (auto& p : msg["players"]) {
                 SlotInfo si;
@@ -853,7 +1011,20 @@ void OnNetMessage(json&& msg) {
                 si.rtt = p.value("rtt", -1);
                 si.leader = p.value("leader", false);
                 si.id = p.value("id", 0u);
+                si.scene = p.value("scene", -1);
+                si.group = p.value("group", 0u);
                 sPlayers.push_back(si);
+                // Phase 5: "X ha entrado en Y" when another player's group is in a new scene.
+                if (si.name != me && si.group != 0 && si.scene >= 0) {
+                    auto it = sLastScenes.find(si.name);
+                    if (it != sLastScenes.end() && it->second != si.scene) {
+                        sNotices.push_back({ si.name, si.scene, std::chrono::steady_clock::now() });
+                        while (sNotices.size() > 6) {
+                            sNotices.pop_front();
+                        }
+                    }
+                    sLastScenes[si.name] = si.scene;
+                }
             }
         }
         sServerDelay = msg.value("delay", sServerDelay);
@@ -884,7 +1055,8 @@ void OnFrameBegin() {
         sDelay = sServerDelay;
         sLeader = false;
         for (auto& p : sPlayers) {
-            if (p.slot == sSlot && sSlot >= 0 && p.leader) {
+            // (slots are per group since phase 5: the entry of this group)
+            if (p.slot == sSlot && sSlot >= 0 && p.leader && (p.group == 0 || p.group == sGroupId)) {
                 sLeader = true;
             }
         }
@@ -893,10 +1065,14 @@ void OnFrameBegin() {
         sConnected = false;
         sJoinSent = false;
         Log(std::string("net: disconnected (phase ") + PhaseName(sPhase) + ")");
-        if (sPhase == Phase::WaitingGroup || sPhase == Phase::Joining) {
+        if (sPhase == Phase::WaitingGroup || (sPhase == Phase::Joining && !sFreeRun)) {
             ResetGame("disconnected");
+        } else if (sPhase == Phase::Joining) {
+            sPhase = Phase::Detached; // on its way to another scene: ask again once reconnected
+            sHavePendingBlob = false;
         }
-        // Running: the simulation stalls (no bundles) until the rejoin replaces it.
+        // Running: the simulation stalls (no bundles) until the rejoin replaces it (or, after a server restart, it
+        // founds the group of its scene again). Detached: its game goes on.
     }
     if (connected) {
         sConnected = true;
@@ -910,6 +1086,16 @@ void OnFrameBegin() {
     }
     if (sConnected && sPhase == Phase::WaitingGroup && !sJoinInPlaySent && InRealGame()) {
         SendJoin(); // this client now has a game: it can found the group
+    }
+    if (sConnected && sPhase == Phase::Detached && sDetachWaiting && !sJoinInPlaySent && DetachArrived()) {
+        SendJoin(); // arrived in a scene where nobody plays: this client founds its group
+    }
+    if (sConnected && sPhase == Phase::Running && InRealGame() && gPlayState->transitionMode == TRANS_MODE_OFF &&
+        (int)gPlayState->sceneNum != sGroupScene) {
+        // The whole group changed scene inside the simulation (a cutscene, a warp song, the game over).
+        sGroupScene = gPlayState->sceneNum;
+        Send({ { "t", "GROUP_SCENE" }, { "scene", sGroupScene } });
+        Log("net: the group is now in scene " + std::to_string(sGroupScene));
     }
     LoadPendingBlob();
     ProcessBlobRequests();
@@ -932,6 +1118,9 @@ void OnFrameBegin() {
 }
 
 bool ShouldRunTick() {
+    if (sFreeRun && (sPhase == Phase::Detached || sPhase == Phase::Joining)) {
+        return true; // on its way to another scene: the local game goes on by itself
+    }
     if (sPhase != Phase::Running) {
         return false;
     }
@@ -986,6 +1175,18 @@ void OnPadRead(void* padsV) {
         local = Sim::PadRecord{}; // the pause menu is open: this player's Link stands still (PLAN.md 2.7)
     }
     sLastLocal = local;
+    if (sFreeRun && sPhase != Phase::Running) {
+        // Detached: only this player's Link moves (the others it left behind stand still until the scene unloads).
+        int L = Players::LocalSlot();
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (Players::SlotPlayer(k) != nullptr || gZmpSim.slots[k].active) {
+                Players::StepInput(k, k == L ? ToPad(local) : OSContPad{});
+            }
+        }
+        memset(pads, 0, sizeof(OSContPad) * 4);
+        pads[0] = gZmpSim.anchor == L ? ToPad(local) : OSContPad{};
+        return;
+    }
     Bundle b;
     {
         std::lock_guard<std::mutex> lock(sMutex);
@@ -995,9 +1196,40 @@ void OnPadRead(void* padsV) {
             sBundles.erase(it);
         }
     }
+    if (b.dayTime >= 0 && gZmpSim.enabled) {
+        // Phase 5: the world clock. A time this group set itself (a cutscene) waits for the server to report it back.
+        if (gZmpSim.clockHold) {
+            u16 diff = (u16)((u16)b.dayTime - gZmpSim.clockHoldValue);
+            if (diff < 0x400 || diff > 0xFC00 || ++gZmpSim.clockHoldTicks > 200) {
+                gZmpSim.clockHold = 0;
+            }
+        }
+        if (!gZmpSim.clockHold) {
+            gSaveContext.dayTime = (u16)b.dayTime;
+        }
+    }
+    gZmpSim.dayAtTickStart = gSaveContext.dayTime;
+    for (auto& e : b.events) {
+        if (e.kind == "SHARED") {
+            // Phase 5: progress made by another group (flags, items, rupees...), on every machine of this group at the
+            // start of the same tick; the baseline moves too, so it is never sent back.
+            std::string sum;
+            if (SharedGame::ApplyToGame(e.data, &sum)) {
+                std::vector<uint8_t> base = SharedGame::Baseline();
+                if (!base.empty() && SharedGame::ApplyToBuffer(base, e.data)) {
+                    SharedGame::SetBaseline(base);
+                }
+                sSharedApplied++;
+                sLastShared = sum;
+                Log("net: shared game changed by another group at tick " + std::to_string(tick) + ": " + sum);
+            } else {
+                Log("net: malformed shared game patch at tick " + std::to_string(tick));
+            }
+        }
+    }
     for (auto& e : b.events) {
         if (e.kind == "SPAWN") {
-            Players::Spawn(e.slot);
+            Players::Spawn(e.slot, e.cmd);
             if (sLeader && e.slot != sSlot) {
                 // A player of a resumed session: its block, health, place and room (D-054).
                 auto rit = sResumePlayers.find(SlotName(e.slot));
@@ -1048,10 +1280,42 @@ void OnPadRead(void* padsV) {
     pads[0] = ToPad(anchorPad);
 }
 
+// Phase 5: end of a tick of a group member. The patch of the shared game (every member computes and sends the same;
+// the server takes the first) and the world clock: the rate time runs at in this scene, or a time the group set.
+void ReportSharedAndClock(uint32_t tick) {
+    std::vector<uint8_t> patch = SharedGame::TakeTickPatch();
+    if (!patch.empty()) {
+        Send({ { "t", "SHARED" }, { "tick", tick }, { "data", json::binary(patch) } });
+        sSharedSent++;
+        if (sLeader) {
+            Log("net: shared game changed here at tick " + std::to_string(tick) + ": " + SharedGame::Describe(patch));
+        }
+    }
+    if (!InPlay() || gPlayState->transitionMode != TRANS_MODE_OFF) {
+        return;
+    }
+    int rate = (int)gTimeSpeed * ((gSaveContext.nightFlag == 0 || gTimeSpeed >= 0x190) ? 1 : 2);
+    u16 inc = (u16)(gSaveContext.dayTime - gZmpSim.dayAtTickStart);
+    int off = (int)(s16)(u16)(inc - (u16)rate);
+    if (inc != 0 && (off > 0x40 || off < -0x40)) {
+        gZmpSim.clockHold = 1;
+        gZmpSim.clockHoldValue = gSaveContext.dayTime;
+        gZmpSim.clockHoldTicks = 0;
+        Send({ { "t", "CLOCK" }, { "tick", tick }, { "rate", rate }, { "set", (int)gSaveContext.dayTime } });
+        sLastRate = rate;
+        Log("net: this group set the time to " + std::to_string(gSaveContext.dayTime) + " at tick " +
+            std::to_string(tick));
+    } else if (rate != sLastRate) {
+        Send({ { "t", "CLOCK" }, { "tick", tick }, { "rate", rate }, { "set", -1 } });
+        sLastRate = rate;
+    }
+}
+
 void OnTickEnd(uint32_t tick, uint64_t hash) {
     if (sPhase != Phase::Running) {
         return;
     }
+    ReportSharedAndClock(tick);
     if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
         // Debug (desync hunting): a readable dump of every tick, 64 rotating files; a RESYNC keeps the ones before
         // the bad tick.
@@ -1133,6 +1397,91 @@ void Leave() {
     ResetGame("leave");
 }
 
+void DetachForTransition(int entrance) {
+    if (sPhase != Phase::Running && sPhase != Phase::Detached) {
+        return;
+    }
+    // Leave now (inside the tick, before this tick's hash could be sent): the others' simulations dropped this Link at
+    // the same tick. Then ask for the destination's group right away (OnFrameBegin).
+    if (sPhase == Phase::Running) {
+        Send({ { "t", "LEAVE_GROUP" } });
+        sDetachAt = Clock::now();
+    }
+    int scene = -1;
+    if (entrance >= 0 && entrance < ENTR_MAX) {
+        scene = gEntranceTable[entrance].scene;
+    }
+    Log("net: left the group through entrance " + std::to_string(entrance) + " to scene " + std::to_string(scene));
+    sPhase = Phase::Detached;
+    sFreeRun = true;
+    sDetachScene = scene;
+    sDetachEntrance = entrance;
+    sDetachInits = Players::PlayInitCount();
+    sDetachArrived = false;
+    sDetachWaiting = false;
+    sBlobRequests.clear();
+    sResyncHold = false;
+    sHavePendingBlob = false;
+    sJoinSent = false;
+    sJoinInPlaySent = false;
+}
+
+bool SceneGroups() {
+    return sPhase == Phase::Running || sPhase == Phase::Detached;
+}
+
+std::string SceneName(int scene) {
+    static const std::map<int, const char*> kNames = {
+        { SCENE_DEKU_TREE, "Gran Arbol Deku" },
+        { SCENE_DODONGOS_CAVERN, "Cueva de los Dodongos" },
+        { SCENE_JABU_JABU, "Tripa de Jabu-Jabu" },
+        { SCENE_FOREST_TEMPLE, "Templo del Bosque" },
+        { SCENE_FIRE_TEMPLE, "Templo del Fuego" },
+        { SCENE_WATER_TEMPLE, "Templo del Agua" },
+        { SCENE_SPIRIT_TEMPLE, "Templo del Espiritu" },
+        { SCENE_SHADOW_TEMPLE, "Templo de las Sombras" },
+        { SCENE_BOTTOM_OF_THE_WELL, "Fondo del Pozo" },
+        { SCENE_ICE_CAVERN, "Caverna de Hielo" },
+        { SCENE_DEKU_TREE_BOSS, "Guarida de Gohma" },
+        { SCENE_KOKIRI_FOREST, "Bosque Kokiri" },
+        { SCENE_KOKIRI_SHOP, "Tienda Kokiri" },
+        { SCENE_LINKS_HOUSE, "Casa de Link" },
+        { SCENE_MIDOS_HOUSE, "Casa de Mido" },
+        { SCENE_SARIAS_HOUSE, "Casa de Saria" },
+        { SCENE_TWINS_HOUSE, "Casa de las gemelas" },
+        { SCENE_KNOW_IT_ALL_BROS_HOUSE, "Casa de los sabelotodo" },
+        { SCENE_LOST_WOODS, "Bosque Perdido" },
+        { SCENE_SACRED_FOREST_MEADOW, "Pradera Sagrada" },
+        { SCENE_HYRULE_FIELD, "Campo de Hyrule" },
+        { SCENE_KAKARIKO_VILLAGE, "Aldea Kakariko" },
+        { SCENE_GRAVEYARD, "Cementerio" },
+        { SCENE_ZORAS_RIVER, "Rio Zora" },
+        { SCENE_LAKE_HYLIA, "Lago Hylia" },
+        { SCENE_ZORAS_DOMAIN, "Region de los Zora" },
+        { SCENE_ZORAS_FOUNTAIN, "Fuente Zora" },
+        { SCENE_GERUDO_VALLEY, "Valle Gerudo" },
+        { SCENE_GERUDOS_FORTRESS, "Fortaleza Gerudo" },
+        { SCENE_HAUNTED_WASTELAND, "Desierto Encantado" },
+        { SCENE_DESERT_COLOSSUS, "Coloso del Desierto" },
+        { SCENE_HYRULE_CASTLE, "Castillo de Hyrule" },
+        { SCENE_DEATH_MOUNTAIN_TRAIL, "Montana de la Muerte" },
+        { SCENE_DEATH_MOUNTAIN_CRATER, "Crater de la Montana" },
+        { SCENE_GORON_CITY, "Ciudad Goron" },
+        { SCENE_LON_LON_RANCH, "Rancho Lon Lon" },
+        { SCENE_TEMPLE_OF_TIME, "Templo del Tiempo" },
+        { SCENE_MARKET_DAY, "Mercado" },
+        { SCENE_MARKET_NIGHT, "Mercado" },
+    };
+    auto it = kNames.find(scene);
+    if (it != kNames.end()) {
+        return it->second;
+    }
+    if (scene < 0) {
+        return "?";
+    }
+    return SohUtils::GetSceneName(scene);
+}
+
 Status GetStatus() {
     Status s;
     s.phase = sPhase;
@@ -1146,7 +1495,17 @@ Status GetStatus() {
     s.lastResyncTick = sLastResyncTick;
     s.leader = sLeader;
     s.lastError = sLastError;
-    s.countdown = gZmpSim.transitionArmed ? gZmpSim.transitionCountdown : 0;
+    s.countdown = 0;
+    s.groupId = sGroupId;
+    s.groupScene = sGroupScene;
+    s.detachScene = sPhase == Phase::Detached || sFreeRun ? sDetachScene : -1;
+    s.freeRun = sFreeRun;
+    s.ownsSave = sOwnsSave;
+    s.sharedSent = sSharedSent;
+    s.sharedApplied = sSharedApplied;
+    s.lastShared = sLastShared;
+    s.groupJoins = sGroupJoins;
+    s.lastJoinMs = sLastJoinMs;
     if (sWaitingNow) {
         s.waitMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count();
         s.waiting = s.waitMs >= 250;
@@ -1160,6 +1519,9 @@ Status GetStatus() {
         s.endNotice = sEndNotice;
     }
     s.saveSkipped = sSaveSkipped && std::chrono::duration<double>(Clock::now() - sSaveSkippedAt).count() < 3.0;
+    for (auto& n : sNotices) {
+        s.sceneNotices.push_back({ n.name, n.scene, std::chrono::duration<double>(Clock::now() - n.at).count() });
+    }
     return s;
 }
 
@@ -1180,8 +1542,9 @@ bool Active() {
 
 std::string SlotName(int slot) {
     std::lock_guard<std::mutex> lock(sMutex);
+    // Slots are per group (phase 5): the player of this slot in this client's group.
     for (auto& p : sPlayers) {
-        if (p.slot == slot) {
+        if (p.slot == slot && (p.group == 0 || p.group == sGroupId)) {
             return p.name;
         }
     }
@@ -1211,5 +1574,6 @@ extern "C" s32 Zmp_AllowSaveWrite(void) {
     if (!gZmpSim.enabled) {
         return 1;
     }
-    return Zmp::Lockstep::GetStatus().leader ? 1 : 0;
+    // Phase 5: the PC of the player who started the room's game with its own save (not the leader of each group).
+    return Zmp::Lockstep::GetStatus().ownsSave ? 1 : 0;
 }

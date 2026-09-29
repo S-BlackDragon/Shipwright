@@ -26,6 +26,7 @@ extern "C" {
 #define ZMP_CAM_GLOBAL (-1)
 #define ZMP_MAX_EXTRA_ROOMS 6 // rooms kept loaded besides the engine's current and previous room (phase 4)
 #define ZMP_MAX_QUEUED_ROOMS 4
+#define ZMP_SHARED_MAX 4096 // compact shared game (phase 5, SharedGame.cpp)
 
 // Per-player part of the save context (PLAN.md 2.6: progression is shared, this is not). While a slot is the
 // context these values are live in gSaveContext; otherwise they are parked here.
@@ -86,8 +87,8 @@ typedef struct {
     s8 msgOwner;     // slot that opened the current text box / ocarina
     s8 pauseOwner;   // slot that opened the pause menu
     s8 spawningSlot; // Player_Init of this slot is running
-    u8 transitionArmed;
-    s16 transitionCountdown; // ticks left before a group scene change
+    s8 transitionBy; // phase 5: player whose own action started the pending scene change (-1: none or the world)
+    u8 undoValid;    // the undo values below were taken
     s16 transitionEntrance;
     u8 groupDefeat; // every player was downed: the original game over runs for the group
     u8 pad2;
@@ -111,6 +112,28 @@ typedef struct {
     s8 queuedRooms[ZMP_MAX_QUEUED_ROOMS]; // rooms requested while another one was loading
     Room extraRooms[ZMP_MAX_EXTRA_ROOMS];
     ZmpPlayerSlot slots[ZMP_MAX_PLAYERS];
+    // Phase 5 (PLAN.md 2.11): a player who walks out of the scene alone leaves the group. What its exit changed in the
+    // save context is put back on the machines that stay (values of the last tick without a pending scene change).
+    s32 undoRespawnFlag;
+    RespawnData undoRespawn[RESPAWN_MODE_MAX];
+    f32 undoEntranceSpeed;
+    u8 undoNextTransitionType;
+    u8 undoRetainWeather;
+    u8 undoSeqId;
+    u8 undoNatureId;
+    u8 undoHaltAll;
+    u8 pad4[3];
+    // World clock: the server's time adopted at the start of each tick; a time the group set itself (a cutscene) is
+    // kept until the server's clock reports it back.
+    u16 dayAtTickStart;
+    u16 clockHoldValue;
+    s16 clockHoldTicks;
+    u8 clockHold;
+    // Shared game baseline (SharedGame.cpp): what the other groups and the server already know.
+    u8 sharedValid;
+    u16 sharedSize;
+    u8 pad5[6];
+    u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
 #ifdef __cplusplus
@@ -174,8 +197,11 @@ s32 Zmp_LocalHealthCritical(void);
 s32 Zmp_TunicColor(s32 tunic, const Color_RGB8* base, Color_RGB8* out);
 // Kaleido: buffer for the menu's Link preview while it runs for the local menu (NULL otherwise).
 void* Zmp_PauseScratch(void);
-// Play_Update: group scene change with a countdown. Returns 1 while the transition must wait.
+// Play_Update, every tick before the scene change check (phase 5). Returns 0 when a pending scene change must not
+// happen in this simulation: the player who walked out leaves the group and goes on alone on its own machine.
 s32 Zmp_TransitionGate(PlayState* play);
+// z_player.c: this player's own action (an exit, a void, Farore's Wind) started the scene change.
+void Zmp_NoteTransitionBy(Player* player);
 
 // Cameras (phase 4, PLAN.md 2.9, Cameras.cpp). Each player has its own active camera; a sub camera is GLOBAL (every
 // player's active camera while it runs: boss and scripted cutscenes) or belongs to one player (one-point cutscenes:
@@ -313,9 +339,17 @@ int LocalSlot();
 bool Found(int slot);
 // Leaves the multiplayer simulation (session end).
 void Reset();
-// Lockstep events (applied at the start of their tick, before the update).
-void Spawn(int slot);
+// Lockstep events (applied at the start of their tick, before the update). `info`: where and with what the player
+// appears (phase 5, "zmp_spawn ..." from its JOIN_GROUP; empty: next to the entrance with the anchor's equipment).
+void Spawn(int slot, const std::string& info = std::string());
 void Despawn(int slot);
+// Phase 5: this machine's player left the group through a scene change; the other Links stay behind in the old scene
+// and are not brought to the next one.
+void KeepOnlyLocal();
+// Phase 5: "zmp_spawn ..." describing the local player (entrance it arrives by, place, health and block).
+std::string LocalSpawnInfo(int entrance, bool withPlace);
+// Phase 5: number of Play inits so far (a detached client has arrived when a new scene loaded).
+uint32_t PlayInitCount();
 // Per-player input of this tick (pad of the bundle).
 void StepInput(int slot, const OSContPad& pad);
 Player* SlotPlayer(int slot);

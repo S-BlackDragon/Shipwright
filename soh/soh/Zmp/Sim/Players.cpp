@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include "soh/Zmp/ZmpLog.h"
+#include "soh/Zmp/Net/Lockstep.h"
 
 extern "C" {
 #include "variables.h"
@@ -34,7 +35,7 @@ s32 gZmpCameraInterfaceMuted = 0;
 
 namespace {
 
-constexpr u32 kSimMagic = 0x34534D5A; // "ZMS4" (phase 4 layout)
+constexpr u32 kSimMagic = 0x35534D5A; // "ZMS5" (phase 5 layout)
 int sLocalSlot = -1;
 
 // Debug RNG trace (desync hunting): who drew random numbers this tick, in order (run-length compressed).
@@ -371,7 +372,16 @@ extern "C" s32 Zmp_MultiActive(void) {
     return gZmpSim.enabled && gZmpSim.inPlay && Valid(gZmpSim.anchor);
 }
 
+namespace {
+uint32_t sPlayInits = 0;
+}
+
+uint32_t Zmp::Players::PlayInitCount() {
+    return sPlayInits;
+}
+
 extern "C" void Zmp_PlayInitBegin(PlayState* play) {
+    sPlayInits++;
     Zmp::Pause::Reset();
     Zmp::Players::PresentReset();
     if (!gZmpSim.enabled) {
@@ -413,8 +423,8 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.spawningSlot = (s8)anchor;
     gZmpSim.msgOwner = -1;
     gZmpSim.pauseOwner = -1;
-    gZmpSim.transitionArmed = 0;
-    gZmpSim.transitionCountdown = 0;
+    gZmpSim.transitionBy = -1;
+    gZmpSim.undoValid = 0;
     gZmpCtxPlayer = nullptr;
     gZmpSim.inPlay = 1;
     gZmpSim.groupDefeat = 0;
@@ -1001,28 +1011,71 @@ extern "C" s32 Zmp_PauseIsLocal(void) {
     return Zmp_MultiActive();
 }
 
+extern "C" void Zmp_NoteTransitionBy(Player* player) {
+    if (!Zmp_MultiActive() || player == nullptr) {
+        return;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (k >= 0 && gZmpSim.transitionBy < 0) {
+        gZmpSim.transitionBy = (s8)k;
+    }
+}
+
+// Phase 5 (PLAN.md 2.11, docs/DECISIONES.md D-062): no countdown. A scene change started by one player's own action
+// (walking into an exit, a void, Farore's Wind) takes only that player: on its machine the transition goes on and the
+// client leaves the group; on the others its Link disappears and the scene stays. Scene changes of the world (a
+// scripted cutscene, a warp song, the group game over, the blue warp) still take the whole group, which then belongs to
+// the new scene (the client reports it).
 extern "C" s32 Zmp_TransitionGate(PlayState* play) {
-    if (!Zmp_MultiActive() || Zmp::Players::PresentCount() < 2 || play->transitionTrigger != TRANS_TRIGGER_START ||
-        play->transitionMode != TRANS_MODE_OFF || gSaveContext.respawnFlag != 0 ||
-        play->gameOverCtx.state != GAMEOVER_INACTIVE || play->csCtx.state != CS_STATE_IDLE ||
-        gSaveContext.nextCutsceneIndex >= 0xFFF0) {
-        gZmpSim.transitionArmed = 0;
-        gZmpSim.transitionCountdown = 0;
-        return 0;
-    }
-    if (!gZmpSim.transitionArmed) {
-        gZmpSim.transitionArmed = 1;
-        gZmpSim.transitionCountdown = 100; // 5 s
-        gZmpSim.transitionEntrance = play->nextEntranceIndex;
-        Zmp::Log("zmp: group scene change to entrance " + std::to_string(play->nextEntranceIndex) + " in 5 s");
-    }
-    if (gZmpSim.transitionCountdown > 0) {
-        gZmpSim.transitionCountdown--;
-    }
-    if (gZmpSim.transitionCountdown > 0) {
+    if (!Zmp_MultiActive() || play->transitionMode != TRANS_MODE_OFF) {
         return 1;
     }
-    gZmpSim.transitionArmed = 0;
+    if (play->transitionTrigger == TRANS_TRIGGER_OFF) {
+        // What an exit may change in the save context, as it was before any exit (restored if the group stays).
+        gZmpSim.undoRespawnFlag = gSaveContext.respawnFlag;
+        memcpy(gZmpSim.undoRespawn, gSaveContext.respawn, sizeof(gZmpSim.undoRespawn));
+        gZmpSim.undoEntranceSpeed = gSaveContext.entranceSpeed;
+        gZmpSim.undoNextTransitionType = gSaveContext.nextTransitionType;
+        gZmpSim.undoRetainWeather = gSaveContext.retainWeatherMode;
+        gZmpSim.undoSeqId = gSaveContext.seqId;
+        gZmpSim.undoNatureId = gSaveContext.natureAmbienceId;
+        gZmpSim.undoHaltAll = play->haltAllActors;
+        gZmpSim.undoValid = 1;
+        gZmpSim.transitionBy = -1;
+        return 1;
+    }
+    int k = gZmpSim.transitionBy;
+    gZmpSim.transitionBy = -1;
+    gZmpSim.transitionEntrance = play->nextEntranceIndex;
+    bool own = Present(k) && play->gameOverCtx.state == GAMEOVER_INACTIVE && play->csCtx.state == CS_STATE_IDLE &&
+               !gZmpSim.globalCs && !gZmpSim.groupDefeat && gSaveContext.nextCutsceneIndex < 0xFFF0 &&
+               Zmp::Lockstep::SceneGroups();
+    if (!own) {
+        Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));
+        return 1;
+    }
+    if (k == sLocalSlot) {
+        // This machine's player leaves: the transition happens here, the others stay where they are.
+        Zmp::Log("zmp: this player leaves the group through entrance " + std::to_string(play->nextEntranceIndex));
+        Zmp::Players::KeepOnlyLocal();
+        Zmp::Lockstep::DetachForTransition(play->nextEntranceIndex);
+        return 1;
+    }
+    // Another player leaves: its Link goes away, the scene and everything the exit touched stay as they were.
+    play->transitionTrigger = TRANS_TRIGGER_OFF;
+    if (gZmpSim.undoValid) {
+        gSaveContext.respawnFlag = gZmpSim.undoRespawnFlag;
+        memcpy(gSaveContext.respawn, gZmpSim.undoRespawn, sizeof(gZmpSim.undoRespawn));
+        gSaveContext.entranceSpeed = gZmpSim.undoEntranceSpeed;
+        gSaveContext.nextTransitionType = gZmpSim.undoNextTransitionType;
+        gSaveContext.retainWeatherMode = gZmpSim.undoRetainWeather;
+        gSaveContext.seqId = gZmpSim.undoSeqId;
+        gSaveContext.natureAmbienceId = gZmpSim.undoNatureId;
+        play->haltAllActors = gZmpSim.undoHaltAll;
+    }
+    Zmp::Log("zmp: slot " + std::to_string(k) + " leaves the scene through entrance " +
+             std::to_string(play->nextEntranceIndex) + " (its Link goes away here)");
+    Zmp::Players::Despawn(k);
     return 0;
 }
 
@@ -1234,6 +1287,22 @@ bool Found(int slot) {
         return false;
     }
     Player* player = (Player*)play->actorCtx.actorLists[ACTORCAT_PLAYER].head;
+    if (gZmpSim.enabled && gZmpSim.inPlay && Present(sLocalSlot)) {
+        // A client that was already in a multiplayer game (server restart, regroup): its own Link founds the new
+        // simulation with its own block; the other Links it still had are gone.
+        int L = sLocalSlot;
+        SwitchTo(play, L);
+        player = Slot(L).player;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (k != L && Present(k)) {
+                Player* p = Slot(k).player;
+                if (p->naviActor != nullptr) {
+                    Actor_Kill(p->naviActor);
+                }
+                Actor_Kill(&p->actor);
+            }
+        }
+    }
     if (player == nullptr) {
         return false;
     }
@@ -1294,11 +1363,142 @@ void Reset() {
     Zmp::Pause::Reset();
 }
 
-void Spawn(int slot) {
+namespace {
+// "zmp_spawn entrance place x y z yaw room health block..." (LocalSpawnInfo); block = magic b0..b7 c0..c6 equipment
+// ammo0..15 bottle0..3.
+struct SpawnInfo {
+    bool valid = false;
+    int entrance = -1;
+    bool place = false;
+    Vec3f pos = {};
+    s16 yaw = 0;
+    int room = -1;
+    int health = 0;
+    ZmpPlayerBlock block = {};
+};
+
+SpawnInfo ParseSpawnInfo(const std::string& info) {
+    SpawnInfo si;
+    if (info.rfind("zmp_spawn ", 0) != 0) {
+        return si;
+    }
+    std::vector<int> v;
+    size_t pos = 10;
+    while (pos < info.size()) {
+        size_t next = info.find(' ', pos);
+        std::string tok = info.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        if (!tok.empty()) {
+            v.push_back(atoi(tok.c_str()));
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+    }
+    if (v.size() != 45) {
+        return si;
+    }
+    si.valid = true;
+    si.entrance = v[0];
+    si.place = v[1] != 0;
+    si.pos = { (f32)v[2], (f32)v[3], (f32)v[4] };
+    si.yaw = (s16)v[5];
+    si.room = v[6];
+    si.health = v[7];
+    ZmpPlayerBlock& b = si.block;
+    b.magic = (s8)v[8];
+    for (int i = 0; i < 8; i++) {
+        b.equips.buttonItems[i] = (u8)v[9 + i];
+    }
+    for (int i = 0; i < 7; i++) {
+        b.equips.cButtonSlots[i] = (u8)v[17 + i];
+    }
+    b.equips.equipment = (u16)v[24];
+    for (int i = 0; i < 16; i++) {
+        b.ammo[i] = (s8)v[25 + i];
+    }
+    for (int i = 0; i < 4; i++) {
+        b.bottles[i] = (u8)v[41 + i];
+    }
+    return si;
+}
+
+bool RoomLoaded(PlayState* play, int room) {
+    for (int r : Zmp::Players::LoadedRooms(play)) {
+        if (r == room) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+std::string LocalSpawnInfo(int entrance, bool withPlace) {
+    ZmpPlayerBlock b{};
+    Vec3f pos = {};
+    s16 yaw = 0;
+    int room = -1;
+    int health = 0;
+    int L = sLocalSlot;
+    if (Zmp_MultiActive() && Present(L)) {
+        b = SlotBlock(L);
+        health = SlotHealth(L);
+        Player* p = Slot(L).player;
+        pos = p->actor.world.pos;
+        yaw = p->actor.shape.rot.y;
+        room = Slot(L).room;
+    } else {
+        SaveToBlock(b);
+        health = gSaveContext.health;
+        Player* p = gPlayState != nullptr ? (Player*)gPlayState->actorCtx.actorLists[ACTORCAT_PLAYER].head : nullptr;
+        if (p != nullptr) {
+            pos = p->actor.world.pos;
+            yaw = p->actor.shape.rot.y;
+            room = gPlayState->roomCtx.curRoom.num;
+        } else {
+            withPlace = false;
+        }
+    }
+    char head[128];
+    snprintf(head, sizeof(head), "zmp_spawn %d %d %d %d %d %d %d %d", entrance, withPlace ? 1 : 0, (int)pos.x,
+             (int)pos.y, (int)pos.z, (int)yaw, room, health);
+    std::string s = head;
+    s += " " + std::to_string(b.magic);
+    for (int i = 0; i < 8; i++) {
+        s += " " + std::to_string(b.equips.buttonItems[i]);
+    }
+    for (int i = 0; i < 7; i++) {
+        s += " " + std::to_string(b.equips.cButtonSlots[i]);
+    }
+    s += " " + std::to_string(b.equips.equipment);
+    for (int i = 0; i < 16; i++) {
+        s += " " + std::to_string(b.ammo[i]);
+    }
+    for (int i = 0; i < 4; i++) {
+        s += " " + std::to_string(b.bottles[i]);
+    }
+    return s;
+}
+
+void KeepOnlyLocal() {
+    // The other Links stay in the scene being left (standing still until it unloads) and are not spawned in the next
+    // one: only this machine's player is active.
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k != sLocalSlot) {
+            Slot(k).active = 0;
+        }
+    }
+    if (gZmpSim.msgOwner != sLocalSlot) {
+        gZmpSim.msgOwner = -1;
+    }
+}
+
+void Spawn(int slot, const std::string& infoText) {
     PlayState* play = gPlayState;
     if (!Valid(slot) || play == nullptr || !Zmp_MultiActive()) {
         return;
     }
+    SpawnInfo info = ParseSpawnInfo(infoText);
     ZmpPlayerSlot& s = Slot(slot);
     if (Present(slot)) {
         return;
@@ -1325,33 +1525,70 @@ void Spawn(int slot) {
     s.block.nayrusLoveTimer = 0;
     for (int i = 0; i < 4; i++) {
         if (s.block.bottles[i] != ITEM_NONE) {
-            s.block.bottles[i] = ITEM_BOTTLE;
+            // having a bottle is shared (an empty one); a player who comes from another group keeps its contents
+            u8 own = info.valid ? info.block.bottles[i] : (u8)ITEM_NONE;
+            s.block.bottles[i] = own != ITEM_NONE ? own : (u8)ITEM_BOTTLE;
+        }
+    }
+    if (info.valid) {
+        // Phase 5: the player keeps its own health, magic, equipment, buttons and ammo from the group it left.
+        s.block.magic = (s8)MIN((s16)info.block.magic, magicFull);
+        s.block.magicFillTarget = s.block.magic;
+        s.block.equips = info.block.equips;
+        memcpy(s.block.ammo, info.block.ammo, sizeof(s.block.ammo));
+        if (info.health > 0) {
+            s.block.health = (s16)MIN(info.health, (int)gSaveContext.healthCapacity);
+        } else {
+            s.block.health = (s16)MIN(0x30, (int)gSaveContext.healthCapacity);
         }
     }
     FixBottleButtons(s.block);
     ActorEntry* entry = play->linkActorEntry;
     Vec3f base = { (f32)entry->pos.x, (f32)entry->pos.y, (f32)entry->pos.z };
     s16 yaw = entry->rot.y;
-    // Next to the entrance of the scene, standing (start mode "idle"), no start camera. When the entrance's room is
-    // no longer loaded (the group moved on), next to the anchor instead.
     int entranceRoom = play->setupEntranceList[play->curSpawn].room;
-    bool entranceLoaded = false;
-    for (int r : LoadedRooms(play)) {
-        entranceLoaded = entranceLoaded || r == entranceRoom;
+    int n = slot + 1;
+    const char* where = "the group's entrance";
+    if (info.valid && info.place && RoomLoaded(play, info.room)) {
+        // Where it was (a reconnection, a group that moved into this scene).
+        base = info.pos;
+        yaw = info.yaw;
+        entranceRoom = info.room;
+        n = 0;
+        where = "its own place";
+    } else if (info.valid && info.entrance >= 0) {
+        // The door it came through (phase 5): that entrance's spawn point in this scene.
+        int e = info.entrance + gSaveContext.sceneLayer;
+        if (e >= 0 && e < ENTR_MAX && gEntranceTable[e].scene == play->sceneNum && play->linkActorEntry != nullptr) {
+            int spawnIdx = gEntranceTable[e].spawn;
+            ActorEntry* list = play->linkActorEntry - play->setupEntranceList[play->curSpawn].spawn;
+            ActorEntry* sp = &list[play->setupEntranceList[spawnIdx].spawn];
+            base = { (f32)sp->pos.x, (f32)sp->pos.y, (f32)sp->pos.z };
+            yaw = sp->rot.y;
+            entranceRoom = play->setupEntranceList[spawnIdx].room;
+            n = 0;
+            where = "its entrance";
+        }
     }
+    // Standing (start mode "idle"), no start camera. When that room is no longer loaded (the group moved on), next to
+    // the anchor instead.
+    bool entranceLoaded = RoomLoaded(play, entranceRoom);
     int spawnRoom = entranceRoom;
     if (!entranceLoaded && Present(gZmpSim.anchor)) {
         Player* a = Slot(gZmpSim.anchor).player;
         base = a->actor.world.pos;
         yaw = a->actor.shape.rot.y;
         spawnRoom = Slot(gZmpSim.anchor).room;
+        n = slot + 1;
+        where = "next to the anchor";
     }
-    Vec3f pos = SafeSpawnPos(play, base, yaw, slot + 1);
+    Vec3f pos = SafeSpawnPos(play, base, yaw, n);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
     Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, play->mainCamera.camDataIdx);
     s.room = (s16)spawnRoom;
-    Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED"));
+    Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED") + " at " + where +
+        (info.valid ? " (block from its previous group)" : ""));
 }
 
 void Despawn(int slot) {

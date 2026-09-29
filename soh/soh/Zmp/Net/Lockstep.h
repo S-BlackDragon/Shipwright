@@ -12,7 +12,9 @@
 
 namespace Zmp::Lockstep {
 
-enum class Phase { Idle, WaitingGroup, Joining, Running };
+// Detached (phase 5): this client's player walked out of its group's scene alone. Its game goes on by itself through
+// the scene change while it asks the server for the group of the destination (or founds it once it has arrived).
+enum class Phase { Idle, WaitingGroup, Joining, Running, Detached };
 
 struct SlotInfo {
     int slot = -1;
@@ -21,6 +23,15 @@ struct SlotInfo {
     int rtt = -1;
     bool leader = false;
     uint32_t id = 0;
+    int scene = -1;     // phase 5: scene of the player's group (-1 unknown)
+    uint32_t group = 0; // phase 5: its group (0: none)
+};
+
+// "X ha entrado en <scene>" (phase 5, presentation).
+struct SceneNotice {
+    std::string name;
+    int scene = -1;
+    double age = 0; // seconds
 };
 
 struct Status {
@@ -41,7 +52,18 @@ struct Status {
     uint32_t groupTick = 0; // last tick emitted by the server
     std::string lastError;
     std::vector<SlotInfo> players;
-    int countdown = 0;        // group scene change countdown (ticks)
+    int countdown = 0;       // phase 2-4 group scene change countdown; always 0 since phase 5
+    uint32_t groupId = 0;    // phase 5: this client's group
+    int groupScene = -1;     // phase 5: scene of this client's group
+    int detachScene = -1;    // phase 5: scene this client is heading to while detached
+    bool freeRun = false;    // phase 5: the local game runs on its own (detached, or joining after a detach)
+    bool ownsSave = false;   // phase 5: this PC writes the save file (the player who started the room's game)
+    uint32_t sharedSent = 0; // phase 5: patches of the shared game sent / received from other groups
+    uint32_t sharedApplied = 0;
+    std::string lastShared;  // description of the last patch received
+    uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
+    int lastJoinMs = -1;     // phase 5: time from leaving a scene to playing in the next group (ms)
+    std::vector<SceneNotice> sceneNotices;
     std::string endNotice;    // "X ha terminado la partida" for 15 s after a group game over "no" (D-058)
     bool saveSkipped = false; // this machine skipped a save in the last 3 s (not the leader)
 };
@@ -70,6 +92,13 @@ void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd);
 void SaveGroupBlocks(int fileNum);
 // True while this client's pause menu is open: its input to the group is neutral (PLAN.md 2.7).
 void SetLocalInputBlocked(bool blocked);
+// Phase 5: the local player walked out of the scene alone (Zmp_TransitionGate): leave the group, let the scene change
+// happen here and enter (or found) the group of the destination.
+void DetachForTransition(int entrance);
+// Phase 5: groups are per scene (protocol 3). Always true in this build while in a group.
+bool SceneGroups();
+// Scene name for the player list and notices (Spanish for the common ones).
+std::string SceneName(int scene);
 
 Status GetStatus();
 bool Active();

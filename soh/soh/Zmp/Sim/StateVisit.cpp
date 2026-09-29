@@ -241,7 +241,11 @@ void VisitZmp(Visitor& v) {
     v.S("ctx", gZmpSim.ctx);
     v.S("msg_owner", gZmpSim.msgOwner);
     v.S("pause_owner", gZmpSim.pauseOwner);
-    v.S("transition_countdown", gZmpSim.transitionCountdown);
+    v.S("transition_by", gZmpSim.transitionBy);
+    v.U("clock_hold", gZmpSim.clockHold);
+    v.U("clock_hold_value", gZmpSim.clockHoldValue);
+    v.U("shared_valid", gZmpSim.sharedValid);
+    v.Bytes("shared_base", gZmpSim.sharedBase, gZmpSim.sharedValid ? gZmpSim.sharedSize : 0);
     v.U("group_defeat", gZmpSim.groupDefeat);
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
     v.S("last_magic_capacity", gZmpSim.lastMagicCapacity);

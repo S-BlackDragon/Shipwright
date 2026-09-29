@@ -702,9 +702,9 @@ void Play_Update(PlayState* play) {
     gSegments[2] = VIRTUAL_TO_PHYSICAL(play->sceneSegment);
 
     if (FrameAdvance_Update(&play->frameAdvCtx, &input[1])) {
-        // ZMP: with several players a scene change waits for a group countdown (provisional, phase 2)
-        if ((play->transitionMode == TRANS_MODE_OFF) && (play->transitionTrigger != TRANS_TRIGGER_OFF) &&
-            !Zmp_TransitionGate(play)) {
+        // ZMP: a player who walks out alone leaves the group; the others stay (phase 5, no countdown)
+        if ((play->transitionMode == TRANS_MODE_OFF) && Zmp_TransitionGate(play) &&
+            (play->transitionTrigger != TRANS_TRIGGER_OFF)) {
             play->transitionMode = TRANS_MODE_SETUP;
         }
 

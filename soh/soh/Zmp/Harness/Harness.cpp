@@ -33,6 +33,7 @@
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/Zmp/Net/Lockstep.h"
 #include "soh/Zmp/Net/Autosave.h"
+#include "soh/Zmp/Net/SharedGame.h"
 #include "soh/Zmp/Ui/ZmpWindow.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -44,6 +45,7 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
+extern u16 gTimeSpeed;
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
 void Opening_Main(GameState* thisx);
@@ -345,8 +347,17 @@ json LockstepJson() {
     auto ls = Zmp::Lockstep::GetStatus();
     json players = json::array();
     for (auto& p : ls.players) {
-        players.push_back(
-            { { "slot", p.slot }, { "name", p.name }, { "state", p.state }, { "rtt", p.rtt }, { "leader", p.leader } });
+        players.push_back({ { "slot", p.slot },
+                            { "name", p.name },
+                            { "state", p.state },
+                            { "rtt", p.rtt },
+                            { "leader", p.leader },
+                            { "scene", p.scene },
+                            { "group", p.group } });
+    }
+    json notices = json::array();
+    for (auto& n : ls.sceneNotices) {
+        notices.push_back({ { "name", n.name }, { "scene", n.scene }, { "age", n.age } });
     }
     return { { "phase", Zmp::Lockstep::PhaseName(ls.phase) },
              { "slot", ls.slot },
@@ -371,6 +382,19 @@ json LockstepJson() {
              { "game_over_chooser", Zmp::Lockstep::GameOverChooser() },
              { "end_notice", ls.endNotice },
              { "save_skipped", ls.saveSkipped },
+             // Phase 5: groups per scene, shared game, world clock.
+             { "group", ls.groupId },
+             { "group_scene", ls.groupScene },
+             { "detach_scene", ls.detachScene },
+             { "free_run", ls.freeRun },
+             { "owns_save", ls.ownsSave },
+             { "shared_sent", ls.sharedSent },
+             { "shared_applied", ls.sharedApplied },
+             { "last_shared", ls.lastShared },
+             { "group_joins", ls.groupJoins },
+             { "last_join_ms", ls.lastJoinMs },
+             { "clock_hold", gZmpSim.clockHold },
+             { "scene_notices", notices },
              { "players", players } };
 }
 
@@ -590,6 +614,52 @@ void Dispatch(const RequestPtr& req) {
             resp["slot_rooms"] = slotRooms;
         }
         req->Reply(resp);
+    } else if (name == "query.shared") {
+        // Phase 5: the shared game (what every group must agree on once the patches arrived) and the world clock.
+        std::vector<uint8_t> snap = SharedGame::Snapshot();
+        uint64_t h = 1469598103934665603ull;
+        for (uint8_t b : snap) {
+            h = (h ^ b) * 1099511628211ull;
+        }
+        int scene = cmd.value("scene", InPlay() ? (int)gPlayState->sceneNum : 0);
+        json flags = json::object();
+        if (scene >= 0 && scene < (int)ARRAY_COUNT(gSaveContext.sceneFlags)) {
+            const SavedSceneFlags& f = gSaveContext.sceneFlags[scene];
+            flags = { { "chest", f.chest }, { "swch", f.swch }, { "clear", f.clear }, { "collect", f.collect } };
+            if (InPlay() && gPlayState->sceneNum == scene) {
+                flags["live_chest"] = gPlayState->actorCtx.flags.chest;
+                flags["live_swch"] = gPlayState->actorCtx.flags.swch;
+                flags["live_clear"] = gPlayState->actorCtx.flags.clear;
+                flags["live_collect"] = gPlayState->actorCtx.flags.collect;
+            }
+        }
+        json ev = json::array();
+        for (int i = 0; i < 14; i++) {
+            ev.push_back(gSaveContext.eventChkInf[i]);
+        }
+        auto base = SharedGame::Baseline();
+        uint64_t bh = 1469598103934665603ull;
+        for (uint8_t b : base) {
+            bh = (bh ^ b) * 1099511628211ull;
+        }
+        req->Reply(
+            { { "ok", true },
+              { "hash", Hex(h) },
+              { "baseline_hash", base.empty() ? json(nullptr) : json(Hex(bh)) },
+              { "size", snap.size() },
+              { "layout", SharedGame::LayoutHash() },
+              { "rupees", gSaveContext.rupees },
+              { "health_capacity", gSaveContext.healthCapacity },
+              { "gs_tokens", gSaveContext.inventory.gsTokens },
+              { "items", json(std::vector<int>(gSaveContext.inventory.items, gSaveContext.inventory.items + 24)) },
+              { "upgrades", gSaveContext.inventory.upgrades },
+              { "quest_items", gSaveContext.inventory.questItems },
+              { "event_chk_inf", ev },
+              { "scene", scene },
+              { "scene_flags", flags },
+              { "day_time", gSaveContext.dayTime },
+              { "night", gSaveContext.nightFlag },
+              { "time_speed", (int)gTimeSpeed } });
     } else if (name == "query.transitions") {
         // Phase 4: the scene's transition actors (doors and loading planes between rooms).
         json list = json::array();

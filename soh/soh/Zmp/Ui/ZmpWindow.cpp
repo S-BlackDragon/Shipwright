@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <string>
 
 #include <imgui.h>
@@ -180,8 +181,14 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
             color = IM_COL32(255, 230, 120, 255);
             break;
         case Lockstep::Phase::Joining:
-            line = "Entrando en la partida del grupo...";
+            line = ls.freeRun ? "Entrando en " + Lockstep::SceneName(ls.detachScene) + "..."
+                              : std::string("Entrando en la partida del grupo...");
             color = IM_COL32(255, 230, 120, 255);
+            break;
+        case Lockstep::Phase::Detached:
+            // Phase 5: on the way to another scene (no countdown: nobody waits for anybody).
+            line = "Entrando en " + Lockstep::SceneName(ls.detachScene) + "...";
+            color = IM_COL32(170, 220, 255, 255);
             break;
         case Lockstep::Phase::Running: {
             std::string me = Lockstep::SlotName(ls.slot);
@@ -204,10 +211,30 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
         CenteredLine(mid, "Esperando a " + who + "...", IM_COL32(255, 230, 120, 255), 1.4f);
         mid += big;
     }
-    if (ls.countdown > 0) {
-        int secs = (ls.countdown + 19) / 20;
-        CenteredLine(mid, "Cambio de zona en " + std::to_string(secs) + " s", IM_COL32(140, 200, 255, 255), 1.4f);
-        mid += big;
+    if (ls.phase == Lockstep::Phase::Running) {
+        // Phase 5: who plays in another scene, and who just arrived somewhere.
+        std::map<int, std::string> elsewhere;
+        std::string me = Client::Get().GetStatus().name;
+        for (auto& p : ls.players) {
+            if (p.name == me || p.group == 0 || p.group == ls.groupId || p.state == "disconnected") {
+                continue;
+            }
+            std::string& names = elsewhere[p.scene];
+            names += (names.empty() ? "" : ", ") + p.name;
+        }
+        float lineH = ImGui::GetFontSize() * 0.9f + 6.0f;
+        float ly = y + lineH + 2.0f;
+        for (auto& [scene, names] : elsewhere) {
+            CenteredLine(ly, names + ": " + Lockstep::SceneName(scene), IM_COL32(190, 210, 255, 230), 0.85f);
+            ly += lineH;
+        }
+        for (auto& n : ls.sceneNotices) {
+            if (n.age < 4.0 && n.name != me) {
+                CenteredLine(mid, n.name + " ha entrado en " + Lockstep::SceneName(n.scene),
+                             IM_COL32(170, 220, 255, 255), 1.1f);
+                mid += big;
+            }
+        }
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
         DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
@@ -222,8 +249,8 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
             CenteredLine(vp->Pos.y + vp->Size.y * 0.80f, "Solo el anfitrion guarda la partida",
                          IM_COL32(255, 230, 150, 255), 1.1f);
         }
-        // Phase 4: "Guardado" for 2 s on the leader's screen after an autosave (D-054).
-        if (ls.leader && Autosave::SecondsSinceSave() < 2.0) {
+        // Phase 4: "Guardado" for 2 s on the screen of the PC that wrote the autosave (D-054; phase 5: the save owner).
+        if (Autosave::SecondsSinceSave() < 2.0) {
             ImDrawList* sdl = ImGui::GetForegroundDrawList(vp);
             float fs = ImGui::GetFontSize() * 1.0f;
             ImVec2 sp(vp->Pos.x + vp->Size.x - fs * 6.0f, vp->Pos.y + vp->Size.y - fs * 2.2f);
@@ -369,6 +396,23 @@ void RoomWindow::DrawConnectionForm() {
     }
     ImGui::EndDisabled();
 
+    // Phase 5: whom to join when connecting (empty: the group of your scene, or the biggest one), and starting the
+    // room over with your own game (the room keeps its game on the server).
+    std::string follow = CVarGetString(ZMP_CVAR_FOLLOW, "");
+    ImGui::BeginDisabled(active);
+    ImGui::Text("Unirse a (nombre de un jugador, opcional)");
+    if (UIWidgets::InputString("##ZmpFollow", &follow)) {
+        CVarSetString(ZMP_CVAR_FOLLOW, follow.c_str());
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+    bool overwrite = CVarGetInteger(ZMP_CVAR_OVERWRITE_ROOM_GAME, 0) != 0;
+    if (ImGui::Checkbox("Empezar la sala con mi partida (borra el progreso guardado de esta sala en el servidor)",
+                        &overwrite)) {
+        CVarSetInteger(ZMP_CVAR_OVERWRITE_ROOM_GAME, overwrite ? 1 : 0);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+    ImGui::EndDisabled();
+
     bool valid = !host.empty() && port > 0 && port < 65536 && !room.empty() && !name.empty();
     if (!active) {
         ImGui::BeginDisabled(!valid);
@@ -388,12 +432,17 @@ void RoomWindow::DrawConnectionForm() {
         if (ls.phase == Lockstep::Phase::Running) {
             ImGui::Text("Tick %u | esperas >250 ms: %u | resincronizaciones: %u", ls.tick, ls.stalls, ls.resyncsSeen);
         }
-        if (ImGui::BeginTable("##ZmpPlayers", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        if (ImGui::BeginTable("##ZmpPlayers", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
             ImGui::TableSetupColumn("Jugador");
             ImGui::TableSetupColumn("Estado");
+            ImGui::TableSetupColumn("Zona");
             ImGui::TableSetupColumn("RTT");
             ImGui::TableSetupColumn("");
             ImGui::TableHeadersRow();
+            std::map<std::string, Lockstep::SlotInfo> zones;
+            for (auto& z : ls.players) {
+                zones[z.name] = z;
+            }
             for (auto& p : st.players) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
@@ -411,13 +460,22 @@ void RoomWindow::DrawConnectionForm() {
                                                                 : "en sala";
                 ImGui::Text("%s", state);
                 ImGui::TableNextColumn();
+                auto zit = zones.find(p.name);
+                if (zit != zones.end() && zit->second.scene >= 0) {
+                    bool other = zit->second.group != 0 && zit->second.group != ls.groupId;
+                    std::string zone = Lockstep::SceneName(zit->second.scene) + (other && !me ? " (otra zona)" : "");
+                    ImGui::Text("%s", zone.c_str());
+                } else {
+                    ImGui::Text("-");
+                }
+                ImGui::TableNextColumn();
                 if (p.rtt >= 0) {
                     ImGui::Text("%d ms", p.rtt);
                 } else {
                     ImGui::Text("-");
                 }
                 ImGui::TableNextColumn();
-                ImGui::Text("%s", p.leader ? "lider" : "");
+                ImGui::Text("%s", zit != zones.end() && zit->second.leader ? "lider" : "");
             }
             ImGui::EndTable();
         }

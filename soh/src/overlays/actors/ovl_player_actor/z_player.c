@@ -4790,6 +4790,7 @@ s32 func_808382DC(Player* this, PlayState* play) {
             Player_PlayVoiceSfx(this, NA_SE_VO_LI_TAKEN_AWAY);
             play->haltAllActors = true;
             Sfx_PlaySfxCentered(NA_SE_OC_ABYSS);
+            Zmp_NoteTransitionBy(this); // ZMP: only this player respawns (phase 5)
         } else if ((this->knockbackType != PLAYER_KNOCKBACK_NONE) &&
                    ((this->knockbackType >= PLAYER_KNOCKBACK_LARGE) || (this->invincibilityTimer == 0))) {
             u8 knockbackResponse[] = {
@@ -5156,6 +5157,7 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
                     Play_TriggerVoidOut(play);
                 }
                 Scene_SetTransitionForNextEntrance(play);
+                Zmp_NoteTransitionBy(this); // ZMP: only this player respawns (phase 5)
             } else {
                 play->nextEntranceIndex = play->setupExitList[exitIndex - 1];
 
@@ -5197,6 +5199,7 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
                     Scene_SetTransitionForNextEntrance(play);
                 }
                 play->transitionTrigger = TRANS_TRIGGER_START;
+                Zmp_NoteTransitionBy(this); // ZMP: this player walked out (phase 5: only it leaves the scene)
             }
 
             if (!(this->stateFlags1 & (PLAYER_STATE1_ON_HORSE | PLAYER_STATE1_IN_CUTSCENE)) &&
@@ -5206,7 +5209,9 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
 
                 if (temp == 11) {
                     Sfx_PlaySfxCentered2(NA_SE_OC_SECRET_HOLE_OUT);
-                    func_800F6964(5);
+                    if (Zmp_IsLocalAudioPlayer(this)) { // ZMP: the music fades only for the player who leaves
+                        func_800F6964(5);
+                    }
                     gSaveContext.seqId = (u8)NA_BGM_DISABLED;
                     gSaveContext.natureAmbienceId = NATURE_ID_DISABLED;
                 } else {
@@ -5256,6 +5261,7 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
                         } else if (GameInteractor_Should(VB_TRIGGER_VOIDOUT, true, this)) {
                             Play_TriggerVoidOut(play);
                         }
+                        Zmp_NoteTransitionBy(this); // ZMP: only this player respawns (phase 5)
                         play->transitionType = TRANS_TYPE_FADE_BLACK_FAST;
                         Sfx_PlaySfxCentered(NA_SE_OC_ABYSS);
                     } else {
@@ -14831,6 +14837,7 @@ void Player_Action_8084F88C(Player* this, PlayState* play) {
         }
 
         play->transitionTrigger = TRANS_TRIGGER_START;
+        Zmp_NoteTransitionBy(this); // ZMP: only this player respawns (phase 5)
     }
 }
 
@@ -15175,6 +15182,7 @@ void Player_Action_8085063C(Player* this, PlayState* play) {
         if (play->msgCtx.choiceIndex == 0) { // Returns to FW
             gSaveContext.respawnFlag = 3;
             play->transitionTrigger = TRANS_TRIGGER_START;
+            Zmp_NoteTransitionBy(this); // ZMP: only this player warps (phase 5)
             play->nextEntranceIndex = gSaveContext.respawn[RESPAWN_MODE_TOP].entranceIndex;
             play->transitionType = TRANS_TYPE_FADE_WHITE_FAST;
             Interface_SetSubTimerToFinalSecond(play);
