@@ -759,9 +759,11 @@ s32 Camera_CopyPREGToModeValues(Camera* camera) {
 void Camera_UpdateInterface(s16 flags) {
     s16 interfaceAlpha;
 
-    // ZMP: with one main camera per player only the anchor's camera drives the letterbox and the HUD
-    // visibility (otherwise every camera overrides it each tick and the HUD flickers)
+    // ZMP: in multiplayer a player's own cameras (its main camera, its private cutscene cameras) only drive that
+    // player's letterbox and HUD, drawn on its own screen (soh/soh/Zmp/Sim/Present.cpp); the shared ones are driven
+    // by the cutscenes everybody watches
     if (gZmpCameraInterfaceMuted) {
+        Zmp_RecordCameraInterface(gZmpCameraInterfaceMuted - 1, flags);
         return;
     }
 
@@ -797,6 +799,18 @@ void Camera_UpdateInterface(s16 flags) {
             sCameraInterfaceAlpha = interfaceAlpha;
             Interface_ChangeHudVisibilityMode(sCameraInterfaceAlpha);
         }
+    }
+}
+
+// ZMP: a cutscene everybody watches starts or ends: the cached interface values are forgotten (the next global camera
+// sets its letterbox and HUD again), and at the end the shared letterbox and HUD go back to normal (the players' own
+// cameras do not drive them in multiplayer).
+void Camera_ZmpResetInterface(s32 end) {
+    sCameraShrinkWindowVal = 0;
+    sCameraInterfaceAlpha = 0;
+    if (end) {
+        Letterbox_SetSizeTarget(0);
+        Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_ALL);
     }
 }
 

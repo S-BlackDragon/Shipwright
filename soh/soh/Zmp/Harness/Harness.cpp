@@ -536,6 +536,12 @@ void Dispatch(const RequestPtr& req) {
             resp["local_light"] = Zmp::Players::LocalLightSetting();
             resp["sim_light"] = gPlayState->envCtx.unk_BD;
             resp["env_indoors"] = gPlayState->envCtx.indoors;
+            resp["local_letterbox"] = Zmp::Players::LocalLetterbox();
+            resp["shared_letterbox"] = (int)ShrinkWindow_GetCurrentVal();
+            resp["local_hud_mode"] = Zmp::Players::LocalHudMode();
+            resp["shared_hud_mode"] = gSaveContext.hudVisibilityMode;
+            resp["do_action"] = gPlayState->interfaceCtx.unk_1F0;
+            resp["fill_screen"] = gPlayState->envCtx.fillScreen;
             resp["num_light_settings"] = gPlayState->envCtx.numLightSettings;
             resp["local_slot"] = Zmp::Players::LocalSlot();
             {

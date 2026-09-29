@@ -1719,7 +1719,7 @@ void func_80832630(PlayState* play) {
 }
 
 void Player_RequestRumble(Player* this, s32 sourceStrength, s32 duration, s32 decreaseRate, s32 distSq) {
-    if (this->actor.category == ACTORCAT_PLAYER) {
+    if ((this->actor.category == ACTORCAT_PLAYER) && Zmp_IsLocalAudioPlayer(this)) { // ZMP: the local controller only
         Rumble_Request(distSq, sourceStrength, duration, decreaseRate);
     }
 }
@@ -11116,17 +11116,20 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
             }
         }
 
-        Interface_SetDoAction(play, doAction);
+        // ZMP: the A button label and Navi's call are the local player's (presentation)
+        if (Zmp_IsLocalAudioPlayer(this)) {
+            Interface_SetDoAction(play, doAction);
 
-        if (this->stateFlags2 & PLAYER_STATE2_NAVI_ALERT) {
-            if (this->focusActor != NULL) {
+            if (this->stateFlags2 & PLAYER_STATE2_NAVI_ALERT) {
+                if (this->focusActor != NULL) {
+                    Interface_SetNaviCall(play, 0x1E);
+                } else {
+                    Interface_SetNaviCall(play, 0x1D);
+                }
                 Interface_SetNaviCall(play, 0x1E);
             } else {
-                Interface_SetNaviCall(play, 0x1D);
+                Interface_SetNaviCall(play, 0x1F);
             }
-            Interface_SetNaviCall(play, 0x1E);
-        } else {
-            Interface_SetNaviCall(play, 0x1F);
         }
     }
 }

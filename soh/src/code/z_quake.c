@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -150,9 +151,19 @@ s16 Quake_GetFreeIndex(void) {
     return ret;
 }
 
+// ZMP: in multiplayer every player's main camera is camera 0: a quake a player caused (owner) shakes only that player's
+// camera, a quake of the world (owner -1) every camera; and a quake advances once per tick whatever the number of
+// cameras that apply it.
+static s32 sZmpQuakeOwner[4] = { -1, -1, -1, -1 };
+static u32 sZmpQuakeFrame[4];
+static ShakeInfo sZmpQuakeShake[4];
+
 QuakeRequest* Quake_AddImpl(Camera* cam, u32 callbackIdx) {
     s16 idx = Quake_GetFreeIndex();
     QuakeRequest* req = &sQuakeRequest[idx];
+
+    sZmpQuakeOwner[idx] = Zmp_QuakeOwner(); // ZMP
+    sZmpQuakeFrame[idx] = 0xFFFFFFFF;       // ZMP
 
     memset(req, 0, sizeof(QuakeRequest));
     req->cam = cam;
@@ -349,10 +360,22 @@ s16 Quake_Calc(Camera* camera, QuakeCamCalc* camData) {
                              req->camPtrIdx);
                 Quake_Remove(req);
             } else {
+                s16 zmpAlive;
                 temp = &camera->thisIdx;
                 eq = req->cam->thisIdx != *temp;
+                if (!Zmp_QuakeShakesCamera(sZmpQuakeOwner[idx], camera)) { // ZMP: another player's quake
+                    continue;
+                }
                 absSpeedDiv = ABS(req->speed) / (f32)0x8000;
-                if (sQuakeCallbacks[req->callbackIdx](req, &shake) == 0) {
+                if (Zmp_MultiActive() && sZmpQuakeFrame[idx] == play->gameplayFrames) { // ZMP: once per tick
+                    shake = sZmpQuakeShake[idx];
+                    zmpAlive = 1;
+                } else {
+                    zmpAlive = sQuakeCallbacks[req->callbackIdx](req, &shake);
+                    sZmpQuakeFrame[idx] = play->gameplayFrames; // ZMP
+                    sZmpQuakeShake[idx] = shake;                // ZMP
+                }
+                if (zmpAlive == 0) {
                     Quake_Remove(req);
                 } else if (eq == 0) {
                     if (fabsf(camData->atOffset.x) < fabsf(shake.vec1.x)) {

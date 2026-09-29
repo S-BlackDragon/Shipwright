@@ -1955,7 +1955,8 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList, Ve
                     Matrix_MtxFToYXZRotS(&sp44, &heldActor->world.rot, 0);
                     heldActor->shape.rot = heldActor->world.rot;
 
-                    if (func_8002DD78(this) != 0) {
+                    // ZMP: the aiming reticle is drawn only on the aiming player's screen
+                    if ((func_8002DD78(this) != 0) && Zmp_IsLocalAudioPlayer(this)) {
                         Matrix_Translate(500.0f, 300.0f, 0.0f, MTXMODE_APPLY);
                         Player_DrawHookshotReticle(
                             play, this,

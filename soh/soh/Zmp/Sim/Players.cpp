@@ -373,6 +373,7 @@ extern "C" s32 Zmp_MultiActive(void) {
 
 extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     Zmp::Pause::Reset();
+    Zmp::Players::PresentReset();
     if (!gZmpSim.enabled) {
         gZmpSim.inPlay = 0;
         return;
@@ -590,12 +591,8 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
                 continue;
             }
             SwitchTo(play, k);
-            // Only the anchor's camera drives the shared letterbox and HUD, and not while the anchor is in a cutscene
-            // of its own (chest, item, text): the others must not lose their HUD for it (phase 4).
-            bool privateCs = !gZmpSim.globalCs && play->csCtx.state == CS_STATE_IDLE &&
-                             (Slot(k).player->stateFlags1 & (PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_GETTING_ITEM |
-                                                             PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_TALKING));
-            gZmpCameraInterfaceMuted = (k != anchor) || privateCs;
+            // A player's main camera drives only that player's letterbox and HUD (Present.cpp, phase 4).
+            gZmpCameraInterfaceMuted = k + 1;
             // Spectator: the camera of a downed player follows the partner it watches.
             int t = Slot(k).downed ? Slot(k).spectate : -1;
             if (Present(t)) {

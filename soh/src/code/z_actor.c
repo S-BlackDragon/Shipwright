@@ -3689,6 +3689,7 @@ Actor* Actor_Find(ActorContext* actorCtx, s32 actorId, s32 actorCategory) {
  * While the screen flashes, the game freezes.
  */
 void Enemy_StartFinishingBlow(PlayState* play, Actor* actor) {
+    Zmp_OnFinishingBlow(); // ZMP: the white flash is shown to the player who struck
     play->actorCtx.freezeFlashTimer = 5;
     SoundSource_PlaySfxAtFixedWorldPos(play, &actor->world.pos, 20, NA_SE_EN_LAST_DAMAGE);
 }

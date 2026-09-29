@@ -1671,7 +1671,9 @@ Play_Draw_skip:
     Zmp_DrawPresentEnd(play);  // ZMP
 
     if (play->view.unk_124 != 0) {
+        Zmp_CameraInterfaceOwnerBegin(GET_ACTIVE_CAM(play)); // ZMP: this camera's letterbox and HUD are its owner's
         Camera_Update(GET_ACTIVE_CAM(play));
+        Zmp_CameraInterfaceOwnerEnd(); // ZMP
         func_800AB944(&play->view);
         play->view.unk_124 = 0;
         if (play->skyboxId && (play->skyboxId != SKYBOX_UNSET_1D) && !play->envCtx.skyboxDisabled) {

@@ -255,6 +255,7 @@ void UpdateGlobalCutscene(PlayState* play) {
         }
         gZmpSim.globalCs = 1;
         gZmpSim.csTrigger = (s8)trigger;
+        Camera_ZmpResetInterface(0);
         Zmp::Log("zmp: global cutscene starts (" + std::string(scripted ? "scripted" : "camera") + "), about slot " +
                  std::to_string(trigger));
         PlaceInArc(play, trigger);
@@ -262,7 +263,19 @@ void UpdateGlobalCutscene(PlayState* play) {
         gZmpSim.globalCs = 0;
         gZmpSim.csTrigger = -1;
         gZmpSim.csStarter = -1;
+        Camera_ZmpResetInterface(1);
         Zmp::Log("zmp: global cutscene ends");
+    }
+    // Outside the events everybody watches the shared letterbox and HUD are the normal ones (the players' own cameras
+    // drive only their own, Present.cpp): what a camera left before the group formed or a scene started goes back.
+    if (!active && play->gameOverCtx.state == GAMEOVER_INACTIVE && play->transitionMode == TRANS_MODE_OFF &&
+        play->msgCtx.msgMode == MSGMODE_NONE) {
+        if (ShrinkWindow_GetVal() != 0) {
+            Letterbox_SetSizeTarget(0);
+        }
+        if (gSaveContext.hudVisibilityMode >= 1 && gSaveContext.hudVisibilityMode <= 13) {
+            Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_ALL);
+        }
     }
 }
 
@@ -402,8 +415,8 @@ extern "C" void Zmp_UpdateCameras(PlayState* play) {
         }
         int ctx = CamContext(i);
         Zmp::Players::SwitchContext(play, ctx);
-        // A private camera does not touch the shared letterbox and HUD.
-        gZmpCameraInterfaceMuted = gZmpSim.camScope[i] != ZMP_CAM_GLOBAL;
+        // A private camera drives only its owner's letterbox and HUD.
+        gZmpCameraInterfaceMuted = gZmpSim.camScope[i] != ZMP_CAM_GLOBAL ? gZmpSim.camScope[i] + 1 : 0;
         Camera_Update(play->cameraPtrs[i]);
         gZmpCameraInterfaceMuted = 0;
         if (play->cameraPtrs[i] != nullptr) {
@@ -415,7 +428,8 @@ extern "C" void Zmp_UpdateCameras(PlayState* play) {
     Zmp_UpdateMainCameras(play);
     if (IsSub(anchorActive) && play->cameraPtrs[anchorActive] != nullptr) {
         Zmp::Players::SwitchContext(play, CamContext(anchorActive));
-        gZmpCameraInterfaceMuted = gZmpSim.camScope[anchorActive] != ZMP_CAM_GLOBAL;
+        gZmpCameraInterfaceMuted =
+            gZmpSim.camScope[anchorActive] != ZMP_CAM_GLOBAL ? gZmpSim.camScope[anchorActive] + 1 : 0;
         Camera_Update(play->cameraPtrs[anchorActive]);
         gZmpCameraInterfaceMuted = 0;
         if (play->cameraPtrs[anchorActive] != nullptr) {
@@ -424,6 +438,22 @@ extern "C" void Zmp_UpdateCameras(PlayState* play) {
         }
     }
     Zmp::Players::SwitchContext(play, anchor);
+}
+
+extern "C" void Zmp_CameraInterfaceOwnerBegin(Camera* camera) {
+    if (!Zmp_MultiActive() || camera == nullptr) {
+        return;
+    }
+    int id = camera->thisIdx;
+    if (id == CAM_ID_MAIN) {
+        gZmpCameraInterfaceMuted = Ctx() + 1;
+    } else if (IsSub(id)) {
+        gZmpCameraInterfaceMuted = gZmpSim.camScope[id] != ZMP_CAM_GLOBAL ? gZmpSim.camScope[id] + 1 : 0;
+    }
+}
+
+extern "C" void Zmp_CameraInterfaceOwnerEnd(void) {
+    gZmpCameraInterfaceMuted = 0;
 }
 
 extern "C" void Zmp_FinishCameras(PlayState* play) {

@@ -476,6 +476,16 @@ void UpdateNameTags() {
         sTagged.clear();
         return;
     }
+    // The local pause menu covers the world: no names on top of it (phase 3 pending item).
+    if (Zmp::Pause::IsOpen()) {
+        for (auto& [k, p] : sTagged) {
+            if (Players::SlotPlayer(k) == p) {
+                NameTag_RemoveAllForActor(&p->actor);
+            }
+        }
+        sTagged.clear();
+        return;
+    }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Player* p = Players::SlotPlayer(k);
         std::string name = SlotName(k);

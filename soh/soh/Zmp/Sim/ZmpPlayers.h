@@ -119,7 +119,8 @@ extern "C" {
 
 extern ZmpSimState gZmpSim;
 extern void* gZmpCtxPlayer;
-// Camera_UpdateInterface does nothing while set (main cameras of the non-anchor players).
+// Camera_UpdateInterface records the flags for player (value - 1) instead of changing the shared letterbox and HUD
+// while set (every player's own cameras, phase 4).
 extern s32 gZmpCameraInterfaceMuted;
 
 // True while the multiplayer simulation runs in a Play state.
@@ -234,8 +235,21 @@ void Zmp_DrawLightBegin(PlayState* play);
 void Zmp_DrawLightEnd(PlayState* play);
 // The simulation's fog distance (the canonical view's far plane) while the local lighting is applied.
 f32 Zmp_SimFogFar(PlayState* play);
-// Presentation (phase 4): another player's private cutscene or text box does not put black bars on this picture nor
-// hide this player's HUD (letterbox and HUD alphas are shared state; they are swapped for the picture only).
+// Presentation (phase 4, Present.cpp): each player's letterbox and HUD come from its own cameras and are drawn only on
+// its own screen; the shared ones only from cutscenes everybody watches. Another player's text box does not change
+// this player's HUD. The white flash of a finishing blow is shown to the player who struck.
+void Zmp_RecordCameraInterface(s32 slot, s16 flags);
+void Zmp_OnFinishingBlow(void);
+// Quakes: the player whose update requested it (-1: the world). Whether it shakes the camera being updated.
+s32 Zmp_QuakeOwner(void);
+// Interface_SetDoAction: the A button label is the local player's (called in its context).
+s32 Zmp_DoActionIsLocal(void);
+s32 Zmp_QuakeShakesCamera(s32 owner, Camera* camera);
+// Play_Draw: a camera updated outside the camera loop drives its owner's letterbox and HUD.
+void Zmp_CameraInterfaceOwnerBegin(Camera* camera);
+void Zmp_CameraInterfaceOwnerEnd(void);
+// z_camera.c: forget the cached camera interface values (start / end of a global cutscene).
+void Camera_ZmpResetInterface(s32 end);
 void Zmp_DrawPresentBegin(PlayState* play);
 void Zmp_DrawPresentEnd(PlayState* play);
 void Zmp_HudBegin(PlayState* play);
@@ -326,6 +340,10 @@ void ArrangeRooms(PlayState* play, int slot);
 std::vector<int> LoadedRooms(PlayState* play);
 // Local ambience (presentation): light setting the local picture uses (-1: the simulation's).
 int LocalLightSetting();
+// Present.cpp: local screen state (presentation).
+void PresentReset();
+int LocalLetterbox();
+int LocalHudMode();
 // Cameras.cpp helpers: context switch (present slots only) and the local player's picture (NULL: canonical view).
 void SwitchContext(PlayState* play, int slot);
 // Actor whose update is running (NULL outside actor updates).

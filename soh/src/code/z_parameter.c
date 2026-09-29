@@ -2812,6 +2812,10 @@ void Interface_SetDoAction(PlayState* play, u16 action) {
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
     PauseContext* pauseCtx = &play->pauseCtx;
 
+    if (!Zmp_DoActionIsLocal()) { // ZMP: another player's A button label (presentation) is not shown here
+        return;
+    }
+
     if (interfaceCtx->unk_1F0 != action) {
         GameInteractor_ExecuteOnSetDoAction(action);
         interfaceCtx->unk_1F0 = action;
@@ -6508,56 +6512,12 @@ void Interface_DrawTotalGameplayTimer(PlayState* play) {
     }
 }
 
-void Interface_Update(PlayState* play) {
-    static u8 D_80125B60 = 0;
-    static s16 sPrevTimeSpeed = 0;
-    MessageContext* msgCtx = &play->msgCtx;
+// ZMP: the HUD alpha step of Interface_Update, callable on its own (the local HUD of each player in multiplayer is
+// stepped with it, soh/soh/Zmp/Sim/Present.cpp)
+void Interface_ZmpStepHudAlphas(PlayState* play) {
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
-    Player* player = GET_PLAYER(play);
     s16 alpha;
     s16 alpha1;
-    u16 action;
-    Input* debugInput = &play->state.input[2];
-
-    Top_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0);
-    Left_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.L"), 0);
-    Right_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.R"), 0);
-    Bottom_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.B"), 0);
-
-    GameInteractor_ExecuteOnInterfaceUpdate();
-
-    bool isPal = ResourceMgr_GetGameRegion(0) == GAME_REGION_PAL;
-
-    if (CHECK_BTN_ALL(debugInput->press.button, BTN_DLEFT)) {
-        gSaveContext.language = LANGUAGE_ENG;
-        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_ENG);
-        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
-    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DUP) && sGerMessageEntryTablePtr != NULL) {
-        gSaveContext.language = LANGUAGE_GER;
-        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_GER);
-        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
-    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DRIGHT) && sFraMessageEntryTablePtr != NULL) {
-        gSaveContext.language = LANGUAGE_FRA;
-        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_FRA);
-        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
-    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DDOWN) && sJpnMessageEntryTablePtr != NULL) {
-        // Add this in to have an equivalent ntsc language debugging feature
-        gSaveContext.language = LANGUAGE_JPN;
-        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_JPN);
-        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
-    }
-
-    if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0)) {
-        if ((gSaveContext.minigameState == 1) || (gSaveContext.sceneLayer < 4) ||
-            ((play->sceneNum == SCENE_LON_LON_RANCH) && (gSaveContext.sceneLayer == 4))) {
-            if ((msgCtx->msgMode == MSGMODE_NONE) ||
-                ((msgCtx->msgMode != MSGMODE_NONE) && (play->sceneNum == SCENE_BOMBCHU_BOWLING_ALLEY))) {
-                if (play->gameOverCtx.state == GAMEOVER_INACTIVE) {
-                    func_80083108(play);
-                }
-            }
-        }
-    }
 
     switch (gSaveContext.nextHudVisibilityMode) {
         case 1:
@@ -6654,6 +6614,58 @@ void Interface_Update(PlayState* play) {
         default:
             break;
     }
+}
+
+void Interface_Update(PlayState* play) {
+    static u8 D_80125B60 = 0;
+    static s16 sPrevTimeSpeed = 0;
+    MessageContext* msgCtx = &play->msgCtx;
+    InterfaceContext* interfaceCtx = &play->interfaceCtx;
+    Player* player = GET_PLAYER(play);
+    u16 action;
+    Input* debugInput = &play->state.input[2];
+
+    Top_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0);
+    Left_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.L"), 0);
+    Right_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.R"), 0);
+    Bottom_HUD_Margin = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.B"), 0);
+
+    GameInteractor_ExecuteOnInterfaceUpdate();
+
+    bool isPal = ResourceMgr_GetGameRegion(0) == GAME_REGION_PAL;
+
+    if (CHECK_BTN_ALL(debugInput->press.button, BTN_DLEFT)) {
+        gSaveContext.language = LANGUAGE_ENG;
+        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_ENG);
+        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
+    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DUP) && sGerMessageEntryTablePtr != NULL) {
+        gSaveContext.language = LANGUAGE_GER;
+        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_GER);
+        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
+    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DRIGHT) && sFraMessageEntryTablePtr != NULL) {
+        gSaveContext.language = LANGUAGE_FRA;
+        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_FRA);
+        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
+    } else if (CHECK_BTN_ALL(debugInput->press.button, BTN_DDOWN) && sJpnMessageEntryTablePtr != NULL) {
+        // Add this in to have an equivalent ntsc language debugging feature
+        gSaveContext.language = LANGUAGE_JPN;
+        CVarSetInteger(CVAR_SETTING("Languages"), LANGUAGE_JPN);
+        osSyncPrintf("J_N=%x J_N=%x\n", gSaveContext.language, &gSaveContext.language);
+    }
+
+    if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0)) {
+        if ((gSaveContext.minigameState == 1) || (gSaveContext.sceneLayer < 4) ||
+            ((play->sceneNum == SCENE_LON_LON_RANCH) && (gSaveContext.sceneLayer == 4))) {
+            if ((msgCtx->msgMode == MSGMODE_NONE) ||
+                ((msgCtx->msgMode != MSGMODE_NONE) && (play->sceneNum == SCENE_BOMBCHU_BOWLING_ALLEY))) {
+                if (play->gameOverCtx.state == GAMEOVER_INACTIVE) {
+                    func_80083108(play);
+                }
+            }
+        }
+    }
+
+    Interface_ZmpStepHudAlphas(play); // ZMP: same code, moved to a function
 
     Map_Update(play);
 
