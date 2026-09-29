@@ -27,6 +27,11 @@
 #define ZMP_CVAR_HASH_LOG_INTERVAL CVAR_ZMP("Sim.HashLogInterval")
 // Mute the game audio while its window does not have the focus (presentation only).
 #define ZMP_CVAR_MUTE_UNFOCUSED CVAR_ZMP("Audio.MuteWhenUnfocused")
+// Tests (D-063): -1 = use the real window focus; 0 / 1 = behave as if this instance's window had not / had the focus.
+// The harness never moves the real focus.
+#define ZMP_CVAR_FOCUS_OVERRIDE CVAR_ZMP("Audio.FocusOverride")
+// Test instances: their windows never become the active window (D-063).
+#define ZMP_CVAR_TEST_NO_ACTIVATE CVAR_ZMP("Test.NoActivate")
 
 // Periodic autosave of the group leader (phase 4): minutes of simulation between two (0 = off; the trigger counts
 // simulation ticks, never the clock); tests can give the interval in ticks instead. Resume: the founder of a group

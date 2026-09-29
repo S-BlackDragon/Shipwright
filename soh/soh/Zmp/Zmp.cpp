@@ -283,6 +283,41 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: go to an entrance with a scripted cutscene (hex entrance, hex cutscene index)",
                           { { "entrance", Ship::ArgumentType::TEXT }, { "cutscene", Ship::ArgumentType::TEXT } } });
+    // Phase 5 tests (lockstep events): a permanent flag of the current scene or an event flag set the way the game
+    // sets it; the time of day set by this group (a jump the world clock adopts).
+    console->AddCommand("zmp_flag",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 3 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             int flag = std::stoi(args[2], nullptr, 0);
+                             if (args[1] == "swch") {
+                                 Flags_SetSwitch(gPlayState, flag);
+                             } else if (args[1] == "chest") {
+                                 Flags_SetTreasure(gPlayState, flag);
+                             } else if (args[1] == "clear") {
+                                 Flags_SetClear(gPlayState, flag);
+                             } else if (args[1] == "collect") {
+                                 Flags_SetCollectible(gPlayState, flag);
+                             } else if (args[1] == "event") {
+                                 Flags_SetEventChkInf(flag);
+                             } else {
+                                 return 1;
+                             }
+                             return 0;
+                         },
+                          "ZMP: set a flag (swch|chest|clear|collect of the current scene, or event) (tests)",
+                          { { "type", Ship::ArgumentType::TEXT }, { "flag", Ship::ArgumentType::TEXT } } });
+    console->AddCommand("zmp_time",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 2) {
+                                 return 1;
+                             }
+                             gSaveContext.dayTime = (u16)std::stoi(args[1], nullptr, 0);
+                             return 0;
+                         },
+                          "ZMP: set the time of day (tests)",
+                          { { "time", Ship::ArgumentType::TEXT } } });
     console->AddCommand("zmp_actor_hp",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 3 || gPlayState == nullptr) {
@@ -339,11 +374,58 @@ static void RegisterConsoleCommands() {
                           { { "path|stop", Ship::ArgumentType::TEXT } } });
 }
 
+// Test instances never take the focus from the person using the PC (D-063). Windows lets a freshly started process
+// activate its first window, and the STARTUPINFO "show without activating" wish does not stop it (measured: the game
+// window became the foreground window 1.6 s after launch). A CBT hook on the thread that creates the game window
+// refuses every activation that the person did not ask for: a click (mouse button down) or Alt+Tab / Win still
+// activate it, so a test window can be played by clicking on it. Enabled by the environment variable
+// ZMP_NO_ACTIVATE=1, which only the test tools set (it has to be installed before the window exists, before the
+// CVars are loaded). Called at the very start of main().
+#ifdef _WIN32
+static HHOOK sNoActivateHook = nullptr;
+
+static bool UserAskedForActivation() {
+    const int keys[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_MENU, VK_LWIN, VK_RWIN };
+    for (int k : keys) {
+        if (GetAsyncKeyState(k) & 0x8000) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static LRESULT CALLBACK NoActivateCbtProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code == HCBT_ACTIVATE && !UserAskedForActivation()) {
+        return 1; // refuse the activation
+    }
+    return CallNextHookEx(sNoActivateHook, code, wParam, lParam);
+}
+#endif
+
+extern "C" int Zmp_InstallNoActivateHook(void) {
+#ifdef _WIN32
+    char value[8] = {};
+    if (GetEnvironmentVariableA("ZMP_NO_ACTIVATE", value, sizeof(value)) == 0 || strcmp(value, "1") != 0) {
+        return 0;
+    }
+    if (sNoActivateHook == nullptr) {
+        sNoActivateHook = SetWindowsHookExW(WH_CBT, NoActivateCbtProc, nullptr, GetCurrentThreadId());
+    }
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 // Audio of an instance plays only while one of its windows has the focus (presentation only; the
 // mixer output is silenced, the game-side audio state is untouched).
 static void UpdateFocusMute() {
     bool mute = false;
-    if (CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0)) {
+    int override = CVarGetInteger(ZMP_CVAR_FOCUS_OVERRIDE, -1);
+    if (CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0) && override >= 0) {
+        // Tests: the focus the harness says this instance has (it never moves the real focus, D-063).
+        mute = override == 0;
+    } else if (CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0)) {
 #ifdef _WIN32
         HWND fg = GetForegroundWindow();
         DWORD pid = 0;
