@@ -21,6 +21,7 @@
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/nametag.h"
+#include "Autosave.h"
 
 extern "C" {
 #include <z64.h>
@@ -30,6 +31,7 @@ extern "C" {
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
 void Play_Main(GameState* thisx);
+void Play_PerformSave(PlayState* play);
 }
 
 namespace Zmp::Lockstep {
@@ -108,6 +110,10 @@ std::map<int, Player*> sTagged;
 // client founds the group; sent as an event when that player appears.
 std::map<std::string, std::string> sSavedBlocks;
 std::map<int, std::string> sTagNames;
+// Autosave (phase 4, D-054): forced by a lockstep event; players of a resumed session (name -> their saved block,
+// health, position and room), sent as events when they appear.
+bool sForceAutosave = false;
+std::map<std::string, nlohmann::json> sResumePlayers;
 
 bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
@@ -272,6 +278,126 @@ void StartRunning(uint32_t tick) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Autosave and resume (phase 4, docs/DECISIONES.md D-054)
+
+std::string RoomName() {
+    return Client::Get().GetStatus().room;
+}
+
+// The normal save of the game, written from a copy: the save's own preparation (scene flags, saved scene, the B
+// button restore) is done on the live save context and undone right after, so the simulation never sees it. The
+// copy is written to disk by SoH's save thread; the other players' blocks go next to it (D-045).
+void SaveOnCopy(void*) {
+    SaveContext* keep = new SaveContext;
+    memcpy(keep, &gSaveContext, sizeof(SaveContext));
+    Play_PerformSave(gPlayState);
+    memcpy(&gSaveContext, keep, sizeof(SaveContext));
+    delete keep;
+}
+
+nlohmann::json SessionPlayers() {
+    nlohmann::json players = nlohmann::json::array();
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Players::SlotPlayer(k);
+        if (p == nullptr) {
+            continue;
+        }
+        nlohmann::json pos =
+            nlohmann::json::array({ (int)p->actor.world.pos.x, (int)p->actor.world.pos.y, (int)p->actor.world.pos.z });
+        players.push_back({ { "slot", k },
+                            { "name", SlotName(k) },
+                            { "health", Players::SlotHealth(k) },
+                            { "pos", pos },
+                            { "yaw", p->actor.shape.rot.y },
+                            { "room", Players::SlotRoom(k) },
+                            { "block", BlockPayload(Players::SlotBlock(k)) } });
+    }
+    return players;
+}
+
+// End of a tick of the leader: every IntervalTicks() of simulation (or when an event forces it) the game is saved
+// normally and the exact state of the session is written for the resume.
+void MaybeAutosave(uint32_t tick, uint64_t hash) {
+    uint32_t every = Autosave::IntervalTicks();
+    bool due = sForceAutosave || (every > 0 && (tick + 1) % every == 0);
+    sForceAutosave = false;
+    if (!due || !sLeader || !InPlay() || !Zmp_MultiActive() || gPlayState->transitionMode != TRANS_MODE_OFF ||
+        gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) {
+        return;
+    }
+    auto t0 = Clock::now();
+    bool wroteGame = false;
+    if (gSaveContext.fileNum >= 0 && gSaveContext.fileNum < 3) {
+        Players::RunInContext(sSlot, SaveOnCopy, nullptr);
+        wroteGame = true;
+    }
+    std::vector<uint8_t> blob;
+    std::string err;
+    State::BlobInfo info;
+    bool wroteSession = false;
+    if (State::Save(blob, tick + 1, hash, &err, &info)) {
+        nlohmann::json desc = { { "version", 1 },
+                                { "room", RoomName() },
+                                { "tick", tick + 1 },
+                                { "scene", gPlayState->sceneNum },
+                                { "leader_slot", sSlot },
+                                { "file_num", gSaveContext.fileNum },
+                                { "players", SessionPlayers() } };
+        wroteSession = Autosave::WriteSessionAsync(RoomName(), std::move(blob), std::move(desc));
+    } else {
+        Log("autosave: session state not saved: " + err);
+    }
+    Autosave::NoteSaved();
+    double ms = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+    Log("autosave at tick " + std::to_string(tick + 1) +
+        (wroteGame ? ": game file " + std::to_string(gSaveContext.fileNum + 1) : std::string(": no game file")) +
+        (wroteSession ? ", session state" : ", session state skipped") + " (" + std::to_string((int)ms) +
+        " ms on the game thread)");
+}
+
+// Founding with the resume option: the founder loads the last session state of the room. The others' Links are
+// taken out; each gets back its block, health, place and room when that player joins again (events of the leader).
+bool TryResume(int slot) {
+    if (!CVarGetInteger(ZMP_CVAR_RESUME_SESSION, 0)) {
+        return false;
+    }
+    std::vector<uint8_t> blob;
+    nlohmann::json desc;
+    std::string err;
+    if (!Autosave::ReadSession(RoomName(), blob, desc, &err)) {
+        Log("resume: no session state for room " + RoomName() + " (" + err + "): normal game");
+        return false;
+    }
+    if (desc.value("leader_slot", -1) != slot) {
+        Log("resume: the session was saved by slot " + std::to_string(desc.value("leader_slot", -1)) +
+            ", this founder is slot " + std::to_string(slot) + ": normal game");
+        return false;
+    }
+    State::BlobInfo info;
+    if (!State::Peek(blob, &info, &err)) {
+        Log("resume: session state not usable (" + err + "): normal game");
+        return false;
+    }
+    State::SetKeepSharedSettings(true);
+    if (!State::Load(blob, &err, &info)) {
+        Log("resume: session state not loaded (" + err + "): normal game");
+        return false;
+    }
+    sResumePlayers.clear();
+    for (auto& p : desc["players"]) {
+        int k = p.value("slot", -1);
+        if (k == slot || k < 0 || k >= ZMP_MAX_PLAYERS) {
+            continue;
+        }
+        Players::Despawn(k);
+        sResumePlayers[p.value("name", std::string())] = p;
+    }
+    Log("resume: session of room " + RoomName() + " loaded (tick " + std::to_string(info.tick) + ", scene " +
+        std::to_string(info.scene) + ", " + std::to_string(sResumePlayers.size()) + " other players to come back)");
+    return true;
+}
+
 void HandleControl(json& msg) {
     std::string t = msg.value("t", std::string());
     if (t == "GROUP_FOUND") {
@@ -284,10 +410,17 @@ void HandleControl(json& msg) {
             Send({ { "t", "LEAVE_GROUP" } });
             return;
         }
-        Players::Found(slot);
+        bool resumed = TryResume(slot);
+        if (!resumed) {
+            Players::Found(slot);
+        }
         Players::SetLocalSlot(slot);
         sSlot = slot;
-        LoadSavedBlocks();
+        if (!resumed) {
+            LoadSavedBlocks();
+        } else {
+            sSavedBlocks.clear();
+        }
         sNextInputTick = msg.value("tick0", 0u);
         StartRunning(sNextInputTick);
         Log("net: GROUP_FOUND group=" + std::to_string(sGroupId) + " slot=" + std::to_string(slot) +
@@ -539,7 +672,53 @@ std::vector<int> ParseInts(const std::string& cmd, size_t pos) {
     return v;
 }
 
+struct ResumeArg {
+    int slot;
+    int health;
+};
+void ResumeHealthInContext(void* p) {
+    ResumeArg* a = (ResumeArg*)p;
+    gSaveContext.health = (s16)std::min<int>(a->health, gSaveContext.healthCapacity);
+    gSaveContext.healthAccumulator = 0;
+}
+
 bool ApplyGameEvent(int slot, const std::string& cmd) {
+    if (cmd == "zmp_autosave") {
+        // Forced autosave (tests): the leader saves at the end of this tick.
+        sForceAutosave = true;
+        return true;
+    }
+    if (cmd.rfind("zmp_resume ", 0) == 0) {
+        // "zmp_resume target health x y z yaw room": a player of a resumed session gets back its health, its place and
+        // its room (docs/DECISIONES.md D-054).
+        std::vector<int> v = ParseInts(cmd, 11);
+        if (v.size() != 7) {
+            Log("net: malformed resume event: " + cmd);
+            return true;
+        }
+        int target = v[0];
+        Player* p = Players::SlotPlayer(target);
+        if (p == nullptr || gPlayState == nullptr) {
+            return true;
+        }
+        ResumeArg a{ target, v[1] };
+        Players::RunInContext(target, ResumeHealthInContext, &a);
+        bool roomLoaded = false;
+        for (int r : Players::LoadedRooms(gPlayState)) {
+            roomLoaded = roomLoaded || r == v[6];
+        }
+        if (roomLoaded) {
+            Vec3f pos = { (f32)v[2], (f32)v[3], (f32)v[4] };
+            p->actor.world.pos = pos;
+            p->actor.prevPos = pos;
+            p->actor.home.pos = pos;
+            p->actor.shape.rot.y = p->actor.world.rot.y = p->yaw = (s16)v[5];
+            Players::SetSlotRoom(target, v[6]);
+        }
+        Log("net: slot " + std::to_string(target) + " resumed (health " + std::to_string(v[1]) +
+            (roomLoaded ? ", back in room " + std::to_string(v[6]) : ", room not loaded: stays at the entrance") + ")");
+        return true;
+    }
     if (cmd.rfind("zmp_block ", 0) == 0) {
         // "zmp_block target magic b0..b7 c0..c6 equipment ammo0..15 bottle0..3" (saved per-player block)
         std::vector<int> v = ParseInts(cmd, 10);
@@ -802,6 +981,21 @@ void OnPadRead(void* padsV) {
     for (auto& e : b.events) {
         if (e.kind == "SPAWN") {
             Players::Spawn(e.slot);
+            if (sLeader && e.slot != sSlot) {
+                // A player of a resumed session: its block, health, place and room (D-054).
+                auto rit = sResumePlayers.find(SlotName(e.slot));
+                if (rit != sResumePlayers.end()) {
+                    auto& p = rit->second;
+                    SendConsoleEvent("zmp_block " + std::to_string(e.slot) + " " + p.value("block", std::string()));
+                    auto& pos = p["pos"];
+                    SendConsoleEvent("zmp_resume " + std::to_string(e.slot) + " " +
+                                     std::to_string(p.value("health", 0)) + " " + std::to_string(pos[0].get<int>()) +
+                                     " " + std::to_string(pos[1].get<int>()) + " " + std::to_string(pos[2].get<int>()) +
+                                     " " + std::to_string(p.value("yaw", 0)) + " " +
+                                     std::to_string(p.value("room", -1)));
+                    sResumePlayers.erase(rit);
+                }
+            }
             if (sLeader) {
                 auto it = sSavedBlocks.find(SlotName(e.slot));
                 if (it != sSavedBlocks.end() && e.slot != sSlot) {
@@ -871,6 +1065,7 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
             " queue=" + std::to_string(queued) + " players=" + std::to_string(Players::PresentCount()) +
             " stalls=" + std::to_string(sStalls));
     }
+    MaybeAutosave(tick, hash);
 }
 
 int CatchUpSpeed() {

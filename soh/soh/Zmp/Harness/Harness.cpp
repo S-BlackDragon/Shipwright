@@ -32,6 +32,7 @@
 #include "soh/Zmp/Sim/Session.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/Zmp/Net/Lockstep.h"
+#include "soh/Zmp/Net/Autosave.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -537,6 +538,7 @@ void Dispatch(const RequestPtr& req) {
             resp["sim_light"] = gPlayState->envCtx.unk_BD;
             resp["env_indoors"] = gPlayState->envCtx.indoors;
             resp["local_letterbox"] = Zmp::Players::LocalLetterbox();
+            resp["autosave_count"] = Zmp::Autosave::SavedCount();
             resp["shared_letterbox"] = (int)ShrinkWindow_GetCurrentVal();
             resp["local_hud_mode"] = Zmp::Players::LocalHudMode();
             resp["shared_hud_mode"] = gSaveContext.hudVisibilityMode;

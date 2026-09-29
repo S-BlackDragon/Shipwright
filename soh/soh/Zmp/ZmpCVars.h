@@ -28,6 +28,13 @@
 // Mute the game audio while its window does not have the focus (presentation only).
 #define ZMP_CVAR_MUTE_UNFOCUSED CVAR_ZMP("Audio.MuteWhenUnfocused")
 
+// Periodic autosave of the group leader (phase 4): minutes of simulation between two (0 = off; the trigger counts
+// simulation ticks, never the clock); tests can give the interval in ticks instead. Resume: the founder of a group
+// loads the last session state of the room (Save/zmp_session_<room>.zmps).
+#define ZMP_CVAR_AUTOSAVE_MINUTES CVAR_ZMP("Autosave.Minutes")
+#define ZMP_CVAR_AUTOSAVE_TICKS CVAR_ZMP("Autosave.Ticks")
+#define ZMP_CVAR_RESUME_SESSION CVAR_ZMP("ResumeSession")
+
 #define ZMP_DEFAULT_HOST "127.0.0.1"
 #define ZMP_DEFAULT_PORT 47100
 #define ZMP_DEFAULT_ROOM "zmp"

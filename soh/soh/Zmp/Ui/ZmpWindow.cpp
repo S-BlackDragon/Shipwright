@@ -14,6 +14,7 @@
 #include "soh/Zmp/Net/Lockstep.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/util.h"
+#include "soh/Zmp/Net/Autosave.h"
 #include <chrono>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
@@ -173,6 +174,15 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
         DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
+        // Phase 4: "Guardado" for 2 s on the leader's screen after an autosave (D-054).
+        if (ls.leader && Autosave::SecondsSinceSave() < 2.0) {
+            ImDrawList* sdl = ImGui::GetForegroundDrawList(vp);
+            float fs = ImGui::GetFontSize() * 1.0f;
+            ImVec2 sp(vp->Pos.x + vp->Size.x - fs * 6.0f, vp->Pos.y + vp->Size.y - fs * 2.2f);
+            sdl->AddRectFilled(ImVec2(sp.x - 6, sp.y - 3), ImVec2(sp.x + fs * 4.6f, sp.y + fs + 3),
+                               IM_COL32(0, 0, 0, 140), 4.0f);
+            sdl->AddText(ImGui::GetFont(), fs, sp, IM_COL32(200, 255, 200, 255), "Guardado");
+        }
         // Phase 4: this player's heat / deep water timer (the original's timer is not used in multiplayer).
         int heat = Players::SlotHeatSeconds(ls.slot);
         if (heat >= 0) {
@@ -287,6 +297,22 @@ void RoomWindow::DrawConnectionForm() {
     ImGui::Text("Nombre");
     if (UIWidgets::InputString("##ZmpName", &name)) {
         CVarSetString(ZMP_CVAR_NAME, name.c_str());
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+    ImGui::EndDisabled();
+
+    // Autosave of the leader and resume of the last session of the room (phase 4, D-054).
+    int minutes = CVarGetInteger(ZMP_CVAR_AUTOSAVE_MINUTES, 5);
+    ImGui::Text("Autoguardado cada (minutos, 0 = nunca)");
+    if (ImGui::InputInt("##ZmpAutosave", &minutes)) {
+        CVarSetInteger(ZMP_CVAR_AUTOSAVE_MINUTES, std::clamp(minutes, 0, 60));
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+    bool resume = CVarGetInteger(ZMP_CVAR_RESUME_SESSION, 0) != 0;
+    ImGui::BeginDisabled(active);
+    if (ImGui::Checkbox("Reanudar sesion (el que crea el grupo carga la ultima sesion guardada de esta sala)",
+                        &resume)) {
+        CVarSetInteger(ZMP_CVAR_RESUME_SESSION, resume ? 1 : 0);
         Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     }
     ImGui::EndDisabled();
