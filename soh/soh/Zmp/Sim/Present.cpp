@@ -49,6 +49,7 @@ struct LocalScreen {
     u16 hudTimer = 0;
     u16 alphas[kAlphaCount] = {};
     u32 frame = 0xFFFFFFFF;
+    bool wasEvent = false;
 };
 LocalScreen sL;
 
@@ -94,6 +95,13 @@ void LocalHudMode(u16 mode) {
     }
 }
 
+// An event everybody watches with the shared letterbox and HUD: a global cutscene, the group's game over, a scene
+// change.
+bool GroupEvent(PlayState* play) {
+    return gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE || play->gameOverCtx.state != GAMEOVER_INACTIVE ||
+           play->transitionMode != TRANS_MODE_OFF;
+}
+
 // Once per tick: the local letterbox moves towards its target (ShrinkWindow_Update at R_UPDATE_RATE 3) and the local
 // HUD alphas take one step of the game's own HUD alpha rules (Interface_ZmpStepHudAlphas) with the local player's
 // buttons.
@@ -102,6 +110,16 @@ void StepLocal(PlayState* play) {
         return;
     }
     sL.frame = play->gameplayFrames;
+    // When an event everybody watched ends, the local screen goes back to the normal one, as the shared one does
+    // (Camera_ZmpResetInterface): a player that joined during the event took its screen from the middle of it, and its
+    // own camera does not ask again while its setting does not change (D-059).
+    bool event = GroupEvent(play);
+    if (sL.wasEvent && !event) {
+        sL.lbTarget = 0;
+        sL.camAlpha = 0;
+        LocalHudMode(HUD_VISIBILITY_ALL);
+    }
+    sL.wasEvent = event;
     const s32 off = 10;
     if (sL.lbCur < sL.lbTarget) {
         sL.lbCur = std::min(sL.lbCur + off, sL.lbTarget);
@@ -148,9 +166,7 @@ bool Ready(PlayState* play) {
 // The shared HUD applies: cutscenes everybody watches, the group's game over, a scene change, and the local player's
 // own text box.
 bool SharedHud(PlayState* play) {
-    return gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE || play->gameOverCtx.state != GAMEOVER_INACTIVE ||
-           play->transitionMode != TRANS_MODE_OFF ||
-           (play->msgCtx.msgMode != MSGMODE_NONE && gZmpSim.msgOwner == Local());
+    return GroupEvent(play) || (play->msgCtx.msgMode != MSGMODE_NONE && gZmpSim.msgOwner == Local());
 }
 
 } // namespace
