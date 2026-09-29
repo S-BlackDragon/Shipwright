@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include <ship/window/gui/GuiWindow.h>
 
 #include "soh/Zmp/Net/Lockstep.h"
@@ -24,5 +26,8 @@ class RoomWindow : public Ship::GuiWindow {
     static void DrawOverlay();
     static void DrawLockstepOverlay(const Lockstep::Status& ls, float y);
 };
+
+// Text the downed / revive overlay drew in the last frame (tests).
+std::string DownedOverlayText();
 
 } // namespace Zmp

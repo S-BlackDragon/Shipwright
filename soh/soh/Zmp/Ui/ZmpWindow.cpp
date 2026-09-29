@@ -80,26 +80,50 @@ static void ReviveBar(float y, float frac, ImU32 color) {
     dl->AddRect(a, b, IM_COL32(255, 255, 255, 200), 2.0f);
 }
 
+// Lines the downed overlay drew in the last frame (tests read them through the harness).
+static std::string sDownedText;
+// When this client first saw each player downed (the short "X ha caido" notice).
+static std::chrono::steady_clock::time_point sDownedSince[ZMP_MAX_PLAYERS];
+static bool sDownedSeen[ZMP_MAX_PLAYERS];
+
+static void DownedLine(float y, const std::string& text, ImU32 color, float scale) {
+    CenteredLine(y, text, color, scale);
+    sDownedText += text + '\n';
+}
+
+std::string DownedOverlayText() {
+    return sDownedText;
+}
+
 // Downed players, revive progress, spectator target (phase 3). Reads the simulation, draws nothing into it.
 static void DrawDownedOverlay(int local, float y) {
     float line = ImGui::GetFontSize() * 1.2f + 8.0f;
+    sDownedText.clear();
+    auto now = std::chrono::steady_clock::now();
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        bool down = Players::SlotDowned(k) && Players::SlotPlayer(k) != nullptr;
+        if (down && !sDownedSeen[k]) {
+            sDownedSince[k] = now;
+        }
+        sDownedSeen[k] = down;
+    }
     if (Players::GroupDefeat()) {
         return; // everybody is down: the game over screen says it all
     }
     if (Players::SlotDowned(local)) {
         int who = Players::SlotReviver(local);
         int prog = Players::SlotReviveProgress(local);
-        CenteredLine(y, "Has caido. Un companero puede revivirte manteniendo A a tu lado.",
-                     IM_COL32(255, 120, 120, 255), 1.1f);
+        DownedLine(y, "Has caido. Un companero puede revivirte manteniendo A a tu lado.", IM_COL32(255, 120, 120, 255),
+                   1.1f);
         y += line;
         int t = Players::SlotSpectate(local);
         if (t >= 0) {
-            CenteredLine(y, "Viendo a " + Lockstep::SlotName(t) + " (C-izquierda / C-derecha: cambiar)",
-                         IM_COL32(220, 220, 220, 255), 0.9f);
+            DownedLine(y, "Viendo a " + Lockstep::SlotName(t) + " (C-izquierda / C-derecha: cambiar)",
+                       IM_COL32(220, 220, 220, 255), 0.9f);
             y += line;
         }
         if (who >= 0 && prog > 0) {
-            CenteredLine(y, Lockstep::SlotName(who) + " te esta reviviendo", IM_COL32(140, 255, 140, 255), 1.0f);
+            DownedLine(y, Lockstep::SlotName(who) + " te esta reviviendo", IM_COL32(140, 255, 140, 255), 1.0f);
             y += line;
             ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
         }
@@ -111,15 +135,28 @@ static void DrawDownedOverlay(int local, float y) {
         }
         int who = Players::SlotReviver(k);
         int prog = Players::SlotReviveProgress(k);
+        // Distance as the simulation measures it for the revive (Players.cpp), read only.
+        Player* me = Players::SlotPlayer(local);
+        Player* down = Players::SlotPlayer(k);
+        bool inRange = false;
+        if (me != nullptr) {
+            float dx = me->actor.world.pos.x - down->actor.world.pos.x;
+            float dy = me->actor.world.pos.y - down->actor.world.pos.y;
+            float dz = me->actor.world.pos.z - down->actor.world.pos.z;
+            inRange = dx * dx + dy * dy + dz * dz <= ZMP_REVIVE_RANGE * ZMP_REVIVE_RANGE;
+        }
         if (who == local && prog > 0) {
-            CenteredLine(y, "Reviviendo a " + Lockstep::SlotName(k) + "... sigue manteniendo A",
-                         IM_COL32(140, 255, 140, 255), 1.1f);
+            DownedLine(y, "Reviviendo a " + Lockstep::SlotName(k) + "... sigue manteniendo A",
+                       IM_COL32(140, 255, 140, 255), 1.1f);
             y += line;
             ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
             y += line;
-        } else {
-            CenteredLine(y, Lockstep::SlotName(k) + " ha caido: acercate y manten A para revivirle",
-                         IM_COL32(255, 170, 120, 255), 0.95f);
+        } else if (inRange) {
+            DownedLine(y, "Manten A para revivir a " + Lockstep::SlotName(k), IM_COL32(255, 170, 120, 255), 1.0f);
+            y += line;
+        } else if (std::chrono::duration<double>(now - sDownedSince[k]).count() < 3.0) {
+            // Out of range: only a short notice when the player falls.
+            DownedLine(y, Lockstep::SlotName(k) + " ha caido", IM_COL32(255, 200, 170, 220), 0.85f);
             y += line;
         }
     }
