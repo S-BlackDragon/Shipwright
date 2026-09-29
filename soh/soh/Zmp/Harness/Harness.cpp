@@ -278,6 +278,11 @@ json PlayerJson(Player* player, int slot = 0) {
         { "floor_y", a->floorHeight },
         { "spectating", spectate >= 0 ? json(spectate) : json(nullptr) },
         { "pause_local", Zmp::Pause::State() },
+        { "active_cam", multi ? Zmp::Players::SlotActiveCam(slot) : gPlayState->activeCamera },
+        { "cs_action", player->csAction },
+        { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
+        { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
+        { "timer_state", gSaveContext.timerState },
         { "tick", sFrame },
     };
 }
@@ -501,7 +506,78 @@ void Dispatch(const RequestPtr& req) {
             resp["hash"] = Hex(st.lastHash);
             resp["hash_tick"] = st.tick - 1;
         }
+        if (InPlay()) {
+            // Phase 4: cameras (per-player active camera, scope of the sub cameras), cutscene, rooms.
+            json subs = json::array();
+            for (int i = CAM_ID_SUB_FIRST; i < NUM_CAMS; i++) {
+                const Camera* c = gPlayState->cameraPtrs[i];
+                subs.push_back({ { "id", i },
+                                 { "exists", c != nullptr },
+                                 { "scope", Zmp::Players::CamScope(i) },
+                                 { "status", c != nullptr ? c->status : 0 },
+                                 { "setting", c != nullptr ? c->setting : 0 },
+                                 { "cs_id", c != nullptr ? c->csId : 0 } });
+            }
+            json active = json::array();
+            for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                active.push_back(Zmp::Players::SlotActiveCam(k));
+            }
+            resp["cameras"] = { { "active_camera", gPlayState->activeCamera },
+                                { "per_slot", active },
+                                { "sub", subs },
+                                { "global_cs", Zmp::Players::GlobalCutscene() },
+                                { "cs_trigger", Zmp::Players::CutsceneTrigger() } };
+            resp["cs_state"] = gPlayState->csCtx.state;
+            resp["cs_frames"] = gPlayState->csCtx.frames;
+            resp["msg_mode"] = gPlayState->msgCtx.msgMode;
+            resp["prev_room"] = gPlayState->roomCtx.prevRoom.num;
+            resp["rooms_loaded"] = Zmp::Players::LoadedRooms(gPlayState);
+            resp["text_hidden"] = Zmp::Players::LocalTextHidden();
+            resp["local_light"] = Zmp::Players::LocalLightSetting();
+            resp["sim_light"] = gPlayState->envCtx.unk_BD;
+            resp["env_indoors"] = gPlayState->envCtx.indoors;
+            resp["num_light_settings"] = gPlayState->envCtx.numLightSettings;
+            resp["local_slot"] = Zmp::Players::LocalSlot();
+            {
+                Player* lp =
+                    Zmp_MultiActive() ? Zmp::Players::SlotPlayer(Zmp::Players::LocalSlot()) : GET_PLAYER(gPlayState);
+                int fl = -1;
+                if (lp != nullptr && lp->actor.floorPoly != nullptr && lp->actor.floorBgId == BGCHECK_SCENE) {
+                    fl = (int)SurfaceType_GetLightSettingIndex(&gPlayState->colCtx, lp->actor.floorPoly, BGCHECK_SCENE);
+                }
+                resp["floor_light"] = fl;
+                resp["room_hot"] = gPlayState->roomCtx.curRoom.behaviorType2 == ROOM_BEHAVIOR_TYPE2_3;
+            }
+            json notices = json::array();
+            for (auto& n : Zmp::Players::RecentNotices(30.0)) {
+                notices.push_back({ { "slot", n.slot }, { "item", n.itemId }, { "age", n.age } });
+            }
+            resp["notices"] = notices;
+            json slotRooms = json::array();
+            for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                slotRooms.push_back(Zmp::Players::SlotRoom(k));
+            }
+            resp["slot_rooms"] = slotRooms;
+        }
         req->Reply(resp);
+    } else if (name == "query.transitions") {
+        // Phase 4: the scene's transition actors (doors and loading planes between rooms).
+        json list = json::array();
+        if (InPlay()) {
+            const TransitionActorContext& t = gPlayState->transiActorCtx;
+            for (int i = 0; i < t.numActors; i++) {
+                const TransitionActorEntry& e = t.list[i];
+                list.push_back({ { "index", i },
+                                 { "id", e.id < 0 ? -e.id : e.id },
+                                 { "spawned", e.id < 0 },
+                                 { "front_room", e.sides[0].room },
+                                 { "back_room", e.sides[1].room },
+                                 { "pos", json::array({ e.pos.x, e.pos.y, e.pos.z }) },
+                                 { "rot_y", e.rotY },
+                                 { "params", e.params } });
+            }
+        }
+        req->Reply({ { "ok", true }, { "tick", sFrame }, { "transitions", list } });
     } else if (name == "query.hash") {
         auto st = Sim::GetStatus();
         uint32_t t = cmd.contains("tick") ? cmd["tick"].get<uint32_t>() : (st.tick > 0 ? st.tick - 1 : 0);

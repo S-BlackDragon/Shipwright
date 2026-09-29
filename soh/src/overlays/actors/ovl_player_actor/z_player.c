@@ -11270,10 +11270,15 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
         }
 
         if (this->actor.category == ACTORCAT_PLAYER) {
-            Audio_SetCodeReverb(SurfaceType_GetEcho(&play->colCtx, floorPoly, this->actor.floorBgId));
+            if (Zmp_IsLocalAudioPlayer(this)) { // ZMP: the reverb of the local player's floor
+                Audio_SetCodeReverb(SurfaceType_GetEcho(&play->colCtx, floorPoly, this->actor.floorBgId));
+            }
 
             if (this->actor.floorBgId == BGCHECK_SCENE) {
-                func_80074CE8(play, SurfaceType_GetLightSettingIndex(&play->colCtx, floorPoly, this->actor.floorBgId));
+                if (Zmp_DrivesLighting(this)) { // ZMP: only the anchor's floor sets the simulation's lighting
+                    func_80074CE8(play,
+                                  SurfaceType_GetLightSettingIndex(&play->colCtx, floorPoly, this->actor.floorBgId));
+                }
             } else {
                 DynaPoly_SetPlayerAbove(&play->colCtx, this->actor.floorBgId);
             }
@@ -11564,10 +11569,12 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
 
         if (play->actorCtx.targetCtx.bgmEnemy != NULL) {
             seqMode = SEQ_MODE_ENEMY;
-            Audio_SetBgmEnemyVolume(sqrtf(play->actorCtx.targetCtx.bgmEnemy->xyzDistToPlayerSq));
+            if (Zmp_IsLocalAudioPlayer(this)) { // ZMP: combat music follows the local player
+                Audio_SetBgmEnemyVolume(sqrtf(play->actorCtx.targetCtx.bgmEnemy->xyzDistToPlayerSq));
+            }
         }
 
-        if (play->sceneNum != SCENE_FISHING_POND) {
+        if ((play->sceneNum != SCENE_FISHING_POND) && Zmp_IsLocalAudioPlayer(this)) { // ZMP
             Audio_SetSequenceMode(seqMode);
         }
     }
@@ -12058,7 +12065,9 @@ void Player_UpdateCommon(Player* this, PlayState* play, Input* input) {
             (this->actor.category == ACTORCAT_PLAYER)) {
             CsCmdActorCue* linkActionCsCmd = play->csCtx.linkAction;
 
-            if ((linkActionCsCmd != NULL) && (sCueToCsActionMap[linkActionCsCmd->action] != 0)) {
+            // ZMP: only the player the cutscene is about follows its Link cues; the others wait
+            if ((linkActionCsCmd != NULL) && (sCueToCsActionMap[linkActionCsCmd->action] != 0) &&
+                Zmp_FollowsCutsceneScript(this)) {
                 Player_SetCsActionWithHaltedActors(play, NULL, 6);
                 Player_ZeroSpeedXZ(this);
             } else if ((this->csAction == 0) && !(this->stateFlags2 & PLAYER_STATE2_UNDERWATER) &&
@@ -12254,7 +12263,8 @@ void Player_Update(Actor* thisx, PlayState* play) {
             Player_DetachHeldActor(play, this);
         }
 
-        if (this->stateFlags1 & (PLAYER_STATE1_INPUT_DISABLED | PLAYER_STATE1_IN_CUTSCENE)) {
+        if ((this->stateFlags1 & (PLAYER_STATE1_INPUT_DISABLED | PLAYER_STATE1_IN_CUTSCENE)) ||
+            Zmp_PlayerHeldByCutscene(this)) { // ZMP: a global cutscene about another player holds this one
             memset(&input, 0, sizeof(input));
         } else {
             input = play->state.input[0];
@@ -14036,6 +14046,7 @@ s32 func_8084DFF4(PlayState* play, Player* this) {
                    equipItem >= ITEM_SWORD_KOKIRI && equipItem <= ITEM_TUNIC_ZORA && CHECK_AGE_REQ_ITEM(equipItem);
 
         Message_StartTextbox(play, giEntry.textId, &this->actor);
+        Zmp_OnItemGet(this, giEntry.itemId); // ZMP: the other players get a short notice instead of the text box
         // RANDOTODO: Macro this boolean check.
         if (!(giEntry.modIndex == MOD_RANDOMIZER && giEntry.itemId == RG_ICE_TRAP)) {
             if (giEntry.modIndex == MOD_NONE) {

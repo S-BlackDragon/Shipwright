@@ -1,6 +1,7 @@
 #include "ZmpWindow.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 #include <imgui.h>
@@ -12,6 +13,7 @@
 #include "soh/Zmp/Sim/Session.h"
 #include "soh/Zmp/Net/Lockstep.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h"
+#include "soh/util.h"
 #include <chrono>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
@@ -171,6 +173,29 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
         DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
+        // Phase 4: this player's heat / deep water timer (the original's timer is not used in multiplayer).
+        int heat = Players::SlotHeatSeconds(ls.slot);
+        if (heat >= 0) {
+            ImDrawList* hdl = ImGui::GetForegroundDrawList(vp);
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d:%02d", heat / 60, heat % 60);
+            float fs = ImGui::GetFontSize() * 1.8f;
+            ImVec2 hp(vp->Pos.x + vp->Size.x * 0.06f, vp->Pos.y + vp->Size.y * 0.20f);
+            hdl->AddRectFilled(ImVec2(hp.x - 6, hp.y - 3), ImVec2(hp.x + fs * 3.0f, hp.y + fs + 3),
+                               IM_COL32(0, 0, 0, 150), 4.0f);
+            hdl->AddText(ImGui::GetFont(), fs, hp,
+                         heat <= 10 ? IM_COL32(255, 80, 60, 255) : IM_COL32(255, 200, 90, 255), buf);
+        }
+        // Phase 4: what the other players got (their text box is not shown here).
+        float ny = vp->Pos.y + vp->Size.y * 0.12f;
+        for (auto& n : Players::RecentNotices(5.0)) {
+            if (n.slot == ls.slot) {
+                continue;
+            }
+            CenteredLine(ny, Lockstep::SlotName(n.slot) + " ha obtenido: " + SohUtils::GetItemName(n.itemId),
+                         IM_COL32(255, 235, 150, 255), 1.0f);
+            ny += ImGui::GetFontSize() * 1.2f + 8.0f;
+        }
     }
     if (!ls.lastError.empty() && ls.phase != Lockstep::Phase::Running) {
         CenteredLine(mid + big, ls.lastError, IM_COL32(255, 90, 90, 255), 1.0f);

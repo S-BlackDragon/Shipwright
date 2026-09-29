@@ -40,6 +40,7 @@ extern Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName);
 extern "C" s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);
 extern "C" RomFile sNaviMsgFiles[];
 s32 OTRScene_ExecuteCommands(PlayState* play, SOH::Scene* scene);
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 bool Scene_CommandSpawnList(PlayState* play, SOH::ISceneCommand* cmd) {
     // SOH::SetStartPositionList* cmdStartPos = std::static_pointer_cast<SOH::SetStartPositionList>(cmd);
@@ -156,6 +157,19 @@ bool Scene_CommandObjectList(PlayState* play, SOH::ISceneCommand* cmd) {
 
     k = 0;
     i = play->objectCtx.unk_09;
+
+    // ZMP: with several rooms loaded, the objects of the rooms that stay loaded are kept and the new room's are added
+    if (Zmp_KeepObjects()) {
+        i = play->objectCtx.num;
+        for (k = 0; static_cast<size_t>(k) < cmdObj->objects.size(); k++) {
+            if (Object_GetIndex(&play->objectCtx, cmdObj->objects[k]) < 0 && i < OBJECT_EXCHANGE_BANK_MAX - 1) {
+                OTRfunc_800982FC(&play->objectCtx, i, cmdObj->objects[k]);
+                i++;
+            }
+        }
+        play->objectCtx.num = i;
+        return false;
+    }
 
     // Loop until a mismatch in the object lists
     // Then clear all object ids past that in the context object list and kill actors for those objects
@@ -472,6 +486,7 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
     if (roomCtx->status == 1) {
         // if (!osRecvMesg(&roomCtx->loadQueue, NULL, OS_MESG_NOBLOCK)) {
         if (1) {
+            Zmp_RoomLoadBegin(play, roomCtx); // ZMP: the room being loaded completes in curRoom
             roomCtx->status = 0;
             roomCtx->curRoom.segment = roomCtx->unk_34;
             gSegments[3] = VIRTUAL_TO_PHYSICAL(roomCtx->unk_34);
@@ -483,6 +498,7 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
 
             GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
 
+            Zmp_RoomLoadEnd(play, roomCtx); // ZMP
             return 1;
         }
 
@@ -494,6 +510,12 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
 
 extern "C" s32 OTRRoom_RequestNewRoom(PlayState* play, RoomContext* roomCtx, s32 roomNum) {
     u32 size;
+
+    // ZMP: several rooms loaded in multiplayer (a room already loaded for another player is not loaded again)
+    s32 zmpRet = Zmp_RoomRequest(play, roomCtx, roomNum);
+    if (zmpRet >= 0) {
+        return zmpRet;
+    }
 
     if (roomCtx->status == 0) {
         roomCtx->prevRoom = roomCtx->curRoom;

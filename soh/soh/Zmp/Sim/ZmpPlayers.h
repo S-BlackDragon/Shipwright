@@ -23,6 +23,9 @@ extern "C" {
 #endif
 
 #define ZMP_MAX_PLAYERS 6
+#define ZMP_CAM_GLOBAL (-1)
+#define ZMP_MAX_EXTRA_ROOMS 6 // rooms kept loaded besides the engine's current and previous room (phase 4)
+#define ZMP_MAX_QUEUED_ROOMS 4
 
 // Per-player part of the save context (PLAN.md 2.6: progression is shared, this is not). While a slot is the
 // context these values are live in gSaveContext; otherwise they are parked here.
@@ -61,6 +64,13 @@ typedef struct {
     Camera camera;        // parked main camera (live in play->mainCamera while in context)
     TargetContext target; // parked Z-targeting context
     Input input;          // this tick's input of the player (press/rel computed in the simulation)
+    s16 activeCam;        // this player's active camera (play->activeCamera while it is the context, phase 4)
+    s16 room;             // room this player is in (phase 4, several rooms loaded)
+    // Heat / deep water timer of this player (phase 4; the original's timer in gSaveContext is the anchor's).
+    s16 heatState;   // 0 off, 1 preview, 2 counting, 3 stopped (ran out)
+    s16 heatSeconds; // seconds left
+    s16 heatTicks;   // ticks to the next second
+    s16 heatPreview; // ticks before the count starts (the original's preview and move animation)
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
     u8 pad1[7];
@@ -85,6 +95,21 @@ typedef struct {
     u32 audioTaskCount;    // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
     u32 audioRandom;       // deterministic replacement of Audio_NextRandom in a ZMP session
     u32 metronomeAt;       // audioTaskCount when the metronome sound was last requested
+    // Phase 4 (PLAN.md 2.9): scope of each sub camera. ZMP_CAM_GLOBAL: every player sees it; k: only player k.
+    s8 camScope[4];   // indexed by camera id (0, the main camera, unused)
+    s8 camCreator[4]; // slot whose context created the camera: its update runs in that context
+    u8 globalCs;      // a cutscene everybody watches is running (scripted cutscene or global sub camera)
+    s8 csTrigger;     // player the running global cutscene is about (the others are frozen around it)
+    s8 csStarter;     // context that last started a scripted cutscene
+    u8 pad3;
+    // Phase 4 (PLAN.md 2.10): several rooms loaded. The engine keeps two (curRoom, prevRoom); the others that some
+    // player still stands in are kept here. While code runs for player k, curRoom is k's room.
+    u8 extraRoomCount;
+    s8 loadingRoom; // room whose load was requested and did not complete yet
+    s8 setupRoom;   // room whose actor list the next Actor_UpdateAll spawns
+    u8 queuedRoomCount;
+    s8 queuedRooms[ZMP_MAX_QUEUED_ROOMS]; // rooms requested while another one was loading
+    Room extraRooms[ZMP_MAX_EXTRA_ROOMS];
     ZmpPlayerSlot slots[ZMP_MAX_PLAYERS];
 } ZmpSimState;
 
@@ -140,6 +165,8 @@ void Zmp_PauseLocalUpdate(PlayState* play);
 void Zmp_PauseLocalDraw(PlayState* play);
 // Kaleido: true while it runs for the local menu (it must not touch simulation memory: object space, collision).
 s32 Zmp_PauseRunningLocal(void);
+// Interface_Update: the original heat / deep water timer is off in multiplayer (each player has its own, Players.cpp).
+s32 Zmp_OwnHazardTimers(void);
 // Low health alarm (a sound, presentation): the local player's health, not the anchor's.
 s32 Zmp_LocalHealthCritical(void);
 // Player_DrawImpl: per-player tunic tone (cosmetic). Returns 1 and fills *out for the players after the first.
@@ -148,6 +175,72 @@ s32 Zmp_TunicColor(s32 tunic, const Color_RGB8* base, Color_RGB8* out);
 void* Zmp_PauseScratch(void);
 // Play_Update: group scene change with a countdown. Returns 1 while the transition must wait.
 s32 Zmp_TransitionGate(PlayState* play);
+
+// Cameras (phase 4, PLAN.md 2.9, Cameras.cpp). Each player has its own active camera; a sub camera is GLOBAL (every
+// player's active camera while it runs: boss and scripted cutscenes) or belongs to one player (one-point cutscenes:
+// chests, item get, crawlspaces...).
+void Zmp_OnSubCameraCreated(PlayState* play, s16 camId);
+void Zmp_OnePointBegin(PlayState* play, s16 csId, Actor* actor);
+void Zmp_OnePointEnd(void);
+// End of OnePointCutscene_Init (every path after Zmp_OnePointBegin).
+void Zmp_OnePointInitDone(PlayState* play);
+// OnePointCutscene_Init, after it copied play->view into the new camera: a private camera starts from its owner's view.
+void Zmp_OnePointCameraStart(PlayState* play, Camera* subCam);
+// OnePointCutscene_Init: 0 when the HUD must stay (a private cutscene of a player other than the anchor).
+s32 Zmp_OnePointHidesHud(void);
+// Play_ChangeCameraStatus replacement in multiplayer.
+s16 Zmp_ChangeCameraStatus(PlayState* play, s16 camIdx, s16 status);
+void Zmp_OnCameraCleared(PlayState* play, s16 camIdx);
+void Zmp_OnAllSubCamerasCleared(PlayState* play);
+// Play_Update camera loop replacement in multiplayer.
+void Zmp_UpdateCameras(PlayState* play);
+// Play_Draw tail: Camera_Finish of every player's active sub camera, in its context.
+void Zmp_FinishCameras(PlayState* play);
+// Cutscene_SetSegment / manual cutscene start: remembers who started a scripted cutscene.
+void Zmp_OnCutsceneStart(void);
+// Player_UpdateCommon: whether this player follows the scripted cutscene's Link cues (only the one it is about).
+s32 Zmp_FollowsCutsceneScript(Player* player);
+// Player_Update: a player a global cutscene is not about stands still (its input still reaches text and skip).
+s32 Zmp_PlayerHeldByCutscene(Player* player);
+// Cutscene_Command_Terminator: the host (anchor) skips a scripted cutscene with START in multiplayer.
+s32 Zmp_HostSkipsCutscene(PlayState* play);
+
+// Text boxes and item notices (phase 4): the text box of another player (not a global cutscene's) is drawn (its
+// simulation side effects happen on every machine) but its picture is discarded; the others see a short notice.
+void Zmp_MessageDrawBegin(PlayState* play);
+void Zmp_MessageDrawEnd(PlayState* play);
+void Zmp_OnItemGet(Player* player, s32 itemId);
+
+// Rooms (phase 4, Rooms.cpp).
+// OTRRoom_RequestNewRoom: returns -1 to let the original load the room, otherwise its return value.
+s32 Zmp_RoomRequest(PlayState* play, RoomContext* roomCtx, s32 roomNum);
+void Zmp_RoomLoadBegin(PlayState* play, RoomContext* roomCtx);
+void Zmp_RoomLoadEnd(PlayState* play, RoomContext* roomCtx);
+// Room_FinishRoomChange: 1 when handled (multiplayer: unloads only the rooms nobody stands in).
+s32 Zmp_RoomFinish(PlayState* play, RoomContext* roomCtx);
+// Kept loaded besides curRoom / prevRoom.
+s32 Zmp_RoomKept(s32 room);
+// Actor_Spawn: room of a new actor (its spawner's room in multiplayer).
+s8 Zmp_SpawnRoom(PlayState* play);
+// Actor_UpdateAll: spawning the actor list of a room that just loaded.
+void Zmp_SetupSpawnBegin(PlayState* play);
+void Zmp_SetupSpawnEnd(PlayState* play);
+// Room ambience (phase 4, PLAN.md 2.10 point 5; presentation). In the simulation only the anchor's floor picks the
+// light setting (deterministic, no flicker between players); each client draws with its local player's own light
+// setting, reverb and combat music.
+s32 Zmp_DrivesLighting(Player* player);
+s32 Zmp_IsLocalAudioPlayer(Player* player);
+void Zmp_DrawLightBegin(PlayState* play);
+void Zmp_DrawLightEnd(PlayState* play);
+// The simulation's fog distance (the canonical view's far plane) while the local lighting is applied.
+f32 Zmp_SimFogFar(PlayState* play);
+// Play_Draw: the rooms kept loaded besides curRoom and prevRoom.
+void Zmp_DrawExtraRooms(PlayState* play, u32 flags);
+// Actor_RemoveFromCategory: 1 when handled (the last enemy of a loaded room clears that room).
+s32 Zmp_EnemyRemoved(PlayState* play, Actor* actor);
+// Scene_CommandObjectList: 1 when the objects of every loaded room must be kept (a room loads while another one
+// stays loaded for a player).
+s32 Zmp_KeepObjects(void);
 
 // Play_Draw: the simulation side effects of drawing use the canonical (anchor) camera; the display
 // list is built with the local player's camera.
@@ -182,6 +275,7 @@ s32 Zmp_AllowSaveWrite(void);
 }
 
 #include <string>
+#include <vector>
 
 namespace Zmp::Players {
 // Debug RNG trace of the tick (desync hunting).
@@ -205,6 +299,8 @@ int SlotHealth(int slot);
 // Per-player block of a slot (live values when it is the context).
 ZmpPlayerBlock SlotBlock(int slot);
 bool SlotDowned(int slot);
+// Heat / deep water timer of a player: seconds left, or -1 when it does not run.
+int SlotHeatSeconds(int slot);
 bool GroupDefeat();
 int SlotSpectate(int slot);
 int SlotReviveProgress(int slot);
@@ -216,6 +312,31 @@ void ApplySavedBlock(int slot, const ZmpPlayerBlock& block);
 // Runs `fn` in the context of `slot` (console events run for the player who sent them).
 void RunInContext(int slot, void (*fn)(void*), void* arg);
 int PresentCount();
+int SlotActiveCam(int slot);
+int SlotRoom(int slot);
+void SetSlotRoom(int slot, int room);
+// Rooms.cpp: curRoom becomes this player's room when it is loaded (context switch).
+void ArrangeRooms(PlayState* play, int slot);
+std::vector<int> LoadedRooms(PlayState* play);
+// Local ambience (presentation): light setting the local picture uses (-1: the simulation's).
+int LocalLightSetting();
+// Cameras.cpp helpers: context switch (present slots only) and the local player's picture (NULL: canonical view).
+void SwitchContext(PlayState* play, int slot);
+// Actor whose update is running (NULL outside actor updates).
+const Actor* CurrentActor();
+bool IsPresent(int slot);
+const View* LocalPicture(PlayState* play, int slot);
+int CamScope(int camId);
+bool GlobalCutscene();
+int CutsceneTrigger();
+// Item notices of the other players (presentation): slot, item, age in seconds.
+struct Notice {
+    int slot;
+    int itemId;
+    double age;
+};
+std::vector<Notice> RecentNotices(double maxAge);
+bool LocalTextHidden();
 // After a portable save state load.
 void AfterStateLoad();
 } // namespace Zmp::Players

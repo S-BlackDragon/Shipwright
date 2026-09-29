@@ -245,6 +245,18 @@ void VisitZmp(Visitor& v) {
     v.U("group_defeat", gZmpSim.groupDefeat);
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
     v.S("last_magic_capacity", gZmpSim.lastMagicCapacity);
+    v.Bytes("cam_scope", gZmpSim.camScope, sizeof(gZmpSim.camScope));
+    v.Bytes("cam_creator", gZmpSim.camCreator, sizeof(gZmpSim.camCreator));
+    v.U("global_cs", gZmpSim.globalCs);
+    v.S("cs_trigger", gZmpSim.csTrigger);
+    v.S("cs_starter", gZmpSim.csStarter);
+    v.U("extra_rooms", gZmpSim.extraRoomCount);
+    for (int i = 0; i < gZmpSim.extraRoomCount; i++) {
+        v.S("extra_room", gZmpSim.extraRooms[i].num);
+    }
+    v.S("loading_room", gZmpSim.loadingRoom);
+    v.S("setup_room", gZmpSim.setupRoom);
+    v.Bytes("queued_rooms", gZmpSim.queuedRooms, gZmpSim.queuedRoomCount);
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         const ZmpPlayerSlot& s = gZmpSim.slots[k];
         v.prefix = "zmp.slot" + std::to_string(k) + ".";
@@ -281,6 +293,13 @@ void VisitZmp(Visitor& v) {
         v.S("input.stick_x", in->cur.stick_x);
         v.S("input.stick_y", in->cur.stick_y);
         v.U("player_actor", s.player != nullptr ? (uint64_t)s.player->actor.id : 0xFFFF);
+        v.S("active_cam", live ? gPlayState->activeCamera : s.activeCam);
+        v.S("cam.status", cam->status);
+        v.S("room", s.room);
+        v.S("heat_state", s.heatState);
+        v.S("heat_seconds", s.heatSeconds);
+        v.S("heat_ticks", s.heatTicks);
+        v.S("heat_preview", s.heatPreview);
     }
 }
 

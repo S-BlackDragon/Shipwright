@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 #include "textures/parameter_static/parameter_static.h"
 #include "textures/do_action_static/do_action_static.h"
@@ -6815,7 +6816,9 @@ void Interface_Update(PlayState* play) {
         Interface_UpdateMagicBar(play);
     }
 
-    if (gSaveContext.timerState == TIMER_STATE_OFF) {
+    if (Zmp_OwnHazardTimers()) {
+        // ZMP: in multiplayer every player has its own heat / deep water timer (soh/soh/Zmp/Sim/Players.cpp)
+    } else if (gSaveContext.timerState == TIMER_STATE_OFF) {
         if (((sEnvHazard == PLAYER_ENV_HAZARD_HOTROOM) || (sEnvHazard == PLAYER_ENV_HAZARD_UNDERWATER_FLOOR) ||
              (sEnvHazard == PLAYER_ENV_HAZARD_UNDERWATER_FREE)) &&
             ((gSaveContext.health >> 1) != 0)) {

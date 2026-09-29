@@ -256,6 +256,52 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: clear the renderer's texture cache",
                           {} });
+    // Phase 4 tests (lockstep events, they run in the sender's context): a one-point cutscene of the sender, a
+    // scripted cutscene at an entrance, an actor's health.
+    console->AddCommand("zmp_onepoint",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 3 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             Player* player = GET_PLAYER(gPlayState);
+                             OnePointCutscene_Init(gPlayState, (s16)std::stoi(args[1]), (s16)std::stoi(args[2]),
+                                                   &player->actor, CAM_ID_MAIN);
+                             return 0;
+                         },
+                          "ZMP: start a one-point cutscene of the player (tests)",
+                          { { "cs_id", Ship::ArgumentType::TEXT }, { "timer", Ship::ArgumentType::TEXT } } });
+    console->AddCommand("zmp_cutscene",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 3 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             gSaveContext.nextCutsceneIndex = (u16)std::stoi(args[2], nullptr, 16);
+                             gPlayState->nextEntranceIndex = (s16)std::stoi(args[1], nullptr, 16);
+                             gPlayState->transitionTrigger = TRANS_TRIGGER_START;
+                             gPlayState->transitionType = TRANS_TYPE_FADE_BLACK;
+                             return 0;
+                         },
+                          "ZMP: go to an entrance with a scripted cutscene (hex entrance, hex cutscene index)",
+                          { { "entrance", Ship::ArgumentType::TEXT }, { "cutscene", Ship::ArgumentType::TEXT } } });
+    console->AddCommand("zmp_actor_hp",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 3 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             int id = std::stoi(args[1], nullptr, 0);
+                             int hp = std::stoi(args[2]);
+                             for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
+                                 for (Actor* a = gPlayState->actorCtx.actorLists[cat].head; a != nullptr; a = a->next) {
+                                     if (a->id == id) {
+                                         a->colChkInfo.health = (u8)hp;
+                                         return 0;
+                                     }
+                                 }
+                             }
+                             return 1;
+                         },
+                          "ZMP: set the health of the first actor with that id (tests)",
+                          { { "actor_id", Ship::ArgumentType::TEXT }, { "health", Ship::ArgumentType::TEXT } } });
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {

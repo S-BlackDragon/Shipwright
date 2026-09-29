@@ -1289,20 +1289,18 @@ skip:
 
         PLAY_LOG(3806);
 
-        for (i = 0; i < NUM_CAMS; i++) {
-            if ((i != play->nextCamera) && (play->cameraPtrs[i] != NULL)) {
-                PLAY_LOG(3809);
-                if ((i == CAM_ID_MAIN) && Zmp_MultiActive()) {
-                    Zmp_UpdateMainCameras(play); // ZMP: one main camera per player
-                } else {
+        if (Zmp_MultiActive()) {
+            // ZMP: every player's cameras (one main camera each, sub cameras in their owner's context), the
+            // anchor's active camera last: its view stays in play->view
+            Zmp_UpdateCameras(play);
+        } else {
+            for (i = 0; i < NUM_CAMS; i++) {
+                if ((i != play->nextCamera) && (play->cameraPtrs[i] != NULL)) {
+                    PLAY_LOG(3809);
                     Camera_Update(play->cameraPtrs[i]);
                 }
             }
-        }
 
-        if ((play->nextCamera == CAM_ID_MAIN) && Zmp_MultiActive()) {
-            Zmp_UpdateMainCameras(play); // ZMP: anchor last, its view stays in play->view
-        } else {
             Camera_Update(play->cameraPtrs[play->nextCamera]);
         }
 
@@ -1332,7 +1330,9 @@ void Play_DrawOverlayElements(PlayState* play) {
     // ZMP: the text box / ocarina runs part of its logic while drawing (it spawns the song effects): it
     // draws in the context of its owner on every machine, not of the local player.
     Zmp_EnterOwner(play, 0);
+    Zmp_MessageDrawBegin(play); // ZMP: another player's text box runs but is not shown here
     Message_Draw(play);
+    Zmp_MessageDrawEnd(play); // ZMP
     Zmp_OverlayBegin(play);
 
     if (play->gameOverCtx.state != GAMEOVER_INACTIVE) {
@@ -1393,6 +1393,7 @@ void Play_Draw(PlayState* play) {
     if ((HREG(80) != 10) || (HREG(82) != 0)) {
         GameInteractor_ExecuteOnPlayDrawBegin();
 
+        Zmp_DrawLightBegin(play); // ZMP: the local player's room lighting for this picture
         POLY_OPA_DISP = Play_SetFog(play, POLY_OPA_DISP);
         POLY_XLU_DISP = Play_SetFog(play, POLY_XLU_DISP);
 
@@ -1541,6 +1542,7 @@ void Play_Draw(PlayState* play) {
                 Scene_Draw(play);
                 Room_Draw(play, &play->roomCtx.curRoom, roomDrawFlags & 3);
                 Room_Draw(play, &play->roomCtx.prevRoom, roomDrawFlags & 3);
+                Zmp_DrawExtraRooms(play, roomDrawFlags & 3); // ZMP: rooms kept for other players
             }
         }
 
@@ -1660,7 +1662,8 @@ void Play_Draw(PlayState* play) {
     }
 
 Play_Draw_skip:
-    Zmp_DrawEndView(play); // ZMP: the simulation keeps the canonical view and matrices
+    Zmp_DrawEndView(play);  // ZMP: the simulation keeps the canonical view and matrices
+    Zmp_DrawLightEnd(play); // ZMP: and its own lighting
 
     if (play->view.unk_124 != 0) {
         Camera_Update(GET_ACTIVE_CAM(play));
@@ -1671,7 +1674,11 @@ Play_Draw_skip:
         }
     }
 
-    Camera_Finish(GET_ACTIVE_CAM(play));
+    if (Zmp_MultiActive()) {
+        Zmp_FinishCameras(play); // ZMP: every player's active sub camera, in its context
+    } else {
+        Camera_Finish(GET_ACTIVE_CAM(play));
+    }
 
     CLOSE_DISPS(gfxCtx);
 
@@ -1899,6 +1906,7 @@ s16 Play_CreateSubCamera(PlayState* play) {
     play->cameraPtrs[i] = &play->subCameras[i - CAM_ID_SUB_FIRST];
     Camera_Init(play->cameraPtrs[i], &play->view, &play->colCtx, play);
     play->cameraPtrs[i]->thisIdx = i;
+    Zmp_OnSubCameraCreated(play, i); // ZMP: scope of the camera (everybody or one player)
 
     return i;
 }
@@ -1909,6 +1917,10 @@ s16 Play_GetActiveCamId(PlayState* play) {
 
 s16 Play_ChangeCameraStatus(PlayState* play, s16 camId, s16 status) {
     s16 camIdx = (camId == SUBCAM_ACTIVE) ? play->activeCamera : camId;
+
+    if (Zmp_MultiActive()) { // ZMP: the active camera is per player; a global camera becomes everybody's
+        return Zmp_ChangeCameraStatus(play, camIdx, status);
+    }
 
     if (status == CAM_STAT_ACTIVE) {
         play->activeCamera = camIdx;
@@ -1927,6 +1939,7 @@ void Play_ClearCamera(PlayState* play, s16 camId) {
     if (play->cameraPtrs[camIdx] != NULL) {
         Camera_ChangeStatus(play->cameraPtrs[camIdx], CAM_STAT_UNK100);
         play->cameraPtrs[camIdx] = NULL;
+        Zmp_OnCameraCleared(play, camIdx); // ZMP
         osSyncPrintf("camera control: " VT_BGCOL(CYAN) " " VT_COL(WHITE, BLUE) " clear sub camera [%d] " VT_BGCOL(
                          CYAN) " " VT_RST "\n",
                      camIdx);
@@ -1945,6 +1958,7 @@ void Play_ClearAllSubCameras(PlayState* play) {
     }
 
     play->activeCamera = CAM_ID_MAIN;
+    Zmp_OnAllSubCamerasCleared(play); // ZMP
 }
 
 Camera* Play_GetCamera(PlayState* play, s16 camId) {

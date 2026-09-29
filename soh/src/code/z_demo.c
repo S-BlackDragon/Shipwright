@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "global.h"
 #include "z64camera.h"
 
@@ -139,6 +140,7 @@ void func_8006450C(PlayState* play, CutsceneContext* csCtx) {
 }
 
 void func_80064520(PlayState* play, CutsceneContext* csCtx) {
+    Zmp_OnCutsceneStart(); // ZMP: the player in context is the one the cutscene is about
     csCtx->state = CS_STATE_SKIPPABLE_INIT;
     csCtx->linkAction = NULL;
 }
@@ -501,6 +503,7 @@ void Cutscene_Command_Terminator(PlayState* play, CutsceneContext* csCtx, CsCmdB
     bool shouldSkipCommand = cmd->base == 8 && !GameInteractor_Should(VB_PLAY_PULL_MASTER_SWORD_CS, true);
     bool debugCsSkip = CHECK_BTN_ALL(play->state.input[0].press.button, BTN_START) &&
                        (gSaveContext.fileNum != 0xFEDC) && CVarGetInteger(CVAR_DEVELOPER_TOOLS("DebugEnabled"), 0);
+    debugCsSkip = debugCsSkip || Zmp_HostSkipsCutscene(play); // ZMP: in multiplayer the host skips with START
 
     if ((gSaveContext.gameMode != GAMEMODE_NORMAL) && (gSaveContext.gameMode != GAMEMODE_END_CREDITS) &&
         (play->sceneNum != SCENE_HYRULE_FIELD) && (csCtx->frames > 20) &&
@@ -2265,6 +2268,7 @@ void Cutscene_HandleConditionalTriggers(PlayState* play) {
 }
 
 void Cutscene_SetSegment(PlayState* play, void* segment) {
+    Zmp_OnCutsceneStart(); // ZMP
     if (SEGMENT_NUMBER(segment) != 0) {
         play->csCtx.segment = SEGMENTED_TO_VIRTUAL(segment);
     } else {

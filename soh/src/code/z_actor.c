@@ -2595,6 +2595,7 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
     sp74 = NULL;
     unkFlag = 0;
 
+    Zmp_SetupSpawnBegin(play); // ZMP: the room's actors belong to the room that loaded them
     if (play->numSetupActors != 0) {
         actorEntry = &play->setupActorList[0];
         for (i = 0; i < play->numSetupActors; i++) {
@@ -2607,6 +2608,7 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
         play->numSetupActors = 0;
         GameInteractor_ExecuteOnSceneSpawnActors();
     }
+    Zmp_SetupSpawnEnd(play); // ZMP
 
     if (actorCtx->unk_02 != 0) {
         actorCtx->unk_02--;
@@ -3224,7 +3226,7 @@ void func_80031B14(PlayState* play, ActorContext* actorCtx) {
         actor = actorCtx->actorLists[i].head;
         while (actor != NULL) {
             if ((actor->room >= 0) && (actor->room != play->roomCtx.curRoom.num) &&
-                (actor->room != play->roomCtx.prevRoom.num)) {
+                (actor->room != play->roomCtx.prevRoom.num) && !Zmp_RoomKept(actor->room)) { // ZMP
                 if (!actor->isDrawn) {
                     actor = Actor_Delete(actorCtx, actor, play);
                 } else {
@@ -3316,7 +3318,8 @@ Actor* Actor_RemoveFromCategory(PlayState* play, ActorContext* actorCtx, Actor* 
     actorToRemove->next = NULL;
     actorToRemove->prev = NULL;
 
-    if ((actorToRemove->room == play->roomCtx.curRoom.num) && (actorToRemove->category == ACTORCAT_ENEMY) &&
+    if (!Zmp_EnemyRemoved(play, actorToRemove) && // ZMP: per loaded room in multiplayer
+        (actorToRemove->room == play->roomCtx.curRoom.num) && (actorToRemove->category == ACTORCAT_ENEMY) &&
         (actorCtx->actorLists[ACTORCAT_ENEMY].length == 0)) {
         Flags_SetTempClear(play, play->roomCtx.curRoom.num);
     }
@@ -3421,7 +3424,7 @@ Actor* Actor_Spawn(ActorContext* actorCtx, PlayState* play, s16 actorId, f32 pos
     actor->destroy = dbEntry->destroy;
     actor->update = dbEntry->update;
     actor->draw = dbEntry->draw;
-    actor->room = play->roomCtx.curRoom.num;
+    actor->room = Zmp_SpawnRoom(play); // ZMP: the spawner's room when several rooms are loaded
     actor->home.pos.x = posX;
     actor->home.pos.y = posY;
     actor->home.pos.z = posZ;
@@ -3475,10 +3478,12 @@ void Actor_SpawnTransitionActors(PlayState* play, ActorContext* actorCtx) {
         if (transitionActor->id >= 0) {
             if (((transitionActor->sides[0].room >= 0) &&
                  ((transitionActor->sides[0].room == play->roomCtx.curRoom.num) ||
-                  (transitionActor->sides[0].room == play->roomCtx.prevRoom.num))) ||
+                  (transitionActor->sides[0].room == play->roomCtx.prevRoom.num) ||
+                  Zmp_RoomKept(transitionActor->sides[0].room))) || // ZMP
                 ((transitionActor->sides[1].room >= 0) &&
                  ((transitionActor->sides[1].room == play->roomCtx.curRoom.num) ||
-                  (transitionActor->sides[1].room == play->roomCtx.prevRoom.num)))) {
+                  (transitionActor->sides[1].room == play->roomCtx.prevRoom.num) ||
+                  Zmp_RoomKept(transitionActor->sides[1].room)))) { // ZMP
                 Actor_Spawn(actorCtx, play, (s16)(transitionActor->id & 0x1FFF), transitionActor->pos.x,
                             transitionActor->pos.y, transitionActor->pos.z, 0, transitionActor->rotY, 0,
                             (i << 0xA) + transitionActor->params);

@@ -3,6 +3,7 @@
 #include "ZmpPlayers.h"
 #include "Session.h"
 
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -33,7 +34,7 @@ s32 gZmpCameraInterfaceMuted = 0;
 
 namespace {
 
-constexpr u32 kSimMagic = 0x33534D5A; // "ZMS3" (phase 3 layout)
+constexpr u32 kSimMagic = 0x34534D5A; // "ZMS4" (phase 4 layout)
 int sLocalSlot = -1;
 
 // Debug RNG trace (desync hunting): who drew random numbers this tick, in order (run-length compressed).
@@ -129,6 +130,7 @@ void Park(PlayState* play, int k) {
         }
     }
     s.input = play->state.input[0];
+    s.activeCam = play->activeCamera;
 }
 
 void Load(PlayState* play, int k) {
@@ -137,7 +139,10 @@ void Load(PlayState* play, int k) {
     memcpy(&play->actorCtx.targetCtx, &s.target, sizeof(TargetContext));
     LoadFromBlock(s.block);
     play->state.input[0] = s.input;
+    play->activeCamera = s.activeCam;
     gZmpCtxPlayer = s.player;
+    // curRoom is the room of the player in context (Rooms.cpp)
+    Zmp::Players::ArrangeRooms(play, k);
 }
 
 bool Downed(int k) {
@@ -235,6 +240,12 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     ZmpPlayerSlot& s = Slot(k);
     memcpy(&s.camera, &play->mainCamera, sizeof(Camera));
     memcpy(&s.target, &play->actorCtx.targetCtx, sizeof(TargetContext));
+    // Its own main camera, not queued behind the anchor's cutscenes (Cameras.cpp keeps the global ones).
+    s.camera.status = CAM_STAT_ACTIVE;
+    s.camera.childCamIdx = SUBCAM_FREE;
+    s.camera.parentCamIdx = SUBCAM_FREE;
+    s.activeCam = CAM_ID_MAIN;
+    s.room = play->roomCtx.curRoom.num;
     s.player = nullptr;
     s.present = 1;
     s.hasView = 0;
@@ -273,6 +284,53 @@ Vec3f SideOffset(const Vec3f& base, s16 yaw, int n) {
     out.x += Math_CosS(yaw) * side * dist;
     out.z -= Math_SinS(yaw) * side * dist;
     return out;
+}
+
+// A spawn spot with floor near the reference's height, not a scene exit, a void or lava (phase 4: the side offset of
+// the third player could be over the pit of Gohma's lair). Tries the side offsets n, n+2, n+4..., then behind the
+// reference, then the reference itself.
+bool GoodFloor(PlayState* play, Vec3f& pos, f32 refY) {
+    Vec3f probe = pos;
+    probe.y = refY + 50.0f;
+    CollisionPoly* poly = nullptr;
+    s32 bgId = 0;
+    f32 y = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
+    if (y == BGCHECK_Y_MIN || poly == nullptr || fabsf(y - refY) > 40.0f) {
+        return false;
+    }
+    if (SurfaceType_GetSceneExitIndex(&play->colCtx, poly, bgId) != 0) {
+        return false;
+    }
+    u32 floorType = SurfaceType_GetFloorType(&play->colCtx, poly, bgId);
+    if (floorType == 5 || floorType == 9 || floorType == 12) {
+        return false;
+    }
+    pos.y = y;
+    return true;
+}
+
+Vec3f SafeSpawnPos(PlayState* play, const Vec3f& base, s16 yaw, int n) {
+    for (int m = n; m < n + 10; m += 2) {
+        Vec3f pos = SideOffset(base, yaw, m);
+        if (GoodFloor(play, pos, base.y)) {
+            return pos;
+        }
+    }
+    for (int m = n + 1; m < n + 10; m += 2) {
+        Vec3f pos = SideOffset(base, yaw, m);
+        if (GoodFloor(play, pos, base.y)) {
+            return pos;
+        }
+    }
+    for (int d = 1; d <= 3; d++) {
+        Vec3f pos = base;
+        pos.x -= Math_SinS(yaw) * 45.0f * d;
+        pos.z -= Math_CosS(yaw) * 45.0f * d;
+        if (GoodFloor(play, pos, base.y)) {
+            return pos;
+        }
+    }
+    return base;
 }
 
 // Same arithmetic as View_SetPerspective + View_ApplyPerspective (z_view.c) + Play_Draw, without emitting
@@ -328,7 +386,26 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
         Slot(k).player = nullptr;
         Slot(k).present = 0;
         Slot(k).hasView = 0;
+        Slot(k).activeCam = CAM_ID_MAIN;
+        Slot(k).room = -1;
+        Slot(k).heatState = 0;
     }
+    for (int i = 0; i < NUM_CAMS; i++) {
+        gZmpSim.camScope[i] = ZMP_CAM_GLOBAL;
+        gZmpSim.camCreator[i] = -1;
+    }
+    // The original heat / deep water timer is not used in multiplayer (each player has its own).
+    if (gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT &&
+        gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK) {
+        gSaveContext.timerState = TIMER_STATE_OFF;
+    }
+    gZmpSim.globalCs = 0;
+    gZmpSim.csTrigger = -1;
+    gZmpSim.csStarter = -1;
+    gZmpSim.extraRoomCount = 0;
+    gZmpSim.loadingRoom = -1;
+    gZmpSim.setupRoom = -1;
+    gZmpSim.queuedRoomCount = 0;
     int anchor = LowestActive();
     gZmpSim.anchor = (s8)anchor;
     gZmpSim.ctx = (s8)anchor;
@@ -376,13 +453,17 @@ extern "C" void Zmp_PlayInitPlayers(PlayState* play, s32 startBgCamIndex) {
         Slot(anchor).player = lead;
         gZmpCtxPlayer = lead;
     }
+    // Everybody starts in the room of the entrance.
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Slot(k).room = play->roomCtx.curRoom.num;
+    }
     int n = 0;
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         if (k == anchor || !Slot(k).active) {
             continue;
         }
         n++;
-        Vec3f pos = SideOffset(lead->actor.world.pos, lead->actor.shape.rot.y, n);
+        Vec3f pos = SafeSpawnPos(play, lead->actor.world.pos, lead->actor.shape.rot.y, n);
         SpawnPlayerActor(play, k, pos, lead->actor.shape.rot.y, lead->actor.params, startBgCamIndex);
     }
     Zmp::Log("zmp: scene " + std::to_string(play->sceneNum) + " with " + std::to_string(Zmp::Players::PresentCount()) +
@@ -509,7 +590,12 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
                 continue;
             }
             SwitchTo(play, k);
-            gZmpCameraInterfaceMuted = (k != anchor);
+            // Only the anchor's camera drives the shared letterbox and HUD, and not while the anchor is in a cutscene
+            // of its own (chest, item, text): the others must not lose their HUD for it (phase 4).
+            bool privateCs = !gZmpSim.globalCs && play->csCtx.state == CS_STATE_IDLE &&
+                             (Slot(k).player->stateFlags1 & (PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_GETTING_ITEM |
+                                                             PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_TALKING));
+            gZmpCameraInterfaceMuted = (k != anchor) || privateCs;
             // Spectator: the camera of a downed player follows the partner it watches.
             int t = Slot(k).downed ? Slot(k).spectate : -1;
             if (Present(t)) {
@@ -624,6 +710,75 @@ void MagicInContext(void* p) {
         (play->gameOverCtx.state == GAMEOVER_INACTIVE) && (play->transitionMode == TRANS_MODE_OFF) &&
         ((play->csCtx.state == CS_STATE_IDLE) || !Player_InCsMode(play))) {
         Interface_UpdateMagicBar(play);
+    }
+}
+
+// Heat / deep water timer of the player in context (phase 4). Same rules and timing as the original's (Interface_Update
+// starts and stops it, Interface_Draw counted it down), but with the player's own room, tunic, health and timer.
+void HazardInContext(void* p) {
+    PlayState* play = (PlayState*)p;
+    int k = gZmpSim.ctx;
+    ZmpPlayerSlot& s = Slot(k);
+    if (s.downed || gZmpSim.groupDefeat) {
+        s.heatState = 0;
+        return;
+    }
+    s32 hz = Player_GetEnvironmentalHazard(play);
+    if (hz == PLAYER_ENV_HAZARD_HOTROOM) {
+        if (CUR_EQUIP_VALUE(EQUIP_TYPE_TUNIC) == EQUIP_VALUE_TUNIC_GORON) {
+            hz = PLAYER_ENV_HAZARD_NONE;
+        }
+    } else if (hz >= 2 && hz < 5) {
+        if (CUR_EQUIP_VALUE(EQUIP_TYPE_TUNIC) == EQUIP_VALUE_TUNIC_ZORA) {
+            hz = PLAYER_ENV_HAZARD_NONE;
+        }
+    }
+    bool hazard = hz == PLAYER_ENV_HAZARD_HOTROOM || hz == PLAYER_ENV_HAZARD_UNDERWATER_FLOOR ||
+                  hz == PLAYER_ENV_HAZARD_UNDERWATER_FREE;
+    if (s.heatState == 0) {
+        if (hazard && (gSaveContext.health >> 1) != 0) {
+            s.heatState = 1;
+            s.heatSeconds = gSaveContext.health >> 1;
+            s.heatTicks = 20;
+            s.heatPreview = 41; // init, 20 ticks of preview, 20 of moving to its place
+        }
+        return;
+    }
+    if (!hazard) {
+        s.heatState = 0;
+        return;
+    }
+    if (s.heatState == 3) {
+        return; // ran out: stays stopped until the hazard ends
+    }
+    Player* player = s.player;
+    if (!((play->gameOverCtx.state == GAMEOVER_INACTIVE) && (play->msgCtx.msgMode == MSGMODE_NONE) &&
+          !(player->stateFlags2 & PLAYER_STATE2_ATTEMPT_PLAY_FOR_ACTOR) &&
+          (play->transitionTrigger == TRANS_TRIGGER_OFF) && (play->transitionMode == TRANS_MODE_OFF) &&
+          !Play_InCsMode(play))) {
+        return;
+    }
+    if (s.heatPreview > 0) {
+        if (--s.heatPreview == 0) {
+            s.heatState = 2;
+        }
+        return;
+    }
+    if (play->msgCtx.msgLength != 0 || --s.heatTicks != 0) {
+        return;
+    }
+    s.heatTicks = 20;
+    if (s.heatSeconds != 0) {
+        s.heatSeconds--;
+    }
+    if (s.heatSeconds == 0) {
+        s.heatState = 3;
+        Zmp::Log("zmp: slot " + std::to_string(k) + ": heat / water timer ran out");
+        gSaveContext.health = 0;
+        play->damagePlayer(play, -(gSaveContext.health + 2));
+    } else if (k == sLocalSlot) {
+        Audio_PlaySfxGeneral(s.heatSeconds >= 11 ? NA_SE_SY_WARNING_COUNT_N : NA_SE_SY_WARNING_COUNT_E, &gSfxDefaultPos,
+                             4, &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
     }
 }
 
@@ -743,6 +898,12 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
             Zmp::Players::RunInContext(k, MagicInContext, play);
         }
     }
+    // Heat / deep water timers, each player with its own room, tunic and health.
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            Zmp::Players::RunInContext(k, HazardInContext, play);
+        }
+    }
     UpdateDowned(play);
     if (gZmpSim.ctx != gZmpSim.anchor) {
         SwitchTo(play, gZmpSim.anchor);
@@ -835,6 +996,10 @@ extern "C" s32 Zmp_LocalHealthCritical(void) {
     return critical;
 }
 
+extern "C" s32 Zmp_OwnHazardTimers(void) {
+    return Zmp_MultiActive();
+}
+
 extern "C" s32 Zmp_PauseIsLocal(void) {
     return Zmp_MultiActive();
 }
@@ -871,7 +1036,7 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     }
     // Canonical view: the camera state the simulation left in play->view (anchor or active sub camera).
     View sim = play->view;
-    ComputeViewMatrices(&sim, play->lightCtx.fogFar, &sSimVP, &sSimBillboard);
+    ComputeViewMatrices(&sim, Zmp_SimFogFar(play), &sSimVP, &sSimBillboard);
     sSimView = sim;
     sDrawBegun = true;
     int L = sLocalSlot;
@@ -880,9 +1045,13 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     bool prerendered = play->roomCtx.curRoom.meshHeader != nullptr && play->roomCtx.curRoom.meshHeader->base.type == 1;
     // A cutscene is seen by everybody through the same camera (PLAN.md 2.9: scripted cutscenes are GLOBAL).
     bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
-    if (!prerendered && !cutscene && play->activeCamera == CAM_ID_MAIN && L != gZmpSim.anchor && Present(L) &&
-        Slot(L).hasView) {
-        play->view = Slot(L).view;
+    // Otherwise each player sees its own active camera (phase 4): its main camera, or a sub camera of its own
+    // one-point cutscene (chest, item, crawlspace...), or the global cutscene camera everybody shares.
+    if (!prerendered && !cutscene && L != gZmpSim.anchor && Present(L)) {
+        const View* local = Zmp::Players::LocalPicture(play, L);
+        if (local != nullptr) {
+            play->view = *local;
+        }
     }
 }
 
@@ -1018,6 +1187,20 @@ extern "C" s32 Zmp_LanguageLocked(void) {
 
 namespace Zmp::Players {
 
+void SwitchContext(PlayState* play, int slot) {
+    if (Present(slot)) {
+        SwitchTo(play, slot);
+    }
+}
+
+bool IsPresent(int slot) {
+    return Present(slot);
+}
+
+const Actor* CurrentActor() {
+    return sTracePhase == 'U' ? sTraceActor : nullptr;
+}
+
 void RandTraceBegin(bool enabled) {
     gZmpRandTrace = enabled ? 1 : 0;
     sRandTrace.clear();
@@ -1076,7 +1259,25 @@ bool Found(int slot) {
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Slot(k).spectate = -1;
         Slot(k).reviver = -1;
+        Slot(k).activeCam = CAM_ID_MAIN;
+        Slot(k).room = -1;
     }
+    s.activeCam = play->activeCamera;
+    s.room = play->roomCtx.curRoom.num;
+    if (gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT &&
+        gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK) {
+        gSaveContext.timerState = TIMER_STATE_OFF;
+    }
+    for (int i = 0; i < NUM_CAMS; i++) {
+        gZmpSim.camScope[i] = ZMP_CAM_GLOBAL;
+        gZmpSim.camCreator[i] = (s8)slot;
+    }
+    gZmpSim.csTrigger = -1;
+    gZmpSim.csStarter = -1;
+    gZmpSim.extraRoomCount = 0;
+    gZmpSim.loadingRoom = -1;
+    gZmpSim.setupRoom = -1;
+    gZmpSim.queuedRoomCount = 0;
     gZmpCtxPlayer = player;
     Log("zmp: multiplayer simulation founded, slot " + std::to_string(slot));
     return true;
@@ -1130,11 +1331,25 @@ void Spawn(int slot) {
     ActorEntry* entry = play->linkActorEntry;
     Vec3f base = { (f32)entry->pos.x, (f32)entry->pos.y, (f32)entry->pos.z };
     s16 yaw = entry->rot.y;
-    // Next to the entrance of the scene, standing (start mode "idle"), no start camera.
-    Vec3f pos = SideOffset(base, yaw, slot + 1);
+    // Next to the entrance of the scene, standing (start mode "idle"), no start camera. When the entrance's room is
+    // no longer loaded (the group moved on), next to the anchor instead.
+    int entranceRoom = play->setupEntranceList[play->curSpawn].room;
+    bool entranceLoaded = false;
+    for (int r : LoadedRooms(play)) {
+        entranceLoaded = entranceLoaded || r == entranceRoom;
+    }
+    int spawnRoom = entranceRoom;
+    if (!entranceLoaded && Present(gZmpSim.anchor)) {
+        Player* a = Slot(gZmpSim.anchor).player;
+        base = a->actor.world.pos;
+        yaw = a->actor.shape.rot.y;
+        spawnRoom = Slot(gZmpSim.anchor).room;
+    }
+    Vec3f pos = SafeSpawnPos(play, base, yaw, slot + 1);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
     Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, play->mainCamera.camDataIdx);
+    s.room = (s16)spawnRoom;
     Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED"));
 }
 
@@ -1228,6 +1443,23 @@ ZmpPlayerBlock SlotBlock(int slot) {
 
 bool SlotDowned(int slot) {
     return Downed(slot);
+}
+
+int SlotRoom(int slot) {
+    return Valid(slot) ? Slot(slot).room : -1;
+}
+
+void SetSlotRoom(int slot, int room) {
+    if (Valid(slot)) {
+        Slot(slot).room = (s16)room;
+    }
+}
+
+int SlotHeatSeconds(int slot) {
+    if (!Present(slot) || Slot(slot).heatState == 0) {
+        return -1;
+    }
+    return Slot(slot).heatSeconds;
 }
 
 bool GroupDefeat() {

@@ -3,6 +3,7 @@
 #endif
 
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <string.h>
@@ -640,6 +641,9 @@ void Room_Draw(PlayState* play, Room* room, u32 flags) {
 }
 
 void Room_FinishRoomChange(PlayState* play, RoomContext* roomCtx) {
+    if (Zmp_RoomFinish(play, roomCtx)) { // ZMP: multiplayer unloads only the rooms nobody stands in
+        return;
+    }
     roomCtx->prevRoom.num = -1;
     roomCtx->prevRoom.segment = NULL;
     func_80031B14(play, &play->actorCtx); // kills all actors without room num set to -1

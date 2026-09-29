@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "global.h"
 #include "vt.h"
 #include "overlays/actors/ovl_En_Sw/z_en_sw.h"
@@ -1213,9 +1214,12 @@ s16 OnePointCutscene_Init(PlayState* play, s16 csId, s16 timer, Actor* actor, s1
     if (parentCamId == CAM_ID_NONE) {
         parentCamId = play->activeCamera;
     }
+    Zmp_OnePointBegin(play, csId, actor); // ZMP: a one-point cutscene belongs to its player (PLAN.md 2.9)
     subCamId = Play_CreateSubCamera(play);
+    Zmp_OnePointEnd(); // ZMP
     if (subCamId == CAM_ID_NONE) {
         osSyncPrintf(VT_COL(RED, WHITE) "onepoint demo: error: too many cameras ... give up! type=%d\n" VT_RST, csId);
+        Zmp_OnePointInitDone(play); // ZMP
         return CAM_ID_NONE;
     }
 
@@ -1226,7 +1230,7 @@ s16 OnePointCutscene_Init(PlayState* play, s16 csId, s16 timer, Actor* actor, s1
     if (vChildCamId >= CAM_ID_SUB_FIRST) {
         OnePointCutscene_SetAsChild(play, vChildCamId, subCamId);
         vSubCamStatus = CAM_STAT_WAIT;
-    } else {
+    } else if (Zmp_OnePointHidesHud()) { // ZMP: another player's private cutscene leaves the shared HUD
         Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_NOTHING_ALT);
     }
     OnePointCutscene_SetAsChild(play, subCamId, parentCamId);
@@ -1239,6 +1243,7 @@ s16 OnePointCutscene_Init(PlayState* play, s16 csId, s16 timer, Actor* actor, s1
     subCam->at = play->view.lookAt;
     subCam->eye = play->view.eye;
     subCam->fov = play->view.fovy;
+    Zmp_OnePointCameraStart(play, subCam); // ZMP: a private camera starts from its owner's view
 
     subCam->csId = csId;
 
@@ -1274,6 +1279,7 @@ s16 OnePointCutscene_Init(PlayState* play, s16 csId, s16 timer, Actor* actor, s1
         }
         vNextCamId = play->cameraPtrs[vCurCamId]->childCamIdx;
     }
+    Zmp_OnePointInitDone(play); // ZMP
     return subCamId;
 }
 
