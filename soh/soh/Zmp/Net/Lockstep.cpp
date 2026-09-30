@@ -294,7 +294,8 @@ void SendJoin() {
         place = sDetachArrived;
     }
     json msg = { { "t", "JOIN_GROUP" }, { "scene", scene }, { "entrance", entrance }, { "in_play", inPlay } };
-    if (InPlay()) {
+    if (InRealGame()) {
+        // (not from the title screen's attract demo: that Link and its equipment are nobody's)
         msg["spawn"] = Players::LocalSpawnInfo(entrance, place);
     }
     if (inPlay) {
@@ -681,6 +682,10 @@ void ProcessBlobRequests() {
         std::string err;
         State::BlobInfo info;
         auto st = Sim::GetStatus();
+        if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
+            std::string derr;
+            Sim::DumpState("logs/blob-save-" + std::to_string(tick) + ".txt", tick - 1, &derr);
+        }
         if (State::Save(blob, tick, st.lastHash, &err, &info)) {
             json msg = { { "t", "STATE_BLOB" },       { "group_id", it->groupId },    { "tick", tick },
                          { "for_slot", it->forSlot }, { "data", json::binary(blob) }, { "hash", st.lastHash } };
@@ -735,6 +740,18 @@ void LoadPendingBlob() {
         return;
     }
     sHavePendingBlob = false;
+    {
+        // The loaded state must be exactly the sender's at the end of the previous tick (same hash).
+        uint64_t h = Sim::HashState(info.tick - 1);
+        if (h != info.hash) {
+            Log("net: state loaded for tick " + std::to_string(info.tick) + " hashes " + Hex(h) + ", the sender had " +
+                Hex(info.hash) + " (the load differs)");
+        }
+        if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
+            std::string err;
+            Sim::DumpState("logs/blob-load-" + std::to_string(info.tick) + ".txt", info.tick - 1, &err);
+        }
+    }
     Players::SetLocalSlot(sSlot);
     if (joining) {
         sNextInputTick = sJoinTick;

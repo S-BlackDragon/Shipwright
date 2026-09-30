@@ -4733,3 +4733,8 @@ s16 gGameOverTimer = 0;
     F(sOcarinaSongBitFlags)                  \
     F(gGameOverTimer)
 SHIP_SAVESTATE_DEFINE(MessagePAL, MESSAGE_PAL_SHIP_SAVESTATE_FIELDS)
+
+// ZMP: the rest of the text box statics that the text's progress depends on (a player who joins a group while a text
+// box is open gets the group's values with its state, phase 5).
+#define MESSAGE_ZMP_SAVESTATE_FIELDS(F) F(sDisplayNextMessageAsEnglish) F(sLastLanguage) F(sTextBoxNum) F(sTextFade) F(sTextIsCredits) F(D_8014B30C)
+SHIP_SAVESTATE_DEFINE(MessageZmp, MESSAGE_ZMP_SAVESTATE_FIELDS)

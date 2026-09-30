@@ -44,17 +44,18 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 
 // Static data of the game code, serialized by the functions SoH already maintains for its
 // in-memory save states (soh/Enhancements/savestates.cpp keeps the same list).
-#define ZMP_STATIC_SAVESTATES(X)                                                                                      \
-    X(Matrix)                                                                                                         \
-    X(Lights)                                                                                                         \
-    X(DoorWarp1)                                                                                                      \
-    X(MapMark)                                                                                                        \
-    X(Camera)                                                                                                         \
-    X(OnePointCutscene) X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago) X(BgHakaTrap) \
-        X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) X(BossGanon)  \
-            X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai) X(EnBw)          \
-                X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan) X(EnXc)    \
-                    X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player)
+#define ZMP_STATIC_SAVESTATES(X)                                                                                     \
+    X(Matrix)                                                                                                        \
+    X(Lights)                                                                                                        \
+    X(DoorWarp1)                                                                                                     \
+    X(MapMark)                                                                                                       \
+    X(Camera)                                                                                                        \
+    X(OnePointCutscene)                                                                                              \
+    X(Environment) X(MapExp) X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago) X(BgHakaTrap) X(BgHidanRock)     \
+        X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) X(BossGanon) X(BossGanon2)  \
+            X(BossMo) X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai) X(EnBw) X(EnClearTag) X(EnFr) \
+                X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan) X(EnXc) X(EnZf) X(EnZl3)        \
+                    X(ObjectKankyo) X(EnHeishi1) X(Player) X(Demo) X(MessageZmp)
 
 #define ZMP_DECLARE_SAVESTATE(Tag) extern "C" void Tag##_SaveState(SaveStateCtx* ctx);
 ZMP_STATIC_SAVESTATES(ZMP_DECLARE_SAVESTATE)
