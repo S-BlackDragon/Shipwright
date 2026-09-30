@@ -243,6 +243,7 @@ void VisitZmp(Visitor& v) {
     v.S("pause_owner", gZmpSim.pauseOwner);
     v.S("transition_by", gZmpSim.transitionBy);
     v.U("clock_hold", gZmpSim.clockHold);
+    v.U("exits_locked", gZmpSim.exitsLocked);
     v.U("clock_hold_value", gZmpSim.clockHoldValue);
     v.U("shared_valid", gZmpSim.sharedValid);
     v.Bytes("shared_base", gZmpSim.sharedBase, gZmpSim.sharedValid ? gZmpSim.sharedSize : 0);

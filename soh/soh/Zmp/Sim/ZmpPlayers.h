@@ -129,6 +129,8 @@ typedef struct {
     u16 clockHoldValue;
     s16 clockHoldTicks;
     u8 clockHold;
+    // Tests (lockstep event "zmp_lock_exits 1"): scene exits act as walls, so random play never takes anybody out.
+    u8 exitsLocked;
     // Shared game baseline (SharedGame.cpp): what the other groups and the server already know.
     u8 sharedValid;
     u16 sharedSize;
@@ -202,6 +204,8 @@ void* Zmp_PauseScratch(void);
 s32 Zmp_TransitionGate(PlayState* play);
 // z_player.c: this player's own action (an exit, a void, Farore's Wind) started the scene change.
 void Zmp_NoteTransitionBy(Player* player);
+// z_player.c: scene exits act as walls (tests, "zmp_lock_exits").
+s32 Zmp_ExitsLocked(void);
 
 // Cameras (phase 4, PLAN.md 2.9, Cameras.cpp). Each player has its own active camera; a sub camera is GLOBAL (every
 // player's active camera while it runs: boss and scripted cutscenes) or belongs to one player (one-point cutscenes:

@@ -847,6 +847,11 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         }
         return true;
     }
+    if (cmd.rfind("zmp_lock_exits ", 0) == 0) {
+        // Tests: scene exits act as walls while set (random play stays in the scene; PLAN.md 1.3.3, a lockstep event).
+        gZmpSim.exitsLocked = (u8)(atoi(cmd.c_str() + 15) != 0);
+        return true;
+    }
     if (cmd == "zmp_autosave") {
         // Forced autosave (tests): the leader saves at the end of this tick.
         sForceAutosave = true;

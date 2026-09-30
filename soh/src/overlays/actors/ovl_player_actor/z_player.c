@@ -5147,6 +5147,13 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
 
             sp34 = this->unk_A84 - (s32)this->actor.world.pos.y;
 
+            if ((exitIndex != 0) && Zmp_ExitsLocked()) { // ZMP: tests, the exit acts as a wall ("zmp_lock_exits")
+                this->actor.world.pos = this->actor.prevPos;
+                this->linearVelocity = 0.0f;
+                this->actor.speedXZ = 0.0f;
+                return 0;
+            }
+
             if (!(this->stateFlags1 & (PLAYER_STATE1_ON_HORSE | PLAYER_STATE1_IN_WATER | PLAYER_STATE1_IN_CUTSCENE)) &&
                 !(this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) && (sp34 < 100) && (sYDistToFloor > 100.0f)) {
                 return 0;

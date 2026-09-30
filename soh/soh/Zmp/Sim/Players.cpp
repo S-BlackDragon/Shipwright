@@ -1011,6 +1011,10 @@ extern "C" s32 Zmp_PauseIsLocal(void) {
     return Zmp_MultiActive();
 }
 
+extern "C" s32 Zmp_ExitsLocked(void) {
+    return Zmp_MultiActive() && gZmpSim.exitsLocked;
+}
+
 extern "C" void Zmp_NoteTransitionBy(Player* player) {
     if (!Zmp_MultiActive() || player == nullptr) {
         return;
