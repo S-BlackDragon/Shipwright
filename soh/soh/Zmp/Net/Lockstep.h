@@ -64,6 +64,11 @@ struct Status {
     uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
     int lastSpawnMs = -1;    // phase 5b: until this player's Link appeared in the group it entered
     int nameTags = 0;        // name tags over the Links shown on this screen
+    // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
+    // pointers moved / left alone (unaligned look-alikes) in the last one.
+    uint32_t relocatedLoads = 0;
+    uint32_t lastRelocated = 0;
+    uint32_t lastRelocatedOdd = 0;
     bool covered = false; // phase 5b: entering a scene's group, the screen stays black until this player's Link is in
     bool catchingUp = false; // phase 5b: the group's state is loaded, this player's Link is not in it yet
     int lastJoinMs = -1;     // phase 5: time from leaving a scene to playing in the next group (ms)

@@ -17,6 +17,10 @@
 #include "soh/Zmp/State/ResourceSlots.h"
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/ZmpLog.h"
+#include "soh/GameVersions.h"
+
+extern "C" uint32_t ResourceMgr_GetNumGameVersions();
+extern "C" uint32_t ResourceMgr_GetGameVersion(int index);
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -68,6 +72,47 @@ const char* Client::StateName(NetState state) {
     return "unknown";
 }
 
+std::string RomVersionName(uint32_t crc) {
+    switch (crc) {
+        case OOT_NTSC_US_10:
+            return "NTSC N64 1.0";
+        case OOT_NTSC_US_11:
+            return "NTSC N64 1.1";
+        case OOT_NTSC_US_12:
+            return "NTSC N64 1.2";
+        case OOT_PAL_10:
+            return "PAL N64 1.0";
+        case OOT_PAL_11:
+            return "PAL N64 1.1";
+        case OOT_NTSC_JP_GC_CE:
+            return "NTSC GameCube Japon (Collector's Edition)";
+        case OOT_NTSC_JP_GC:
+            return "NTSC GameCube Japon";
+        case OOT_NTSC_US_GC:
+            return "NTSC GameCube USA";
+        case OOT_PAL_GC:
+            return "PAL GameCube";
+        case OOT_NTSC_JP_MQ:
+            return "NTSC Master Quest Japon";
+        case OOT_NTSC_US_MQ:
+            return "NTSC Master Quest USA";
+        case OOT_PAL_MQ:
+            return "PAL Master Quest";
+        case OOT_PAL_GC_DBG1:
+        case OOT_PAL_GC_DBG2:
+            return "PAL GameCube Debug";
+        case OOT_PAL_GC_MQ_DBG:
+            return "PAL Master Quest Debug";
+        case OOT_IQUE_TW:
+            return "iQue Taiwan";
+        case OOT_IQUE_CN:
+            return "iQue China";
+    }
+    char t[40];
+    snprintf(t, sizeof(t), "version desconocida (%08X)", crc);
+    return t;
+}
+
 Handshake Client::GetHandshake() {
     std::lock_guard<std::mutex> lock(mHandshakeMutex);
     if (!mHandshakeReady) {
@@ -85,6 +130,9 @@ Handshake Client::GetHandshake() {
         mHandshake.cvarProfileHash = prof;
         Log("handshake: oot sim entries=" + std::to_string(simEntries));
         mHandshake.randoSeed = 0;
+        if (ResourceMgr_GetNumGameVersions() > 0) {
+            mHandshake.romName = RomVersionName(ResourceMgr_GetGameVersion(0));
+        }
         mHandshakeReady = true;
         Log("handshake hashes: build=" + mHandshake.buildHash + " oot=" + mHandshake.ootHash +
             " soh=" + mHandshake.sohHash);
@@ -94,6 +142,11 @@ Handshake Client::GetHandshake() {
     const char* fake = CVarGetString(ZMP_CVAR_DEBUG_BUILD_HASH, "");
     if (fake != nullptr && fake[0] != '\0') {
         hs.buildHash = fake;
+    }
+    const char* rom = CVarGetString(ZMP_CVAR_DEBUG_ROM, "");
+    if (rom != nullptr && rom[0] != '\0') {
+        hs.romName = RomVersionName((uint32_t)strtoul(rom, nullptr, 16));
+        hs.ootHash += std::string("-") + rom;
     }
 #endif
     return hs;
@@ -186,7 +239,8 @@ bool Client::Send(const nlohmann::json& msg) {
                     if (mSock != nullptr && !SendAll((TCPsocket)mSock, next)) {
                         Log("net: send failed (" + std::to_string(next.size()) + " bytes)");
                     }
-                    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                    double ms =
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
                     if (ms > 20.0) {
                         Log("net: slow send, " + std::to_string(next.size()) + " bytes took " +
                             std::to_string((int)ms) + " ms on the socket");
@@ -251,6 +305,7 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
             { "soh_hash", hs.sohHash },
             { "cvar_profile_hash", hs.cvarProfileHash },
             { "rando_seed", hs.randoSeed },
+            { "rom_name", hs.romName },
             { "name", name },
             { "room", room },
             { "client_nonce", SteadyMs() },

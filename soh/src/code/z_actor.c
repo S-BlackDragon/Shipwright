@@ -1966,6 +1966,35 @@ s32 Actor_OfferTalkExchange(Actor* actor, PlayState* play, f32 arg2, f32 arg3, u
     Player* player = GET_PLAYER(play);
 
     // This is convoluted but it seems like it must be a single if statement to match
+    if (Zmp_MultiActive()) {
+        // ZMP (phase 5b): the offer is made to every player in reach, each by its own distance, not only to the
+        // one the actor runs for (the nearest): a player standing next to somebody does not keep the others from
+        // talking to it. Whoever presses A talks; the actor then runs for that player (text box per player).
+        s32 offered = false;
+        s32 k = -1;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* p = gZmpSim.slots[k].player;
+            f32 xz;
+            f32 y;
+
+            if (p == NULL || gZmpSim.slots[k].downed) {
+                continue;
+            }
+            xz = (p == player) ? actor->xzDistToPlayer : Actor_WorldDistXZToActor(actor, &p->actor);
+            y = (p == player) ? actor->yDistToPlayer : Actor_HeightDiff(actor, &p->actor);
+            if ((p->actor.flags & ACTOR_FLAG_TALK) ||
+                ((exchangeItemId != EXCH_ITEM_NONE) && (Player_InBlockingCsMode(play, p) || p->unk_6AD == 4)) ||
+                (p->focusActor != actor && ((arg3 < fabsf(y)) || (p->talkActorDistance < xz) || (arg2 < xz)))) {
+                continue;
+            }
+            p->talkActor = actor;
+            p->talkActorDistance = xz;
+            p->exchangeItemId = exchangeItemId;
+            offered |= (p == player);
+        }
+        return offered;
+    }
     if ((player->actor.flags & ACTOR_FLAG_TALK) || ((exchangeItemId != EXCH_ITEM_NONE) && Player_InCsMode(play)) ||
         (!actor->isTargeted &&
          ((arg3 < fabsf(actor->yDistToPlayer)) || (player->talkActorDistance < actor->xzDistToPlayer) ||

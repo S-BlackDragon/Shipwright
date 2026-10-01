@@ -15,6 +15,9 @@
 // Test builds only: replaces the build hash sent in the handshake (used by the
 // handshake rejection test).
 #define ZMP_CVAR_DEBUG_BUILD_HASH CVAR_ZMP("Debug.BuildHashOverride")
+// Test builds only: pretends the assets come from another ROM version (its CRC in hex, as in GameVersions.h): the
+// handshake sends that version's name and another assets hash (test of the reject message, phase 5b).
+#define ZMP_CVAR_DEBUG_ROM CVAR_ZMP("Debug.RomOverride")
 // Debug: readable dump of every lockstep tick (desync hunting; RESYNC keeps the last 40 in logs/desync-<t>-ticks/).
 #define ZMP_CVAR_DEBUG_TICK_DUMPS CVAR_ZMP("Debug.TickDumps")
 

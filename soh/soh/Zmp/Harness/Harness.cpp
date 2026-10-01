@@ -400,6 +400,9 @@ json LockstepJson() {
              { "present", Zmp::Players::PresentCount() },
              { "anchor", gZmpSim.anchor },
              { "last_spawn_ms", ls.lastSpawnMs },
+             { "relocated_loads", ls.relocatedLoads },
+             { "last_relocated", ls.lastRelocated },
+             { "last_relocated_odd", ls.lastRelocatedOdd },
              { "catching_up", ls.catchingUp },
              { "invite_by", Zmp::Players::Invite().by },
              { "invite_scene", Zmp::Players::Invite().scene },
@@ -445,7 +448,10 @@ json NetStatusJson() {
              { "reason", st.reason },
              { "detail", st.detail },
              { "build_hash", hs.buildHash },
+             // (local diagnostic, never sent to the server: where this process has the executable, D-073)
+             { "image_base", (uint64_t)(uintptr_t)&__ImageBase },
              { "oot_hash", hs.ootHash },
+             { "rom_name", hs.romName },
              { "soh_hash", hs.sohHash },
              { "cvar_profile_hash", hs.cvarProfileHash },
              { "lockstep", LockstepJson() } };
@@ -616,7 +622,8 @@ void Dispatch(const RequestPtr& req) {
                 json oca = json::array(); // per slot: [ocarina mode, last song played]
                 for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
                     const MessageContext* m = Zmp::Players::SlotMessage(k);
-                    oca.push_back({ m != nullptr ? (int)m->ocarinaMode : -1, m != nullptr ? (int)m->lastPlayedSong : -1 });
+                    oca.push_back(
+                        { m != nullptr ? (int)m->ocarinaMode : -1, m != nullptr ? (int)m->lastPlayedSong : -1 });
                 }
                 resp["ocarinas"] = oca;
                 json modes = json::array();
@@ -635,7 +642,8 @@ void Dispatch(const RequestPtr& req) {
             resp["prev_room"] = gPlayState->roomCtx.prevRoom.num;
             resp["rooms_loaded"] = Zmp::Players::LoadedRooms(gPlayState);
             resp["text_hidden"] = Zmp::Players::LocalTextHidden();
-            // Phase 5b: the title card with the scene's name (running in the simulation) and whether this screen shows it
+            // Phase 5b: the title card with the scene's name (running in the simulation) and whether this screen shows
+            // it
             resp["play_inits"] = Zmp::Players::PlayInitCount();
             resp["rupee_debt"] = gZmpSim.rupeeDebt;
             resp["bg_image"] = Zmp::Players::LocalBgImage();
@@ -967,7 +975,23 @@ void Dispatch(const RequestPtr& req) {
         if (f != nullptr) {
             fclose(f);
         }
-        req->Reply({ { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame } });
+        // (where the parts that are not simulation live inside two big globals, for the test that classifies what
+        // differs between instances)
+        json layout = { { "save_rva", (uint64_t)((uint8_t*)&gSaveContext - base) },
+                        { "save_size", sizeof(SaveContext) },
+                        { "save_stats_off", offsetof(SaveContext, ship.stats) },
+                        { "save_stats_size", sizeof(gSaveContext.ship.stats) },
+                        { "sim_rva", (uint64_t)((uint8_t*)&gZmpSim - base) },
+                        { "sim_size", sizeof(gZmpSim) },
+                        { "sim_slots_off", offsetof(ZmpSimState, slots) },
+                        { "sim_slot_size", sizeof(ZmpPlayerSlot) },
+                        { "sim_slot_view_off", offsetof(ZmpPlayerSlot, hasView) },
+                        { "sim_slot_target_off", offsetof(ZmpPlayerSlot, target) },
+                        { "sim_slot_target_size", sizeof(TargetContext) },
+                        { "sim_slot_camera_off", offsetof(ZmpPlayerSlot, camera) },
+                        { "sim_slot_input_off", offsetof(ZmpPlayerSlot, input) } };
+        req->Reply(
+            { { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame }, { "layout", layout } });
     } else if (name == "debug.floor") {
         // Exploration tool (not simulation): floor heights under a list of points, [[x, y, z], ...].
         if (!InPlay()) {
@@ -1184,7 +1208,8 @@ void OnFrameBegin(uint32_t tick) {
             }
         }
         {
-            float waited = (float)Zmp::Lockstep::GateWaitMs(); // (read every frame: waits of its own scene changes are dropped)
+            float waited =
+                (float)Zmp::Lockstep::GateWaitMs(); // (read every frame: waits of its own scene changes are dropped)
             if (sGapSettled >= 20) {
                 sGateWaitMaxMs = std::max(sGateWaitMaxMs, waited);
             }

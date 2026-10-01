@@ -20,6 +20,10 @@ struct BlobInfo {
     uint32_t resources = 0;
     double ms = 0.0;   // time spent saving or loading (including compression)
     std::string notes; // warnings (e.g. statics that did not match after loading)
+    // Phase 5b: pointers to the executable moved because the saving process had it at another address (0 when
+    // both have it at the same one), and values that looked like such pointers at unaligned offsets (left alone).
+    uint32_t relocated = 0;
+    uint32_t relocatedOdd = 0;
 };
 
 // Serializes the current state. Must be called between ticks on the game thread, in Play.

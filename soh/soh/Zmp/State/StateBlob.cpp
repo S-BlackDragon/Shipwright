@@ -53,11 +53,12 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(OnePointCutscene)                                                                                              \
     X(Environment)                                                                                                   \
     X(MapExp)                                                                                                        \
-    X(AudioOcarina) X(MessagePAL) X(BgDdanKd) X(BgDodoago) X(BgHakaTrap) X(BgHidanRock) X(BgMenkuriEye)              \
-        X(BgMoriHineri) X(BgPoEvent) X(BgRelayObjects) X(BgSpot18Basket) X(BossGanon) X(BossGanon2) X(BossMo)        \
-            X(BossSst) X(BossTw) X(BossVa) X(Demo6k) X(DemoDu) X(DemoKekkai) X(EnBw) X(EnClearTag) X(EnFr) X(EnGoma) \
-                X(EnInsect) X(EnIshi) X(EnNiw) X(EnPoField) X(EnTakaraMan) X(EnXc) X(EnZf) X(EnZl3) X(ObjectKankyo)  \
-                    X(EnHeishi1) X(Player) X(Demo) X(MessageZmp)
+    X(AudioOcarina)                                                                                                  \
+    X(MessagePAL) X(BgDdanKd) X(BgDodoago) X(BgHakaTrap) X(BgHidanRock) X(BgMenkuriEye) X(BgMoriHineri) X(BgPoEvent) \
+        X(BgRelayObjects) X(BgSpot18Basket) X(BossGanon) X(BossGanon2) X(BossMo) X(BossSst) X(BossTw) X(BossVa)      \
+            X(Demo6k) X(DemoDu) X(DemoKekkai) X(EnBw) X(EnClearTag) X(EnFr) X(EnGoma) X(EnInsect) X(EnIshi) X(EnNiw) \
+                X(EnPoField) X(EnTakaraMan) X(EnXc) X(EnZf) X(EnZl3) X(ObjectKankyo) X(EnHeishi1) X(Player) X(Demo)  \
+                    X(MessageZmp)
 
 #define ZMP_DECLARE_SAVESTATE(Tag) extern "C" void Tag##_SaveState(SaveStateCtx* ctx);
 ZMP_STATIC_SAVESTATES(ZMP_DECLARE_SAVESTATE)
@@ -156,12 +157,43 @@ uint64_t BuildId() {
         auto nt = (const IMAGE_NT_HEADERS*)(base + __ImageBase.e_lfanew);
         const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
         uint64_t h = 0xCBF29CE484222325ULL;
+        // The absolute addresses the loader wrote into the code (base relocations) depend on where the image
+        // was loaded: they are hashed as offsets from the image base, so the id is the same in every process.
+        std::vector<uint32_t> sites; // rva of every 64-bit relocation
+        {
+            const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+            uint32_t off = 0;
+            while (dir.VirtualAddress != 0 && off + sizeof(IMAGE_BASE_RELOCATION) <= dir.Size) {
+                auto block = (const IMAGE_BASE_RELOCATION*)(base + dir.VirtualAddress + off);
+                if (block->SizeOfBlock < sizeof(IMAGE_BASE_RELOCATION)) {
+                    break;
+                }
+                size_t count = (block->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(uint16_t);
+                const uint16_t* e = (const uint16_t*)(block + 1);
+                for (size_t k = 0; k < count; k++) {
+                    if ((e[k] >> 12) == IMAGE_REL_BASED_DIR64) {
+                        sites.push_back(block->VirtualAddress + (e[k] & 0xFFF));
+                    }
+                }
+                off += block->SizeOfBlock;
+            }
+        }
         for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
             if (sec->Characteristics & IMAGE_SCN_CNT_CODE) {
-                const uint64_t* p = (const uint64_t*)(base + sec->VirtualAddress);
                 size_t n = sec->Misc.VirtualSize / 8;
+                std::vector<uint64_t> code(n);
+                memcpy(code.data(), (const void*)(base + sec->VirtualAddress), n * 8);
+                for (uint32_t rva : sites) {
+                    if (rva >= sec->VirtualAddress && (size_t)(rva - sec->VirtualAddress) + 8 <= n * 8) {
+                        uint64_t v;
+                        uint8_t* at = (uint8_t*)code.data() + (rva - sec->VirtualAddress);
+                        memcpy(&v, at, 8);
+                        v -= (uint64_t)base;
+                        memcpy(at, &v, 8);
+                    }
+                }
                 for (size_t k = 0; k < n; k++) {
-                    h = (h ^ p[k]) * 0x100000001B3ULL;
+                    h = (h ^ code[k]) * 0x100000001B3ULL;
                 }
             }
         }
@@ -182,6 +214,61 @@ uint64_t ImageBase() {
     return 0;
 #endif
 }
+
+uint64_t ImageSize() {
+#ifdef _WIN32
+    auto nt = (const IMAGE_NT_HEADERS*)((uintptr_t)&__ImageBase + __ImageBase.e_lfanew);
+    return nt->OptionalHeader.SizeOfImage;
+#else
+    return 0;
+#endif
+}
+
+// Phase 5b (D-073): the executable is no longer at the same address in every process. The memory a save state
+// carries (the game's heap, the parked contexts, the statics of the actors) holds pointers to the executable's
+// functions and constants; each one that pointed into the saving process's image is moved by the distance between
+// that image and this one. Same build (checked before) means same layout, so the offset inside the image is the
+// same. `step` 8 for memory copied as it was (pointers are aligned there), 1 for a packed stream.
+struct Relocation {
+    uint64_t from = 0; // image base of the process that saved
+    uint64_t size = 0;
+    uint64_t delta = 0;
+    uint32_t moved = 0;
+    uint32_t odd = 0; // values that look like image pointers at unaligned offsets (not moved; diagnostic)
+
+    void Apply(const uint8_t* constData, size_t n, size_t step) {
+        uint8_t* p = (uint8_t*)constData;
+        for (size_t off = 0; off + 8 <= n; off += step) {
+            uint64_t v;
+            memcpy(&v, p + off, 8);
+            if (v - from < size) {
+                v += delta;
+                memcpy(p + off, &v, 8);
+                moved++;
+                if (step == 1) {
+                    off += 7;
+                }
+            }
+        }
+    }
+    std::string oddList;
+    void CountOdd(const char* what, const uint8_t* p, size_t n) {
+        for (size_t off = 0; off + 8 <= n; off++) {
+            if ((off & 7) != 0) {
+                uint64_t v;
+                memcpy(&v, p + off, 8);
+                if (v - from < size) {
+                    if (odd < 16) {
+                        char t[96];
+                        snprintf(t, sizeof(t), " %s+0x%zX=image+0x%llX", what, off, (unsigned long long)(v - from));
+                        oddList += t;
+                    }
+                    odd++;
+                }
+            }
+        }
+    }
+};
 
 std::vector<uint8_t> SaveStatics() {
     SaveStateCtx ctx = {};
@@ -485,10 +572,6 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         *err = "the save state was made by a different build of the game";
         return false;
     }
-    if (h.imageBase != ImageBase()) {
-        *err = "the executable is loaded at a different address (was the build linked with /DYNAMICBASE:NO?)";
-        return false;
-    }
     if (h.heapBase != (uint64_t)(uintptr_t)gSystemHeap || h.heapSize != SYSTEM_HEAP_SIZE) {
         *err = "the system heap is at a different address in this process";
         return false;
@@ -542,6 +625,43 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     }
     std::vector<uint8_t> statics(sections[SEC_STATICS].first,
                                  sections[SEC_STATICS].first + sections[SEC_STATICS].second);
+    if (h.imageBase != ImageBase()) {
+        // The saving process had the executable at another address (D-073): its pointers to the executable are
+        // moved to this process's image, in the decompressed copy, before anything is written to memory.
+        Relocation rel;
+        rel.from = h.imageBase;
+        rel.size = ImageSize();
+        rel.delta = ImageBase() - h.imageBase;
+        rel.CountOdd("heap", heap, SYSTEM_HEAP_SIZE);
+        rel.Apply(heap, SYSTEM_HEAP_SIZE, 8);
+        rel.Apply(saveCtx, sizeof(gSaveContext), 8);
+        rel.Apply(gameInfo, sizeof(*gGameInfo), 8);
+        rel.Apply(effectCtx, sizeof(sEffectContext), 8);
+        rel.Apply(globals, sizeof(Globals), 8);
+        if (sections.count(SEC_ZMPSIM)) {
+            // (the statics of each player's text box and ocarina are packed streams inside the structure)
+            const uint8_t* sim = sections[SEC_ZMPSIM].first;
+            size_t simSize = sections[SEC_ZMPSIM].second;
+            size_t packedStart = offsetof(std::remove_reference<decltype(gZmpSim)>::type, msgStatics);
+            size_t packedEnd =
+                offsetof(std::remove_reference<decltype(gZmpSim)>::type, ocaStatics) + sizeof(gZmpSim.ocaStatics);
+            size_t after = (packedEnd + 7) & ~(size_t)7;
+            if (simSize == sizeof(gZmpSim) && packedStart < packedEnd && after <= simSize) {
+                rel.CountOdd("sim", sim, packedStart);
+                rel.Apply(sim, packedStart, 8);
+                rel.Apply(sim + packedStart, packedEnd - packedStart, 1);
+                rel.CountOdd("sim2", sim + after, simSize - after);
+                rel.Apply(sim + after, simSize - after, 8);
+            }
+        }
+        rel.Apply(statics.data(), statics.size(), 1);
+        info->relocated = rel.moved;
+        info->relocatedOdd = rel.odd;
+        if (rel.odd > 0) {
+            Log("zmp: state load: " + std::to_string(rel.odd) +
+                " values at unaligned offsets look like pointers to the executable (left as they were):" + rel.oddList);
+        }
+    }
 
     // Resources: every resource the saving process had parsed must exist at the same address here.
     // Missing ones are loaded now; each lands in its slot, at the address it had over there.

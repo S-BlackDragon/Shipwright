@@ -272,7 +272,8 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
         // Group game over (D-058): the menu reads the anchor's pad; the others see who decides.
         std::string chooser = Lockstep::GameOverChooser();
         if (!chooser.empty()) {
-            Chat::Post(Category::System, chooser + " (el anfitrion) elige si guardar y continuar", "chooser", 4.0, 2.0f);
+            Chat::Post(Category::System, chooser + " (el anfitrion) elige si guardar y continuar", "chooser", 4.0,
+                       2.0f);
         }
         // A save from the pause menu (or the game over menu) of a player that is not the leader writes nothing.
         if (ls.saveSkipped) {
@@ -359,10 +360,10 @@ void RoomWindow::DrawOverlay() {
             sSeenLine = now;
             sSeenPlayers = st.players.size();
         } else if (st.state == NetState::Connected && st.players.size() != sSeenPlayers) {
-            Chat::Post(Category::Players, st.players.size() > sSeenPlayers ? "Un jugador ha entrado en la sala (" +
-                                                                                  std::to_string(st.players.size()) + ")"
-                                                                            : "Un jugador ha salido de la sala (" +
-                                                                                  std::to_string(st.players.size()) + ")");
+            Chat::Post(Category::Players,
+                       st.players.size() > sSeenPlayers
+                           ? "Un jugador ha entrado en la sala (" + std::to_string(st.players.size()) + ")"
+                           : "Un jugador ha salido de la sala (" + std::to_string(st.players.size()) + ")");
             sSeenPlayers = st.players.size();
         }
     }

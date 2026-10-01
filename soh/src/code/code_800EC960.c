@@ -1432,30 +1432,38 @@ SHIP_SAVESTATE_DEFINE(AudioOcarina, AUDIOOCARINA_SHIP_SAVESTATE_FIELDS)
 // ZMP (phase 5b): the statics that are the state of one ocarina (what is being played, the staff, the playback of a
 // song), saved (load = 0) or restored (load = 1) when the simulation changes of player. ZMP_OCA_STATICS_SIZE bytes.
 #define AUDIOOCARINA_ZMP_SLOT_FIELDS(F)                                                                              \
-    F(sRecordingState) F(sRecordSongPos) F(sOcarinaRecordTaskStart) F(sRecordOcarinaPitch) F(sRecordOcarinaVolume)   \
-    F(sRecordOcarinaVibrato) F(sRecordOcarinaBendIndex) F(sRecordOcarinaButtonIndex)                                 \
-    F(sPlayedOcarinaSongIndexPlusOne) F(sMusicStaffNumNotesPerTest) F(sOcarinaDropInputTimer) F(sPlayingStaff)       \
-    F(sPlaybackStaff) F(sRecordingStaff) F(sNotePlaybackVolume) F(sNotePlaybackVibrato) F(sNotePlaybackBend)         \
-    F(sRelativeNotePlaybackBend) F(sRelativeNotePlaybackVolume) F(sOcarinaPlaybackTaskStart)                         \
-    F(sPrevOcarinaWithMusicStaffFlags) F(sOcarinaUpdateTaskStart) F(sOcarinaInputStickAdj) F(sIsOcarinaInputEnabled) \
-    F(sOcarinaInstrumentId) F(sCurOcarinaPitch) F(sPrevOcarinaPitch) F(sCurOcarinaButtonIndex)                       \
-    F(sMusicStaffPrevPitch) F(sCurOcarinaBendFreq) F(sRelativeOcarinaVolume) F(sCurOcarinaBendIndex)                 \
-    F(sCurOcarinaVolume) F(sCurOcarinaVibrato) F(sPlaybackState) F(sOcarinaFlags) F(sPlaybackNoteTimer)              \
-    F(sPlaybackNotePos) F(sPlaybackStaffPos) F(sOcarinaInputButtonCur) F(sOcarinaInputButtonStart)                   \
-    F(sOcarinaInputButtonPrev) F(sOcarinaInputButtonPress) F(D_8016BA1C) F(sCurOcarinaSongWithoutMusicStaff)         \
-    F(sOcarinaWithoutMusicStaffPos) F(sOcarinaHasStartedSong) F(sFirstOcarinaSongIndex) F(sLastOcarinaSongIndex)     \
-    F(sAvailOcarinaSongFlags) F(sStaffOcarinaPlayingPos) F(sMusicStaffPos) F(sMusicStaffCurHeldLength)               \
-    F(sMusicStaffExpectedLength) F(sMusicStaffExpectedPitch) F(sScarecrowsLongSongSecondNote) F(sPlaybackPitch)      \
-    F(sPlaybackSong)
+    F(sRecordingState)                                                                                               \
+    F(sRecordSongPos) F(sOcarinaRecordTaskStart) F(sRecordOcarinaPitch) F(sRecordOcarinaVolume)                      \
+        F(sRecordOcarinaVibrato) F(sRecordOcarinaBendIndex) F(sRecordOcarinaButtonIndex) F(                          \
+            sPlayedOcarinaSongIndexPlusOne) F(sMusicStaffNumNotesPerTest) F(sOcarinaDropInputTimer) F(sPlayingStaff) \
+            F(sPlaybackStaff) F(sRecordingStaff) F(sNotePlaybackVolume) F(sNotePlaybackVibrato) F(sNotePlaybackBend) \
+                F(sRelativeNotePlaybackBend) F(sRelativeNotePlaybackVolume) F(sOcarinaPlaybackTaskStart)             \
+                    F(sPrevOcarinaWithMusicStaffFlags) F(sOcarinaUpdateTaskStart) F(sOcarinaInputStickAdj)           \
+                        F(sIsOcarinaInputEnabled) F(sOcarinaInstrumentId) F(sCurOcarinaPitch) F(sPrevOcarinaPitch)   \
+                            F(sCurOcarinaButtonIndex) F(sMusicStaffPrevPitch) F(sCurOcarinaBendFreq)                 \
+                                F(sRelativeOcarinaVolume) F(sCurOcarinaBendIndex) F(sCurOcarinaVolume)               \
+                                    F(sCurOcarinaVibrato) F(sPlaybackState) F(sOcarinaFlags) F(sPlaybackNoteTimer)   \
+                                        F(sPlaybackNotePos) F(sPlaybackStaffPos) F(sOcarinaInputButtonCur)           \
+                                            F(sOcarinaInputButtonStart) F(sOcarinaInputButtonPrev)                   \
+                                                F(sOcarinaInputButtonPress) F(D_8016BA1C)                            \
+                                                    F(sCurOcarinaSongWithoutMusicStaff)                              \
+                                                        F(sOcarinaWithoutMusicStaffPos) F(sOcarinaHasStartedSong)    \
+                                                            F(sFirstOcarinaSongIndex) F(sLastOcarinaSongIndex)       \
+                                                                F(sAvailOcarinaSongFlags) F(sStaffOcarinaPlayingPos) \
+                                                                    F(sMusicStaffPos) F(sMusicStaffCurHeldLength)    \
+                                                                        F(sMusicStaffExpectedLength)                 \
+                                                                            F(sMusicStaffExpectedPitch)              \
+                                                                                F(sScarecrowsLongSongSecondNote)     \
+                                                                                    F(sPlaybackPitch) F(sPlaybackSong)
 
 s32 AudioOcarina_ZmpStatics(u8* buf, s32 load) {
     u8* p = buf;
-#define AUDIOOCARINA_ZMP_SLOT_COPY(x)  \
-    if (load) {                        \
-        memcpy(&x, p, sizeof(x));      \
-    } else {                           \
-        memcpy(p, &x, sizeof(x));      \
-    }                                  \
+#define AUDIOOCARINA_ZMP_SLOT_COPY(x) \
+    if (load) {                       \
+        memcpy(&x, p, sizeof(x));     \
+    } else {                          \
+        memcpy(p, &x, sizeof(x));     \
+    }                                 \
     p += sizeof(x);
     AUDIOOCARINA_ZMP_SLOT_FIELDS(AUDIOOCARINA_ZMP_SLOT_COPY)
 #undef AUDIOOCARINA_ZMP_SLOT_COPY

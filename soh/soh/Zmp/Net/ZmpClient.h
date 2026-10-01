@@ -42,7 +42,13 @@ struct Handshake {
     std::string sohHash;
     std::string cvarProfileHash;
     uint32_t randoSeed = 0;
+    // The ROM version the assets were made from, by name ("PAL GameCube Debug", "NTSC N64 1.2"...): only for the
+    // server's reject message (phase 5b). The check is on the hashes.
+    std::string romName;
 };
+
+// Name of a ROM version by its CRC (the `version` entry of oot.o2r, soh/GameVersions.h).
+std::string RomVersionName(uint32_t crc);
 
 // Connection to zmp-server. Phase 0: handshake, room membership, ping. All network I/O
 // runs on its own thread; nothing here writes game state.

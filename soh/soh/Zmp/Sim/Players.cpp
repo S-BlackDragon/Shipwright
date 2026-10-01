@@ -387,6 +387,28 @@ int ContextSlot(const Actor* actor) {
             return who;
         }
     }
+    // Phase 5b: somebody to talk to attends the player who is looking at it with the lock-on (the nearest of them),
+    // whoever stands nearer: a player next to a shopkeeper or a villager does not keep the others from talking.
+    if (actor->flags & ACTOR_FLAG_FRIENDLY) {
+        int who = -1;
+        f32 best = 0.0f;
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (!Present(j) || Slot(j).downed || Slot(j).player->focusActor != actor) {
+                continue;
+            }
+            const Vec3f& a = actor->world.pos;
+            const Vec3f& b = Slot(j).player->actor.world.pos;
+            f32 dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+            f32 d = dx * dx + dy * dy + dz * dz;
+            if (who < 0 || d < best) {
+                best = d;
+                who = j;
+            }
+        }
+        if (who >= 0) {
+            return who;
+        }
+    }
     k = NearestSlot(actor->world.pos);
     return k >= 0 ? k : gZmpSim.anchor;
 }
@@ -1533,8 +1555,9 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
                     s.restoreRoom = s.room;
                 }
             }
-            Zmp::Log(gZmpSim.agePending != 0 ? "zmp: reloading the scene with the room's new age"
-                                             : "zmp: reloading the scene in place (it changed through progress made elsewhere)");
+            Zmp::Log(gZmpSim.agePending != 0
+                         ? "zmp: reloading the scene with the room's new age"
+                         : "zmp: reloading the scene in place (it changed through progress made elsewhere)");
             gZmpSim.refreshPending = 0;
             play->linkAgeOnLoad = age;
             play->nextEntranceIndex = gSaveContext.entranceIndex;

@@ -163,6 +163,9 @@ int sLastJoinMs = -1;
 std::chrono::steady_clock::time_point sInputAt; // when the next input is due (one per 50 ms)
 uint32_t sNextServerTick = 0;                   // the tick after the newest one received from the server (0: none yet)
 int sLastSpawnMs = -1;
+uint32_t sRelocatedLoads = 0;
+uint32_t sLastRelocated = 0;
+uint32_t sLastRelocatedOdd = 0;
 std::chrono::steady_clock::time_point sJoinStart;
 bool sJoinStartValid = false;
 
@@ -815,6 +818,13 @@ void LoadPendingBlob() {
         return;
     }
     sHavePendingBlob = false;
+    if (info.relocated > 0 || info.relocatedOdd > 0) {
+        sRelocatedLoads++;
+        sLastRelocated = info.relocated;
+        sLastRelocatedOdd = info.relocatedOdd;
+        info.notes +=
+            (info.notes.empty() ? "" : "; ") + std::to_string(info.relocated) + " pointers to the executable relocated";
+    }
     {
         // The loaded state must be exactly the sender's at the end of the previous tick (same hash).
         uint64_t h = Sim::HashState(info.tick - 1);
@@ -1509,7 +1519,8 @@ int GateWaitMs() {
     int ms = (int)sGateWaitMax;
     sGateWaitMax = 0;
     if (sPhase == Phase::Running && sWaitingNow) {
-        ms = std::max(ms, (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count());
+        ms =
+            std::max(ms, (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count());
     }
     return ms;
 }
@@ -1678,6 +1689,9 @@ Status GetStatus() {
     s.nameTags = (int)sTagged.size();
     s.lastJoinMs = sLastJoinMs;
     s.lastSpawnMs = sLastSpawnMs;
+    s.relocatedLoads = sRelocatedLoads;
+    s.lastRelocated = sLastRelocated;
+    s.lastRelocatedOdd = sLastRelocatedOdd;
     s.catchingUp = sPhase == Phase::Running && Zmp_MultiActive() && !Players::IsPresent(sSlot) && !sResyncHold;
     // The screen stays covered (the scene change's own black) from the moment this client asks the scene's group for
     // its state until its Link is in that group; if nobody plays there, the game's fade-in just goes on.

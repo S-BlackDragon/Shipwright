@@ -31,7 +31,7 @@ struct Field {
     int8_t live;   // scene flag also live in play->actorCtx.flags while that scene is loaded
     uint8_t scene; // scene of a scene flag
     bool rupees;
-    bool age = false; // Link's age (phase 5b): never written into a running scene, it asks for a reload instead
+    bool age = false;     // Link's age (phase 5b): never written into a running scene, it asks for a reload instead
     bool bottles = false; // phase 5b: which of the four bottles the room has (not a field of the save: each
                           // player's bottle slots hold its own contents)
 };
@@ -369,7 +369,8 @@ bool ApplyToGame(const std::vector<uint8_t>& patch, std::string* summary) {
             continue;
         }
         Put(save + f.saveOff, f.size, nv);
-        if (inScene && f.saveOff >= SAVE_OFF(eventChkInf) && f.saveOff < SAVE_OFF(eventChkInf) + sizeof(gSaveContext.eventChkInf)) {
+        if (inScene && f.saveOff >= SAVE_OFF(eventChkInf) &&
+            f.saveOff < SAVE_OFF(eventChkInf) + sizeof(gSaveContext.eventChkInf)) {
             // (a flag that changes how this scene looks: it is loaded again, in place)
             uint32_t word = (uint32_t)((f.saveOff - SAVE_OFF(eventChkInf)) / 2);
             for (auto& sf : kSceneFlags) {

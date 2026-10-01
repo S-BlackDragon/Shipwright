@@ -233,11 +233,18 @@ set(ALL_FILES
 ################################################################################
 add_executable(${PROJECT_NAME} ${ALL_FILES})
 
-# ZMP: fixed image base. Game memory stores pointers to functions and constant data of the
-# executable (actor update functions, asset names); a save state can only be loaded by another
-# process if the executable sits at the same address there (PLAN.md 8.3, docs/DECISIONES.md).
+# ZMP: game memory stores pointers to functions and constant data of the executable (actor update
+# functions, asset names). Phases 1 to 5 linked with a fixed image base (/DYNAMICBASE:NO) so that a save
+# state made by one process was valid in another. Since phase 5b the save state relocates those pointers
+# when it is loaded (StateBlob.cpp, docs/DECISIONES.md D-073) and the executable is linked like any
+# other program, with address space layout randomization. ZMP_FIXED_IMAGE_BASE=ON brings the old link back.
+option(ZMP_FIXED_IMAGE_BASE "Link soh.exe at a fixed address (no ASLR), as before phase 5b" OFF)
 if (MSVC)
-    target_link_options(${PROJECT_NAME} PRIVATE /DYNAMICBASE:NO)
+    if (ZMP_FIXED_IMAGE_BASE)
+        target_link_options(${PROJECT_NAME} PRIVATE /DYNAMICBASE:NO)
+    else()
+        target_link_options(${PROJECT_NAME} PRIVATE /DYNAMICBASE /HIGHENTROPYVA)
+    endif()
 endif()
 
 # ZMP: harness define (see ZMP_HARNESS option in the root CMakeLists.txt)
