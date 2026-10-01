@@ -204,12 +204,14 @@ void MsgSwitch(PlayState* play, int k) {
             memcpy(&gZmpSim.msgStore[cur].font, &play->msgCtx.font, sizeof(Font));
         }
         Message_ZmpStatics(gZmpSim.msgStatics[cur], 0);
+        AudioOcarina_ZmpStatics(gZmpSim.ocaStatics[cur], 0);
     }
     MsgCopySmall(&play->msgCtx, &gZmpSim.msgStore[k]);
     if (gZmpSim.msgStore[k].msgMode != MSGMODE_NONE) {
         memcpy(&play->msgCtx.font, &gZmpSim.msgStore[k].font, sizeof(Font));
     }
     Message_ZmpStatics(gZmpSim.msgStatics[k], 1);
+    AudioOcarina_ZmpStatics(gZmpSim.ocaStatics[k], 1);
     gZmpSim.msgLoaded = (s8)k;
 }
 
@@ -220,6 +222,9 @@ void MsgInitSlots(PlayState* play) {
         MessageContext& m = gZmpSim.msgStore[k];
         memcpy(&m, &play->msgCtx, sizeof(MessageContext));
         Message_ZmpStatics(gZmpSim.msgStatics[k], 0);
+        if (AudioOcarina_ZmpStatics(gZmpSim.ocaStatics[k], 0) > ZMP_OCA_STATICS_SIZE) {
+            Zmp::Log("zmp: ZMP_OCA_STATICS_SIZE is too small");
+        }
         if (k < ZMP_MAX_PLAYERS) {
             m.textboxSegment = gZmpSim.msgSegment[k];
         }
@@ -249,8 +254,10 @@ void MsgResetSlot(PlayState* play, int k) {
         MsgCopySmall(&play->msgCtx, &idle);
         play->msgCtx.textboxSegment = seg;
         Message_ZmpStatics(gZmpSim.msgStatics[ZMP_MAX_PLAYERS], 1);
+        AudioOcarina_ZmpStatics(gZmpSim.ocaStatics[ZMP_MAX_PLAYERS], 1);
         return;
     }
+    memcpy(gZmpSim.ocaStatics[k], gZmpSim.ocaStatics[ZMP_MAX_PLAYERS], ZMP_OCA_STATICS_SIZE);
     MsgCopySmall(&gZmpSim.msgStore[k], &idle);
     gZmpSim.msgStore[k].textboxSegment = gZmpSim.msgSegment[k];
     memcpy(gZmpSim.msgStatics[k], gZmpSim.msgStatics[ZMP_MAX_PLAYERS], ZMP_MSG_STATICS_SIZE);
@@ -354,17 +361,30 @@ int ContextSlot(const Actor* actor) {
             return j;
         }
     }
-    // What listens to the ocarina hears the player who plays it (its song lives in that player's text box state).
-    int o = gZmpSim.msgOwner;
-    if (Present(o)) {
-        const MessageContext* m = SlotMsg(o);
-        if (m != nullptr && m->ocarinaMode != OCARINA_MODE_00 && m->ocarinaMode != OCARINA_MODE_04) {
+    // What listens to the ocarina hears the nearest player who is playing (its song lives in that player's text box
+    // state).
+    {
+        int who = -1;
+        f32 best = 600.0f * 600.0f;
+        for (int o = 0; o < ZMP_MAX_PLAYERS; o++) {
+            if (!Present(o)) {
+                continue;
+            }
+            const MessageContext* m = SlotMsg(o);
+            if (m == nullptr || m->ocarinaMode == OCARINA_MODE_00 || m->ocarinaMode == OCARINA_MODE_04) {
+                continue;
+            }
             const Vec3f& a = actor->world.pos;
             const Vec3f& b = Slot(o).player->actor.world.pos;
             f32 dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-            if (dx * dx + dy * dy + dz * dz < 600.0f * 600.0f) {
-                return o;
+            f32 d = dx * dx + dy * dy + dz * dz;
+            if (d < best) {
+                best = d;
+                who = o;
             }
+        }
+        if (who >= 0) {
+            return who;
         }
     }
     k = NearestSlot(actor->world.pos);
@@ -879,16 +899,47 @@ extern "C" s32 Zmp_TitleCardHidden(void) {
     return Zmp_MultiActive() && Valid(gZmpSim.titleFor) && gZmpSim.titleFor != sLocalSlot;
 }
 
-extern "C" s32 Zmp_OcarinaBusy(void) {
-    if (!Zmp_MultiActive()) {
+extern "C" void AudioOcarina_Update(void);
+
+namespace {
+int sOcaAudible = -1; // the slot whose ocarina this machine's audio plays (presentation)
+} // namespace
+
+extern "C" s32 Zmp_OcarinaAudible(void) {
+    return !Zmp_MultiActive() || sOcaAudible < 0 || gZmpSim.ctx == sOcaAudible;
+}
+
+extern "C" s32 Zmp_OcarinaUpdateAll(void) {
+    PlayState* play = gPlayState;
+    if (!Zmp_MultiActive() || play == nullptr || !gZmpSim.msgReady) {
         return 0;
     }
-    int o = gZmpSim.msgOwner;
-    if (!Present(o) || o == gZmpSim.ctx) {
-        return 0;
+    int back = Valid(gZmpSim.ctx) ? gZmpSim.ctx : gZmpSim.anchor;
+    // This machine hears its own player's ocarina while it plays, else the first other one that is playing.
+    int audible = -1;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Present(k)) {
+            continue;
+        }
+        SwitchTo(play, k);
+        if (AudioOcarina_ZmpIsOn() && (audible < 0 || k == sLocalSlot)) {
+            audible = k;
+        }
     }
-    const MessageContext* m = SlotMsg(o);
-    return m != nullptr && m->msgMode != MSGMODE_NONE;
+    if (audible != sOcaAudible) {
+        if (sOcaAudible >= 0) {
+            Audio_StopSfxById(NA_SE_OC_OCARINA);
+        }
+        sOcaAudible = audible;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            SwitchTo(play, k);
+            AudioOcarina_Update();
+        }
+    }
+    SwitchTo(play, back);
+    return 1;
 }
 
 extern "C" s32 Zmp_MessageUpdateAll(PlayState* play) {
@@ -1837,11 +1888,9 @@ extern "C" s32 Zmp_OcarinaInput(Input* out) {
     if (!Zmp_MultiActive()) {
         return 0;
     }
-    int k = gZmpSim.msgOwner;
-    if (!Present(k)) {
-        k = gZmpSim.anchor;
-    }
-    if (k == gZmpSim.ctx && gPlayState != nullptr) {
+    // Phase 5b: each player's ocarina reads its own player's input (the one in context).
+    int k = Valid(gZmpSim.ctx) ? gZmpSim.ctx : gZmpSim.anchor;
+    if (gPlayState != nullptr) {
         *out = gPlayState->state.input[0];
     } else {
         *out = Slot(k).input;

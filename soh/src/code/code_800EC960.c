@@ -1429,6 +1429,43 @@ s32 sAudioUpdateTaskEnd;      // decomp: debug only
     F(sPlaybackPitch)
 SHIP_SAVESTATE_DEFINE(AudioOcarina, AUDIOOCARINA_SHIP_SAVESTATE_FIELDS)
 
+// ZMP (phase 5b): the statics that are the state of one ocarina (what is being played, the staff, the playback of a
+// song), saved (load = 0) or restored (load = 1) when the simulation changes of player. ZMP_OCA_STATICS_SIZE bytes.
+#define AUDIOOCARINA_ZMP_SLOT_FIELDS(F)                                                                              \
+    F(sRecordingState) F(sRecordSongPos) F(sOcarinaRecordTaskStart) F(sRecordOcarinaPitch) F(sRecordOcarinaVolume)   \
+    F(sRecordOcarinaVibrato) F(sRecordOcarinaBendIndex) F(sRecordOcarinaButtonIndex)                                 \
+    F(sPlayedOcarinaSongIndexPlusOne) F(sMusicStaffNumNotesPerTest) F(sOcarinaDropInputTimer) F(sPlayingStaff)       \
+    F(sPlaybackStaff) F(sRecordingStaff) F(sNotePlaybackVolume) F(sNotePlaybackVibrato) F(sNotePlaybackBend)         \
+    F(sRelativeNotePlaybackBend) F(sRelativeNotePlaybackVolume) F(sOcarinaPlaybackTaskStart)                         \
+    F(sPrevOcarinaWithMusicStaffFlags) F(sOcarinaUpdateTaskStart) F(sOcarinaInputStickAdj) F(sIsOcarinaInputEnabled) \
+    F(sOcarinaInstrumentId) F(sCurOcarinaPitch) F(sPrevOcarinaPitch) F(sCurOcarinaButtonIndex)                       \
+    F(sMusicStaffPrevPitch) F(sCurOcarinaBendFreq) F(sRelativeOcarinaVolume) F(sCurOcarinaBendIndex)                 \
+    F(sCurOcarinaVolume) F(sCurOcarinaVibrato) F(sPlaybackState) F(sOcarinaFlags) F(sPlaybackNoteTimer)              \
+    F(sPlaybackNotePos) F(sPlaybackStaffPos) F(sOcarinaInputButtonCur) F(sOcarinaInputButtonStart)                   \
+    F(sOcarinaInputButtonPrev) F(sOcarinaInputButtonPress) F(D_8016BA1C) F(sCurOcarinaSongWithoutMusicStaff)         \
+    F(sOcarinaWithoutMusicStaffPos) F(sOcarinaHasStartedSong) F(sFirstOcarinaSongIndex) F(sLastOcarinaSongIndex)     \
+    F(sAvailOcarinaSongFlags) F(sStaffOcarinaPlayingPos) F(sMusicStaffPos) F(sMusicStaffCurHeldLength)               \
+    F(sMusicStaffExpectedLength) F(sMusicStaffExpectedPitch) F(sScarecrowsLongSongSecondNote) F(sPlaybackPitch)      \
+    F(sPlaybackSong)
+
+s32 AudioOcarina_ZmpStatics(u8* buf, s32 load) {
+    u8* p = buf;
+#define AUDIOOCARINA_ZMP_SLOT_COPY(x)  \
+    if (load) {                        \
+        memcpy(&x, p, sizeof(x));      \
+    } else {                           \
+        memcpy(p, &x, sizeof(x));      \
+    }                                  \
+    p += sizeof(x);
+    AUDIOOCARINA_ZMP_SLOT_FIELDS(AUDIOOCARINA_ZMP_SLOT_COPY)
+#undef AUDIOOCARINA_ZMP_SLOT_COPY
+    return (s32)(p - buf);
+}
+
+s32 AudioOcarina_ZmpIsOn(void) {
+    return sOcarinaInstrumentId != OCARINA_INSTRUMENT_OFF;
+}
+
 void PadMgr_RequestPadData(PadMgr* padmgr, Input* inputs, s32 mode);
 
 void Audio_StepFreqLerp(FreqLerp* lerp);
@@ -1471,6 +1508,38 @@ void AudioOcarina_SetCustomButtonMapping(bool customControls) {
 
     sOcarinaAllowedButtonMask =
         (sOcarinaD5BtnMap | sOcarinaB4BtnMap | sOcarinaA4BtnMap | sOcarinaF4BtnMap | sOcarinaD4BtnMap);
+}
+
+// ZMP (phase 5b): each player has its own ocarina. Its state (the statics below, AudioOcarina_ZmpStatics) is swapped
+// with the player in context, and every player's ocarina is updated each tick with its own input. The audio engine
+// has one ocarina voice: it plays the ocarina this machine listens to (its own player's while it plays, else the
+// first other one), through copies of the bend and volume that are not swapped.
+static f32 sZmpOcaBend = 1.0f;
+static f32 sZmpOcaVol = 1.0f;
+
+static void ZmpOca_QueueCmdS8(u32 opArgs, s8 data) {
+    if (Zmp_OcarinaAudible()) {
+        Audio_QueueCmdS8(opArgs, data);
+    }
+}
+
+static void ZmpOca_Play(f32* bend, f32* vol) {
+    if (!Zmp_OcarinaAudible()) {
+        return;
+    }
+    if (Zmp_AudioSession()) {
+        sZmpOcaBend = *bend;
+        sZmpOcaVol = *vol;
+        Audio_PlaySfxGeneral(NA_SE_OC_OCARINA, &gSfxDefaultPos, 4, &sZmpOcaBend, &sZmpOcaVol, &gSfxDefaultReverb);
+    } else {
+        Audio_PlaySfxGeneral(NA_SE_OC_OCARINA, &gSfxDefaultPos, 4, bend, vol, &gSfxDefaultReverb);
+    }
+}
+
+static void ZmpOca_Stop(void) {
+    if (Zmp_OcarinaAudible()) {
+        Audio_StopSfxById(NA_SE_OC_OCARINA);
+    }
 }
 
 void AudioOcarina_ReadControllerInput(void) {
@@ -1947,7 +2016,7 @@ void AudioOcarina_PlayControllerInput(u8 unused) {
             sCurOcarinaVibrato =
                 (sOcarinaInputStickAdj.x < 0 ? -sOcarinaInputStickAdj.x : sOcarinaInputStickAdj.x) >> 2;
             // Sets vibrato to io port 6
-            Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD06, sCurOcarinaVibrato);
+            ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD06, sCurOcarinaVibrato);
         } else {
             // no bending or vibrato for recording state OCARINA_RECORD_SCARECROW_SPAWN
             sCurOcarinaBendIndex = 0;
@@ -1959,14 +2028,13 @@ void AudioOcarina_PlayControllerInput(u8 unused) {
         if ((sCurOcarinaPitch != OCARINA_PITCH_NONE) && (sPrevOcarinaPitch != sCurOcarinaPitch)) {
             // Sets ocarina instrument Id to channelIndex io port 7, which is used
             // as an index in seq 0 to get the true instrument Id
-            Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD07, sOcarinaInstrumentId - 1);
+            ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD07, sOcarinaInstrumentId - 1);
             // Sets pitch to io port 5
-            Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD05, sCurOcarinaPitch);
-            Audio_PlaySfxGeneral(NA_SE_OC_OCARINA, &gSfxDefaultPos, 4, &sCurOcarinaBendFreq, &sRelativeOcarinaVolume,
-                                 &gSfxDefaultReverb);
+            ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD05, sCurOcarinaPitch);
+            ZmpOca_Play(&sCurOcarinaBendFreq, &sRelativeOcarinaVolume);
         } else if ((sPrevOcarinaPitch != OCARINA_PITCH_NONE) && (sCurOcarinaPitch == OCARINA_PITCH_NONE)) {
             // Stops ocarina sound when transitioning from playing to not playing a note
-            Audio_StopSfxById(NA_SE_OC_OCARINA);
+            ZmpOca_Stop();
         }
 
         GameInteractor_ExecuteOnOcarinaNote(sCurOcarinaPitch, sCurOcarinaBendFreq, sOcarinaInstrumentId);
@@ -2010,7 +2078,7 @@ void AudioOcarina_SetInstrument(u8 ocarinaInstrumentId) {
         sOcarinaInputButtonStart = 0xFFFF;
 
         AudioOcarina_PlayControllerInput(false);
-        Audio_StopSfxById(NA_SE_OC_OCARINA);
+        ZmpOca_Stop();
         Audio_SetSfxBanksMute(0);
         sPlaybackState = 0;
         sPlaybackStaffPos = 0;
@@ -2031,7 +2099,7 @@ void AudioOcarina_SetInstrument(u8 ocarinaInstrumentId) {
 void AudioOcarina_SetPlaybackSong(s8 songIndexPlusOne, s8 playbackState) {
     if (songIndexPlusOne == 0) {
         sPlaybackState = 0;
-        Audio_StopSfxById(NA_SE_OC_OCARINA);
+        ZmpOca_Stop();
         return;
     }
 
@@ -2089,7 +2157,7 @@ void AudioOcarina_PlaybackSong(void) {
                     sPlaybackStaffPos = 0;
                     sPlaybackPitch = OCARINA_PITCH_NONE;
                 } else {
-                    Audio_StopSfxById(NA_SE_OC_OCARINA);
+                    ZmpOca_Stop();
                 }
                 return;
             } else {
@@ -2106,7 +2174,7 @@ void AudioOcarina_PlaybackSong(void) {
             // Update vibrato
             if (sNotePlaybackVibrato != sPlaybackSong[sPlaybackNotePos].vibrato) {
                 sNotePlaybackVibrato = sPlaybackSong[sPlaybackNotePos].vibrato;
-                Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD06, sNotePlaybackVibrato);
+                ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD06, sNotePlaybackVibrato);
             }
 
             // Update bend
@@ -2137,13 +2205,12 @@ void AudioOcarina_PlaybackSong(void) {
                     sPlaybackStaffPos++;
                     // Sets ocarina instrument Id to channelIndex io port 7, which is used
                     // as an index in seq 0 to get the true instrument Id
-                    Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD07, sOcarinaInstrumentId - 1);
+                    ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD07, sOcarinaInstrumentId - 1);
                     // Sets sPlaybackPitch to channelIndex io port 5
-                    Audio_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD05, sPlaybackPitch & 0x3F);
-                    Audio_PlaySfxGeneral(NA_SE_OC_OCARINA, &gSfxDefaultPos, 4, &sRelativeNotePlaybackBend,
-                                         &sRelativeNotePlaybackVolume, &gSfxDefaultReverb);
+                    ZmpOca_QueueCmdS8(0x6 << 24 | SEQ_PLAYER_SFX << 16 | 0xD05, sPlaybackPitch & 0x3F);
+                    ZmpOca_Play(&sRelativeNotePlaybackBend, &sRelativeNotePlaybackVolume);
                 } else {
-                    Audio_StopSfxById(NA_SE_OC_OCARINA);
+                    ZmpOca_Stop();
                 }
             }
             sPlaybackNotePos++;
@@ -2459,6 +2526,11 @@ s32 AudioOcarina_MemoryGameNextNote(void) {
 void AudioOcarina_Update(void) {
     // ZMP: in a session the ocarina advances with the game ticks, not with the audio thread
     sOcarinaUpdateTaskStart = Zmp_AudioTaskCount(gAudioContext.totalTaskCnt);
+    if (Zmp_AudioSession() && Zmp_OcarinaAudible() && sOcarinaInstrumentId != OCARINA_INSTRUMENT_OFF) {
+        // (the voice of the ocarina this machine hears follows its bend and volume)
+        sZmpOcaBend = sPlaybackState != 0 ? sRelativeNotePlaybackBend : sCurOcarinaBendFreq;
+        sZmpOcaVol = sPlaybackState != 0 ? sRelativeNotePlaybackVolume : sRelativeOcarinaVolume;
+    }
     if (sOcarinaInstrumentId != OCARINA_INSTRUMENT_OFF) {
         if (sIsOcarinaInputEnabled == true) {
             AudioOcarina_ReadControllerInput();
@@ -3937,14 +4009,18 @@ void Audio_Update(void) {
         // ZMP: the audio thread is still changing its configuration. The ocarina is game logic: in a session
         // it keeps running on the game ticks instead of waiting for the audio thread.
         if (Zmp_AudioSession()) {
-            AudioOcarina_Update();
+            if (!Zmp_OcarinaUpdateAll()) { // ZMP: every player's ocarina (phase 5b)
+                AudioOcarina_Update();
+            }
         }
         return;
     }
     {
         sAudioUpdateTaskStart = gAudioContext.totalTaskCnt;
         sAudioUpdateStartTime = osGetTime();
-        AudioOcarina_Update();
+        if (!Zmp_OcarinaUpdateAll()) { // ZMP: every player's ocarina (phase 5b)
+            AudioOcarina_Update();
+        }
         Audio_StepFreqLerp(&sRiverFreqScaleLerp);
         Audio_StepFreqLerp(&sWaterfallFreqScaleLerp);
         func_800F4A70();

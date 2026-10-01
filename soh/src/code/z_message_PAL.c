@@ -2919,13 +2919,7 @@ void Message_StartOcarina(PlayState* play, u16 ocarinaActionId) {
     s16 noStop;
     s32 k;
 
-    // ZMP: there is one ocarina (the instrument of the audio engine): while a player uses it, another one who
-    // takes it out puts it away at once. Whoever starts it owns it (its input plays the notes).
-    if (Zmp_OcarinaBusy()) {
-        msgCtx->ocarinaMode = OCARINA_MODE_04;
-        return;
-    }
-    Zmp_OnMessageStart();
+    Zmp_OnMessageStart(); // ZMP: (each player has its own ocarina, phase 5b)
     osSyncPrintf(VT_FGCOL(GREEN));
 
     for (i = sOcarinaSongBitFlags = 0; i < (QUEST_KOKIRI_EMERALD - QUEST_SONG_MINUET); i++) {

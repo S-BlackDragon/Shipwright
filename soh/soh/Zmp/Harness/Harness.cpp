@@ -613,6 +613,12 @@ void Dispatch(const RequestPtr& req) {
                 if (msg == nullptr) {
                     msg = &gPlayState->msgCtx;
                 }
+                json oca = json::array(); // per slot: [ocarina mode, last song played]
+                for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                    const MessageContext* m = Zmp::Players::SlotMessage(k);
+                    oca.push_back({ m != nullptr ? (int)m->ocarinaMode : -1, m != nullptr ? (int)m->lastPlayedSong : -1 });
+                }
+                resp["ocarinas"] = oca;
                 json modes = json::array();
                 for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
                     modes.push_back(Zmp::Players::SlotMsgMode(k));

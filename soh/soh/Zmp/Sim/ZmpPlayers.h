@@ -55,6 +55,7 @@ typedef struct {
 #define ZMP_INVITE_LEAVE_TICKS 60
 #define ZMP_INVITE_HOLD_TICKS 15
 #define ZMP_MSG_STATICS_SIZE 96
+#define ZMP_OCA_STATICS_SIZE 512
 
 typedef struct {
     /* in the simulation */
@@ -182,6 +183,7 @@ typedef struct {
     s16 rupeeDebt;
     s16 pad7[3];
     u8 msgStatics[ZMP_MAX_PLAYERS + 1][ZMP_MSG_STATICS_SIZE];
+    u8 ocaStatics[ZMP_MAX_PLAYERS + 1][ZMP_OCA_STATICS_SIZE]; // each player's ocarina (code_800EC960.c)
     u8 msgSegment[ZMP_MAX_PLAYERS][0x2200]; // each slot's text box background and icon (msgCtx.textboxSegment)
     MessageContext msgStore[ZMP_MAX_PLAYERS + 1];
     // Shared game baseline (SharedGame.cpp): what the other groups and the server already know.
@@ -242,8 +244,12 @@ void Zmp_OnTitleCard(void);
 s32 Zmp_TitleCardHidden(void);
 s32 Zmp_MessageUpdateAll(PlayState* play);
 s32 Zmp_MessageDrawAll(PlayState* play);
-// z_message_PAL.c: another player is using the ocarina (there is one instrument).
-s32 Zmp_OcarinaBusy(void);
+// Phase 5b, one ocarina per player (code_800EC960.c): every player's ocarina is updated with its own input (returns
+// 0 outside a session), and whether the ocarina in context is the one this machine's audio plays.
+s32 Zmp_OcarinaUpdateAll(void);
+s32 Zmp_OcarinaAudible(void);
+s32 AudioOcarina_ZmpStatics(u8* buf, s32 load);
+s32 AudioOcarina_ZmpIsOn(void);
 // z_message_PAL.c: saves (load = 0) / restores (load = 1) the statics of the text box code that belong to one text
 // box, into a buffer of ZMP_MSG_STATICS_SIZE bytes.
 void Message_ZmpStatics(u8* buf, s32 load);
