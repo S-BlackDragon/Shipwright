@@ -163,6 +163,7 @@ int sLastJoinMs = -1;
 std::chrono::steady_clock::time_point sInputAt; // when the next input is due (one per 50 ms)
 uint32_t sNextServerTick = 0;                   // the tick after the newest one received from the server (0: none yet)
 int sLastSpawnMs = -1;
+int sRegroupPending = -1; // REGROUP received before this player arrived in the group's new scene (that scene)
 uint32_t sRelocatedLoads = 0;
 uint32_t sLastRelocated = 0;
 uint32_t sLastRelocatedOdd = 0;
@@ -608,7 +609,17 @@ void HandleControl(json& msg) {
             (sJoinIsRejoin ? " (rejoin)" : "") + (fromDetach ? " (from another scene)" : ""));
     } else if (t == "REGROUP") {
         // Phase 5: this group moved into a scene where another group already plays: join that one.
-        if (sPhase == Phase::Running && InPlay()) {
+        int scene = msg.value("scene", -1);
+        if (sPhase == Phase::Running && InPlay() && scene >= 0 &&
+            ((int)gPlayState->sceneNum != scene || gPlayState->transitionMode != TRANS_MODE_OFF)) {
+            // Phase 5b: the server says it as soon as the first member arrives. This one is still on its way (it has
+            // not run the tick of the scene change, or its scene is loading): it keeps running its group's ticks
+            // and regroups when it is there (OnFrameBegin). Before, it asked for the group of the scene it was
+            // leaving and stayed behind.
+            sRegroupPending = scene;
+            Log("net: REGROUP into the group of scene " + std::to_string(scene) + " once this player arrives there");
+        } else if (sPhase == Phase::Running && InPlay()) {
+            sRegroupPending = -1;
             Log("net: REGROUP into the group of scene " + std::to_string(msg.value("scene", -1)));
             Send({ { "t", "LEAVE_GROUP" } });
             Players::KeepOnlyLocal();
@@ -1249,6 +1260,15 @@ void OnFrameBegin() {
         sGroupScene = gPlayState->sceneNum;
         Send({ { "t", "GROUP_SCENE" }, { "scene", sGroupScene } });
         Log("net: the group is now in scene " + std::to_string(sGroupScene));
+    }
+    if (sRegroupPending >= 0) {
+        if (sPhase != Phase::Running || !sConnected) {
+            sRegroupPending = -1;
+        } else if (InRealGame() && (int)gPlayState->sceneNum == sRegroupPending &&
+                   gPlayState->transitionMode == TRANS_MODE_OFF) {
+            json regroup = { { "t", "REGROUP" }, { "scene", sRegroupPending } };
+            HandleControl(regroup);
+        }
     }
     LoadPendingBlob();
     ProcessBlobRequests();

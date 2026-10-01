@@ -989,7 +989,11 @@ void Dispatch(const RequestPtr& req) {
                         { "sim_slot_target_off", offsetof(ZmpPlayerSlot, target) },
                         { "sim_slot_target_size", sizeof(TargetContext) },
                         { "sim_slot_camera_off", offsetof(ZmpPlayerSlot, camera) },
-                        { "sim_slot_input_off", offsetof(ZmpPlayerSlot, input) } };
+                        { "sim_slot_input_off", offsetof(ZmpPlayerSlot, input) },
+                        // (the pad manager: what the state carries is `inputs`; controller presence and rumble
+                        // are this PC's hardware)
+                        { "pad_inputs_off", offsetof(PadMgr, inputs) },
+                        { "pad_inputs_size", sizeof(gPadMgr.inputs) } };
         req->Reply(
             { { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame }, { "layout", layout } });
     } else if (name == "debug.floor") {

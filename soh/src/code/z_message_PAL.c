@@ -4747,10 +4747,11 @@ SHIP_SAVESTATE_DEFINE(MessageZmp, MESSAGE_ZMP_SAVESTATE_FIELDS)
     F(sDisplayNextMessageAsEnglish)                                                                            \
     F(sLastLanguage)                                                                                           \
     F(sTextBoxNum)                                                                                             \
-    F(sTextFade) F(sMessageStartFrameCount) F(sOcarinaButtonIndexBufPos) F(sOcarinaButtonIndexBufLen)          \
-        F(sTextboxSkipped) F(sNextTextId) F(sTextIsCredits) F(D_8014B30C) F(sLastPlayedSong) F(sHasSunsSong)   \
-            F(sMessageHasSetSfx) F(sOcarinaSongBitFlags) F(sOcarinaButtonIndexBuf) F(sOcarinaNotesAlphaValues) \
-                F(sCharTexSize) F(sCharTexScale) F(sAnalogStickHeld) F(D_80153D74) F(D_80153D78)
+    F(sTextFade)                                                                                               \
+    F(sMessageStartFrameCount) F(sOcarinaButtonIndexBufPos) F(sOcarinaButtonIndexBufLen) F(sTextboxSkipped)    \
+        F(sNextTextId) F(sTextIsCredits) F(D_8014B30C) F(sLastPlayedSong) F(sHasSunsSong) F(sMessageHasSetSfx) \
+            F(sOcarinaSongBitFlags) F(sOcarinaButtonIndexBuf) F(sOcarinaNotesAlphaValues) F(sCharTexSize)      \
+                F(sCharTexScale) F(sAnalogStickHeld) F(D_80153D74) F(D_80153D78)
 
 void Message_ZmpStatics(u8* buf, s32 load) {
     u8* p = buf;
