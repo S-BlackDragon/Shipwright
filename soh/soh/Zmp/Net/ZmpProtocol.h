@@ -9,7 +9,8 @@
 namespace Zmp {
 
 // Incremented on any incompatible protocol change. The server rejects other values.
-constexpr int kProtocolVersion = 3; // 2: lockstep (docs/PROTOCOLO.md); 3: one group per scene (phase 5)
+// 2: lockstep (docs/PROTOCOLO.md); 3: one group per scene (phase 5); 4: nobody waits for anybody (phase 5b)
+constexpr int kProtocolVersion = 4;
 // Frames larger than this are treated as a protocol error.
 constexpr uint32_t kMaxFrameSize = 16u * 1024u * 1024u;
 
