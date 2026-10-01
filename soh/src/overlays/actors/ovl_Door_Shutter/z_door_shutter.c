@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 /*
  * File: z_door_shutter.c
  * Overlay: ovl_Door_Shutter
@@ -375,10 +376,25 @@ void DoorShutter_WaitClear(DoorShutter* this, PlayState* play) {
             OnePointCutscene_Attention(play, &GET_PLAYER(play)->actor);
             this->actionTimer = -100;
         }
-    } else if (DoorShutter_GetPlayerSide(this, play) != 0) {
-        Player* player = GET_PLAYER(play);
+    } else if (this->unk_164 != 0) {
+        // ZMP (phase 5b): a companion opened the barred door from outside; it closes and bars again behind it
+        DoorShutter_SetupAction(this, DoorShutter_Open);
+        this->dyna.actor.velocity.y = 0.0f;
+    } else {
+        s32 doorDirection = DoorShutter_GetPlayerSide(this, play);
 
-        player->naviTextId = -0x202;
+        if (doorDirection != 0) {
+            Player* player = GET_PLAYER(play);
+
+            if (Zmp_PlayerOutsideRoom(player, this->dyna.actor.room)) {
+                // ZMP (phase 5b): the bars keep the players of the fight in, they never keep a companion out
+                player->doorType = PLAYER_DOORTYPE_SLIDING;
+                player->doorDirection = doorDirection;
+                player->doorActor = &this->dyna.actor;
+            } else {
+                player->naviTextId = -0x202;
+            }
+        }
     }
 }
 

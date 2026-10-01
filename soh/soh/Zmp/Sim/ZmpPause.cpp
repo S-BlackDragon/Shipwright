@@ -226,8 +226,7 @@ extern "C" void Zmp_PauseLocalUpdate(PlayState* play) {
     bool canPause = player != nullptr && !Zmp::Players::SlotDowned(local) && gSaveContext.gameMode == GAMEMODE_NORMAL &&
                     play->pauseCtx.state == 0 && play->pauseCtx.debugState == 0 &&
                     play->gameOverCtx.state == GAMEOVER_INACTIVE && play->transitionTrigger == TRANS_TRIGGER_OFF &&
-                    play->transitionMode == TRANS_MODE_OFF &&
-                    !(play->msgCtx.msgMode != MSGMODE_NONE && gZmpSim.msgOwner == local);
+                    play->transitionMode == TRANS_MODE_OFF && Zmp::Players::SlotMsgMode(local) == MSGMODE_NONE;
     if (!canPause) {
         if (MenuOpen()) {
             ForceClose();

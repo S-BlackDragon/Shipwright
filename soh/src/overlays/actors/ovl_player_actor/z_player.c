@@ -14271,7 +14271,10 @@ void Player_Action_8084E3C4(Player* this, PlayState* play) {
         this->stateFlags1 |= PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_IN_CUTSCENE;
         this->stateFlags2 |= PLAYER_STATE2_OCARINA_PLAYING;
 
-        if (Actor_Spawn(&play->actorCtx, play, ACTOR_DEMO_KANKYO, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0xF) == NULL) {
+        // ZMP: with companions in the scene only this player travels (they get an invitation), without the scripted
+        // warp cutscene that would hold everybody (phase 5b)
+        if (Zmp_WarpSongStart(this, play)) {
+        } else if (Actor_Spawn(&play->actorCtx, play, ACTOR_DEMO_KANKYO, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0xF) == NULL) {
             Environment_WarpSongLeave(play);
         }
 

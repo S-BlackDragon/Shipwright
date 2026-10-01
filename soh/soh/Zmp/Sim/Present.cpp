@@ -166,7 +166,7 @@ bool Ready(PlayState* play) {
 // The shared HUD applies: cutscenes everybody watches, the group's game over, a scene change, and the local player's
 // own text box.
 bool SharedHud(PlayState* play) {
-    return GroupEvent(play) || (play->msgCtx.msgMode != MSGMODE_NONE && gZmpSim.msgOwner == Local());
+    return GroupEvent(play) || Zmp::Players::SlotMsgMode(Local()) != MSGMODE_NONE;
 }
 
 } // namespace

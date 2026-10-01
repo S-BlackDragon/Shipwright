@@ -136,12 +136,17 @@ std::chrono::steady_clock::time_point sEndNoticeAt;
 std::chrono::steady_clock::time_point sSaveSkippedAt;
 bool sSaveSkipped = false;
 // Phase 5: groups per scene.
-bool sFreeRun = false;            // detached, or joining after a detach: the local game ticks on its own
-int sDetachScene = -1;            // scene this client heads to
-int sDetachEntrance = -1;         // entrance it arrives by
-uint32_t sDetachInits = 0;        // Play inits counted when it left (arrived = a new scene loaded since)
-bool sDetachArrived = false;      // already in the destination (regroup)
-bool sDetachWaiting = false;      // the server has no group there yet: found it once arrived
+bool sFreeRun = false;       // detached, or joining after a detach: the local game ticks on its own
+int sDetachScene = -1;       // scene this client heads to
+int sDetachEntrance = -1;    // entrance it arrives by
+uint32_t sDetachInits = 0;   // Play inits counted when it left (arrived = a new scene loaded since)
+bool sDetachArrived = false; // already in the destination (regroup)
+bool sDetachWaiting = false; // the server has no group there yet: found it once arrived
+// Phase 5b: arriving with a scripted cutscene of this player's own (blue warp): it plays in a group of its own, and
+// when the cutscene is over the client opens the group (the server then sends it to the others of its scene).
+bool sDetachSolo = false;
+bool sSoloGroup = false;
+int sSoloIdleFrames = 0;
 Clock::time_point sDetachAt;      // when it left (time to enter the next group)
 int sGroupScene = -1;             // scene of this client's group (reported to the server when the group moves)
 std::vector<uint8_t> sSentShared; // shared game sent with the last JOIN_GROUP in play
@@ -286,8 +291,10 @@ void SendJoin() {
     int scene = inPlay ? (int)gPlayState->sceneNum : -1;
     int entrance = (int)gSaveContext.entranceIndex;
     bool place = inPlay; // a client already in a game (reconnection) appears where it is if that room is loaded
+    bool solo = false;
     if (sPhase == Phase::Detached) {
         // Walking into another scene: join its group right away (or found it once arrived).
+        solo = sDetachSolo;
         inPlay = DetachArrived();
         scene = inPlay ? (int)gPlayState->sceneNum : sDetachScene;
         entrance = sDetachEntrance;
@@ -305,6 +312,9 @@ void SendJoin() {
         if (CVarGetInteger(ZMP_CVAR_OVERWRITE_ROOM_GAME, 0)) {
             msg["overwrite"] = true;
         }
+    }
+    if (solo && inPlay) {
+        msg["solo"] = true;
     }
     std::string follow = CVarGetString(ZMP_CVAR_FOLLOW, "");
     if (!follow.empty() && sPhase != Phase::Detached) {
@@ -330,6 +340,8 @@ void ResetGame(const char* why) {
     SharedGame::ClearBaseline();
     sPhase = Phase::Idle;
     sFreeRun = false;
+    sDetachSolo = false;
+    sSoloGroup = false;
     sBlobRequests.clear();
     sHavePendingBlob = false;
     sResyncHold = false;
@@ -346,6 +358,9 @@ void StartRunning(uint32_t tick) {
         Log("net: in the next group " + std::to_string(sLastJoinMs) + " ms after leaving the scene");
     }
     sPhase = Phase::Running;
+    sSoloGroup = sFreeRun && sDetachSolo;
+    sSoloIdleFrames = 0;
+    sDetachSolo = false;
     sFreeRun = false;
     sDetachWaiting = false;
     sLastRate = -1;
@@ -585,6 +600,8 @@ void HandleControl(json& msg) {
             sDetachInits = Players::PlayInitCount();
             sDetachArrived = true;
             sDetachWaiting = false;
+            sDetachSolo = false;
+            sSoloGroup = false;
             sDetachAt = Clock::now();
             sBlobRequests.clear();
             sResyncHold = false;
@@ -869,6 +886,18 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         gZmpSim.exitsLocked = (u8)(atoi(cmd.c_str() + 15) != 0);
         return true;
     }
+    if (cmd == "zmp_age") {
+        // Tests (phase 5b): what pulling or returning the Master Sword does to its group: the scene loads again with
+        // the other age (a scene change of the world, like the cutscene's).
+        if (gPlayState != nullptr && gPlayState->transitionTrigger == TRANS_TRIGGER_OFF) {
+            gPlayState->linkAgeOnLoad = gSaveContext.linkAge == LINK_AGE_CHILD ? LINK_AGE_ADULT : LINK_AGE_CHILD;
+            gPlayState->nextEntranceIndex = gSaveContext.entranceIndex;
+            gPlayState->transitionTrigger = TRANS_TRIGGER_START;
+            gPlayState->transitionType = TRANS_TYPE_FADE_WHITE;
+            gSaveContext.nextTransitionType = TRANS_TYPE_FADE_WHITE;
+        }
+        return true;
+    }
     if (cmd == "zmp_autosave") {
         // Forced autosave (tests): the leader saves at the end of this tick.
         sForceAutosave = true;
@@ -1109,8 +1138,20 @@ void OnFrameBegin() {
     for (auto& msg : control) {
         HandleControl(msg);
     }
-    if (sConnected && !sJoinSent) {
+    if (sConnected && !sJoinSent && !(sPhase == Phase::Detached && sDetachSolo && !DetachArrived())) {
+        // (a player arriving with its own cutscene asks only once it is there: it founds a group of its own)
         SendJoin();
+    }
+    if (sPhase == Phase::Running && sSoloGroup && InRealGame()) {
+        // The cutscene this player arrived with is over: open the group (the others of the scene, if any, get it).
+        bool cs = gSaveContext.cutsceneIndex >= 0xFFF0 || gPlayState->csCtx.state != CS_STATE_IDLE ||
+                  gPlayState->transitionMode != TRANS_MODE_OFF || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF;
+        sSoloIdleFrames = cs ? 0 : sSoloIdleFrames + 1;
+        if (sSoloIdleFrames > 40) {
+            sSoloGroup = false;
+            Send({ { "t", "GROUP_OPEN" } });
+            Log("net: own cutscene over, the group is open");
+        }
     }
     if (sConnected && sPhase == Phase::WaitingGroup && !sJoinInPlaySent && InRealGame()) {
         SendJoin(); // this client now has a game: it can found the group
@@ -1425,7 +1466,7 @@ void Leave() {
     ResetGame("leave");
 }
 
-void DetachForTransition(int entrance) {
+void DetachForTransition(int entrance, bool solo) {
     if (sPhase != Phase::Running && sPhase != Phase::Detached) {
         return;
     }
@@ -1446,7 +1487,8 @@ void DetachForTransition(int entrance) {
     sDetachEntrance = entrance;
     sDetachInits = Players::PlayInitCount();
     sDetachArrived = false;
-    sDetachWaiting = false;
+    sDetachWaiting = solo; // solo: nobody to join, found once arrived
+    sDetachSolo = solo;
     sBlobRequests.clear();
     sResyncHold = false;
     sHavePendingBlob = false;

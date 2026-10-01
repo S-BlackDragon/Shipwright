@@ -31,6 +31,7 @@ struct Field {
     int8_t live;   // scene flag also live in play->actorCtx.flags while that scene is loaded
     uint8_t scene; // scene of a scene flag
     bool rupees;
+    bool age = false; // Link's age (phase 5b): never written into a running scene, it asks for a reload instead
 };
 
 std::vector<Field> sFields;
@@ -98,6 +99,9 @@ void Build() {
         Add(SAVE_OFF(infTable) + 2 * i, 2, kBits);
     }
     Add(SAVE_OFF(worldMapAreaData), 4, kBits);
+    // Phase 5b: everybody changes age together, in whatever group (low byte of linkAge: 0 adult, 1 child).
+    Add(SAVE_OFF(linkAge), 1, kBits);
+    sFields.back().age = true;
     // FNV-1a of the table and of the save context size.
     uint32_t h = 2166136261u;
     auto mix = [&](uint32_t v) {
@@ -230,6 +234,9 @@ std::vector<uint8_t> Snapshot() {
     const uint8_t* save = (const uint8_t*)&gSaveContext;
     for (auto& f : sFields) {
         memcpy(&buf[f.off], save + f.saveOff, f.size);
+        if (f.age && gZmpSim.agePending != 0) {
+            buf[f.off] = (uint8_t)(gZmpSim.agePending - 1); // the age this group is about to reload with
+        }
     }
     int scene;
     if (InPlayScene(&scene)) {
@@ -295,6 +302,17 @@ bool ApplyToGame(const std::vector<uint8_t>& patch, std::string* summary) {
         const Field& f = *e.f;
         uint32_t v = Get(save + f.saveOff, f.size);
         uint32_t nv = ApplyEntry(v, f, e.a, e.b);
+        if (f.age) {
+            // The Links of the running scene were built for the current age: the scene reloads with the new one
+            // (Zmp_TransitionGate) instead of changing the value under them.
+            uint32_t cur = gZmpSim.agePending != 0 ? (uint32_t)(gZmpSim.agePending - 1) : v;
+            if ((nv & 0xFF) != (cur & 0xFF)) {
+                gZmpSim.agePending = (u8)(1 + (nv & 1));
+                Log("shared: the room changed age (" + std::string((nv & 1) ? "child" : "adult") +
+                    "): this scene reloads");
+            }
+            continue;
+        }
         if (f.rupees && SignExtend(nv, f.size) < 0) {
             nv = 0; // spent in two places at once: nobody goes below zero (the difference is sent back as a change)
         }

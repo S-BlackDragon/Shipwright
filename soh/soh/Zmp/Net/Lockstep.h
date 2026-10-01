@@ -94,7 +94,9 @@ void SaveGroupBlocks(int fileNum);
 void SetLocalInputBlocked(bool blocked);
 // Phase 5: the local player walked out of the scene alone (Zmp_TransitionGate): leave the group, let the scene change
 // happen here and enter (or found) the group of the destination.
-void DetachForTransition(int entrance);
+// `solo`: the destination starts with a scripted cutscene of this player (blue warp): it plays it in a group of its
+// own and joins the others of that scene when it ends (phase 5b).
+void DetachForTransition(int entrance, bool solo = false);
 // Phase 5: groups are per scene (protocol 3). Always true in this build while in a group.
 bool SceneGroups();
 // Scene name for the player list and notices (Spanish for the common ones).

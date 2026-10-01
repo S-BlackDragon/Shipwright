@@ -4,7 +4,10 @@
 // ZMP: debug trace of who draws random numbers (desync hunting, off unless gZmpRandTrace is set)
 extern s32 gZmpRandTrace;
 void Zmp_RandTraceHit(void* caller);
-#define ZMP_RAND_TRACE()              if (gZmpRandTrace) {                  Zmp_RandTraceHit(_ReturnAddress());     }
+#define ZMP_RAND_TRACE()                    \
+    if (gZmpRandTrace) {                    \
+        Zmp_RandTraceHit(_ReturnAddress()); \
+    }
 #else
 #define ZMP_RAND_TRACE()
 #endif

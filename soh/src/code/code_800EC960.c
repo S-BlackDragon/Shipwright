@@ -2786,17 +2786,19 @@ void AudioDebug_Draw(GfxPrint* printer) {
                     if (sAudioIntInfoBankPage[k] == 1) {
                         if ((entryIndex != 0xFF) &&
                             ((entry->state == SFX_STATE_PLAYING_1) || (entry->state == SFX_STATE_PLAYING_2))) {
-                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %02X %04X %04X", entryIndex, (s32)*entry->posX,
-                                            (s32)*entry->posY, (s32)*entry->posZ, entry->sfxImportance,
-                                            entry->sfxParams, entry->sfxId);
+                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %02X %04X %04X", entryIndex,
+                                            (s32)Zmp_SfxCoord(entry->posX, 0), (s32)Zmp_SfxCoord(entry->posX, 1),
+                                            (s32)Zmp_SfxCoord(entry->posX, 2), entry->sfxImportance, entry->sfxParams,
+                                            entry->sfxId);
                         } else {
                             GfxPrint_Printf(printer, "FF ----- ----- ----- -- ---- ----");
                         }
                     } else if (sAudioIntInfoBankPage[k] == 2) {
                         if ((entryIndex != 0xFF) &&
                             ((entry->state == SFX_STATE_PLAYING_1) || (entry->state == SFX_STATE_PLAYING_2))) {
-                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %3d %3d %04X", entryIndex, (s32)*entry->posX,
-                                            (s32)*entry->posY, (s32)*entry->posZ, (s32)(chan->volume * 127.1f),
+                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %3d %3d %04X", entryIndex,
+                                            (s32)Zmp_SfxCoord(entry->posX, 0), (s32)Zmp_SfxCoord(entry->posX, 1),
+                                            (s32)Zmp_SfxCoord(entry->posX, 2), (s32)(chan->volume * 127.1f),
                                             chan->newPan, entry->sfxId);
                         } else {
                             GfxPrint_Printf(printer, "FF ----- ----- ----- --- --- ----");
@@ -2804,8 +2806,9 @@ void AudioDebug_Draw(GfxPrint* printer) {
                     } else if (sAudioIntInfoBankPage[k] == 3) {
                         if ((entryIndex != 0xFF) &&
                             ((entry->state == SFX_STATE_PLAYING_1) || (entry->state == SFX_STATE_PLAYING_2))) {
-                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %3d %3d %04X", entryIndex, (s32)*entry->posX,
-                                            (s32)*entry->posY, (s32)*entry->posZ, (s32)(chan->freqScale * 100.0f),
+                            GfxPrint_Printf(printer, "%2X %5d %5d %5d %3d %3d %04X", entryIndex,
+                                            (s32)Zmp_SfxCoord(entry->posX, 0), (s32)Zmp_SfxCoord(entry->posX, 1),
+                                            (s32)Zmp_SfxCoord(entry->posX, 2), (s32)(chan->freqScale * 100.0f),
                                             chan->reverb, entry->sfxId);
                         } else {
                             GfxPrint_Printf(printer, "FF ----- ----- ----- --- --- ----");
@@ -4025,7 +4028,8 @@ s8 Audio_ComputeSoundReverb(u8 bankId, u8 entryIdx, u8 channelIdx) {
 
     if (!(entry->sfxParams & 0x1000)) {
         if (entry->dist < 2500.0f) {
-            distAdd = *entry->posZ > 0.0f ? (entry->dist / 2500.0f) * 70.0f : (entry->dist / 2500.0f) * 91.0f;
+            distAdd =
+                Zmp_SfxCoord(entry->posX, 2) > 0.0f ? (entry->dist / 2500.0f) * 70.0f : (entry->dist / 2500.0f) * 91.0f;
         } else {
             distAdd = 70;
         }
@@ -4146,13 +4150,14 @@ f32 Audio_ComputeSoundFreqScale(u8 bankId, u8 entryIdx) {
     return freq;
 }
 
+// ZMP: the position of a sound is read through Zmp_SfxCoord in this file (each player hears from its own camera)
 u8 func_800F37B8(f32 behindScreenZ, SoundBankEntry* arg1, s8 arg2) {
     s8 phi_v0;
     u8 phi_v1;
     f32 phi_f0;
     f32 phi_f12;
 
-    if (*arg1->posZ < behindScreenZ) {
+    if (Zmp_SfxCoord(arg1->posX, 2) < behindScreenZ) {
         phi_v0 = arg2 < 65 ? arg2 : 0x7F - arg2;
 
         if (phi_v0 < 30) {
@@ -4226,19 +4231,19 @@ void Audio_SetSfxProperties(u8 bankId, u8 entryIdx, u8 channelIdx) {
         case BANK_ENEMY:
         case BANK_VOICE:
             if (sSoundOutputMode == 2) {
-                sp38 = func_800F3990(*entry->posY, entry->sfxParams);
+                sp38 = func_800F3990(Zmp_SfxCoord(entry->posX, 1), entry->sfxParams);
             }
             // fallthrough
         case BANK_OCARINA:
             entry->dist = sqrtf(entry->dist);
             vol = Audio_ComputeSoundVolume(bankId, entryIdx) * *entry->vol;
             reverb = Audio_ComputeSoundReverb(bankId, entryIdx, channelIdx);
-            pan = Audio_ComputeSoundPanSigned(*entry->posX, *entry->posZ, entry->token);
+            pan = Audio_ComputeSoundPanSigned(Zmp_SfxCoord(entry->posX, 0), Zmp_SfxCoord(entry->posX, 2), entry->token);
             freqScale = Audio_ComputeSoundFreqScale(bankId, entryIdx) * *entry->freqScale;
             if (sSoundOutputMode == 2) {
                 behindScreenZ = sBehindScreenZ[(entry->sfxParams & 0x400) >> 10];
                 if (!(entry->sfxParams & 0x800)) {
-                    if (*entry->posZ < behindScreenZ) {
+                    if (Zmp_SfxCoord(entry->posX, 2) < behindScreenZ) {
                         stereoBits = 0x10;
                     }
 

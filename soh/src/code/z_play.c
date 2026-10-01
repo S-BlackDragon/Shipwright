@@ -1,5 +1,5 @@
 #include "global.h"
-#include "soh/Zmp/Sim/ZmpSim.h" // ZMP
+#include "soh/Zmp/Sim/ZmpSim.h"     // ZMP
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 
@@ -230,7 +230,10 @@ void Play_Destroy(GameState* thisx) {
     VisMono_Destroy(&gPlayVisMono);
 
     if (gSaveContext.linkAge != play->linkAgeOnLoad) {
-        Inventory_SwapAgeEquipment();
+        // ZMP: every player's buttons and equipment change of age, each with its own (phase 5b)
+        if (!Zmp_AgeSwapAll(play)) {
+            Inventory_SwapAgeEquipment();
+        }
         Player_SetEquipmentData(play, player);
     }
 
@@ -1246,9 +1249,10 @@ void Play_Update(PlayState* play) {
                 Zmp_RestoreAnchor(play); // ZMP
             } else {
                 PLAY_LOG(3733);
-                Zmp_EnterOwner(play, 0); // ZMP: the text box reads the input of whoever opened it
-                Message_Update(play);
-                Zmp_RestoreAnchor(play); // ZMP
+                // ZMP: one text box per player, each with its player's input (phase 5b)
+                if (!Zmp_MessageUpdateAll(play)) {
+                    Message_Update(play);
+                }
             }
 
             Zmp_PauseLocalUpdate(play); // ZMP: this client's pause menu (the world keeps running)
@@ -1329,12 +1333,11 @@ void Play_DrawOverlayElements(PlayState* play) {
         Zmp_HudEnd(play); // ZMP
     }
 
-    // ZMP: the text box / ocarina runs part of its logic while drawing (it spawns the song effects): it
-    // draws in the context of its owner on every machine, not of the local player.
-    Zmp_EnterOwner(play, 0);
-    Zmp_MessageDrawBegin(play); // ZMP: another player's text box runs but is not shown here
-    Message_Draw(play);
-    Zmp_MessageDrawEnd(play); // ZMP
+    // ZMP: the text box / ocarina runs part of its logic while drawing (it spawns the song effects): the one of
+    // every player draws in its context on every machine; another player's runs but is not shown here.
+    if (!Zmp_MessageDrawAll(play)) {
+        Message_Draw(play);
+    }
     Zmp_OverlayBegin(play);
 
     if (play->gameOverCtx.state != GAMEOVER_INACTIVE) {
@@ -1666,9 +1669,9 @@ void Play_Draw(PlayState* play) {
     }
 
 Play_Draw_skip:
-    Zmp_DrawEndView(play);  // ZMP: the simulation keeps the canonical view and matrices
-    Zmp_DrawLightEnd(play);    // ZMP: and its own lighting
-    Zmp_DrawPresentEnd(play);  // ZMP
+    Zmp_DrawEndView(play);    // ZMP: the simulation keeps the canonical view and matrices
+    Zmp_DrawLightEnd(play);   // ZMP: and its own lighting
+    Zmp_DrawPresentEnd(play); // ZMP
 
     if (play->view.unk_124 != 0) {
         Zmp_CameraInterfaceOwnerBegin(GET_ACTIVE_CAM(play)); // ZMP: this camera's letterbox and HUD are its owner's

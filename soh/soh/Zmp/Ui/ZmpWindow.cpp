@@ -235,6 +235,17 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
                 mid += big;
             }
         }
+        // Phase 5b: somebody of this scene travels with a warp song; holding L goes along.
+        Players::WarpInvite inv = Players::Invite();
+        if (inv.by >= 0 && inv.by != ls.slot) {
+            std::string text =
+                Lockstep::SlotName(inv.by) + " va a " + Lockstep::SceneName(inv.scene) + ": manten L para ir tambien";
+            if (inv.hold > 0) {
+                text += " (" + std::to_string(inv.hold * 100 / ZMP_INVITE_HOLD_TICKS) + " %)";
+            }
+            CenteredLine(mid, text, IM_COL32(255, 230, 120, 255), 1.2f);
+            mid += big;
+        }
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
         DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);

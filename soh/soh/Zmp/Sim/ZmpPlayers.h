@@ -50,6 +50,11 @@ typedef struct {
 // Downed state (PLAN.md 2.8).
 #define ZMP_REVIVE_TICKS 60 // a partner holds A this long (3 s)
 #define ZMP_REVIVE_RANGE 100.0f
+// Warp song invitation (phase 5b): how long it lasts, when the player who played leaves, how long L must be held.
+#define ZMP_INVITE_TICKS 200
+#define ZMP_INVITE_LEAVE_TICKS 60
+#define ZMP_INVITE_HOLD_TICKS 15
+#define ZMP_MSG_STATICS_SIZE 96
 
 typedef struct {
     /* in the simulation */
@@ -59,7 +64,7 @@ typedef struct {
     s8 spectate;        // slot whose player the camera of a downed player follows (-1 none)
     s16 reviveProgress; // ticks of A held by a partner in range
     s8 reviver;         // slot reviving it (-1 none)
-    u8 pad0;
+    u8 warpPending;     // phase 5b: leaves through the warp song of the current invitation at the next tick
     ZmpPlayerBlock block;
     Player* player;       // heap address (the heap lives at a fixed address, D-016)
     Camera camera;        // parked main camera (live in play->mainCamera while in context)
@@ -72,6 +77,12 @@ typedef struct {
     s16 heatSeconds; // seconds left
     s16 heatTicks;   // ticks to the next second
     s16 heatPreview; // ticks before the count starts (the original's preview and move animation)
+    s16 inviteHold;  // phase 5b: ticks this player has held L during a warp song invitation
+    // Phase 5b, age: the buttons and worn equipment this player had at the other age (what the original keeps in
+    // childEquips / adultEquips for its one Link). Not valid: the game's defaults for that age.
+    u8 otherValid;
+    u8 pad2;
+    ItemEquips otherEquips;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
     u8 pad1[7];
@@ -84,7 +95,7 @@ typedef struct {
     u8 inPlay;       // a Play game state exists (between Play_Init and Play_Destroy)
     s8 anchor;       // lowest present slot
     s8 ctx;          // current context slot (-1 none)
-    s8 msgOwner;     // slot that opened the current text box / ocarina
+    s8 msgOwner;     // slot that last started the ocarina (one instrument for everybody; text boxes are per player)
     s8 pauseOwner;   // slot that opened the pause menu
     s8 spawningSlot; // Player_Init of this slot is running
     s8 transitionBy; // phase 5: player whose own action started the pending scene change (-1: none or the world)
@@ -131,6 +142,30 @@ typedef struct {
     u8 clockHold;
     // Tests (lockstep event "zmp_lock_exits 1"): scene exits act as walls, so random play never takes anybody out.
     u8 exitsLocked;
+    // Phase 5b: the player floating in the blue warp (-1 none): the warp acts on it, and only it leaves the scene.
+    s8 warpOwner;
+    // The pending scene change of one player goes on with its scripted cutscene (blue warp): that player alone.
+    u8 transitionSolo;
+    u16 undoNextCutsceneIndex;
+    // Phase 5b, warp songs: only the player who played travels. For a few seconds the others of its scene are invited
+    // ("X va a ...: manten L para ir tambien"): whoever holds L travels too. Decided by lockstep input, never by clock.
+    s8 inviteBy;        // slot that played the song (-1: no invitation)
+    s8 inviteSong;      // song index (respawn data of the warp)
+    s16 inviteEntrance; // warp pad entrance
+    s16 inviteTicks;    // ticks the invitation still lasts
+    s16 inviteLeaveIn;  // ticks until the player who played leaves
+    // Phase 5b, one text box per player: play->msgCtx (and the statics of the text box code) hold the ones of the
+    // slot msgLoaded; the others wait here and are swapped in with the context. The glyphs (Font) only travel while
+    // that slot's text box is open. Entry ZMP_MAX_PLAYERS is the idle state a new player starts from.
+    s8 msgLoaded;
+    u8 msgReady;
+    // Phase 5b, age: another group changed the room's age (1 + new linkAge; 0: nothing pending). This group reloads
+    // its scene with it as soon as no cutscene is running.
+    u8 agePending;
+    u8 pad6[5];
+    u8 msgStatics[ZMP_MAX_PLAYERS + 1][ZMP_MSG_STATICS_SIZE];
+    u8 msgSegment[ZMP_MAX_PLAYERS][0x2200]; // each slot's text box background and icon (msgCtx.textboxSegment)
+    MessageContext msgStore[ZMP_MAX_PLAYERS + 1];
     // Shared game baseline (SharedGame.cpp): what the other groups and the server already know.
     u8 sharedValid;
     u16 sharedSize;
@@ -173,6 +208,18 @@ void Zmp_UpdateMainCameras(PlayState* play);
 void Zmp_KaleidoSetupAll(PlayState* play);
 // Context of the owner of the text box (which = 0) or of the pause / game over menu (which = 1).
 void Zmp_EnterOwner(PlayState* play, s32 which);
+// Phase 5b, one text box per player. z_play.c: the text box of every player runs (and draws; only the local player's
+// is shown, or the anchor's during a cutscene everybody watches). Return 0 outside a session (the original call runs).
+// Phase 5b, age (z_play.c, Play_Destroy with a change of age): every player's buttons and equipment are swapped,
+// each with its own of the other age. Returns 0 outside a session (the original swap runs).
+s32 Zmp_AgeSwapAll(PlayState* play);
+s32 Zmp_MessageUpdateAll(PlayState* play);
+s32 Zmp_MessageDrawAll(PlayState* play);
+// z_message_PAL.c: another player is using the ocarina (there is one instrument).
+s32 Zmp_OcarinaBusy(void);
+// z_message_PAL.c: saves (load = 0) / restores (load = 1) the statics of the text box code that belong to one text
+// box, into a buffer of ZMP_MSG_STATICS_SIZE bytes.
+void Message_ZmpStatics(u8* buf, s32 load);
 void Zmp_OnMessageStart(void);
 // Play_Update after Interface_Update: health refills and magic meter of the players out of context, downed
 // players, revive, spectator targets, group defeat.
@@ -204,6 +251,18 @@ void* Zmp_PauseScratch(void);
 s32 Zmp_TransitionGate(PlayState* play);
 // z_player.c: this player's own action (an exit, a void, Farore's Wind) started the scene change.
 void Zmp_NoteTransitionBy(Player* player);
+// Phase 5b, blue warp (z_door_warp1.c): a player enters it (the warp is its own until it leaves); the warp's scene
+// change takes only that player, with the cutscene of the destination if there is one. Zmp_WarpIsShared: 1 while other
+// players stay in the scene (the warp's screen effects on the world are skipped).
+void Zmp_WarpBegin(Player* player);
+void Zmp_WarpTransition(Player* player);
+s32 Zmp_WarpIsShared(void);
+// Phase 5b, barred doors (z_door_shutter.c): 1 when this player stands in another room than `room` (the room whose
+// fight closed the bars): the door lets it in.
+s32 Zmp_PlayerOutsideRoom(Player* player, s32 room);
+// Phase 5b, warp songs (z_player.c): with other players in the scene the song takes only its player (no scripted warp
+// cutscene, which would freeze everybody) and invites the others. Returns 0 when the original warp must run.
+s32 Zmp_WarpSongStart(Player* player, PlayState* play);
 // z_player.c: scene exits act as walls (tests, "zmp_lock_exits").
 s32 Zmp_ExitsLocked(void);
 
@@ -296,6 +355,11 @@ s32 Zmp_KeepObjects(void);
 // list is built with the local player's camera.
 void Zmp_DrawBeginView(PlayState* play);
 MtxF* Zmp_SimViewProjection(PlayState* play);
+// Phase 5b, 3D sound: sound positions are actor positions projected with the canonical camera (simulation state,
+// the same on every machine). The audio code reads them through this: on a machine whose picture comes from another
+// camera, the coordinate (axis 0..2 of the Vec3f at posX) as seen from that local camera. Presentation only: the
+// result goes to the mixer (pan, volume, priority of the sound bank), never back into the simulation.
+f32 Zmp_SfxCoord(const f32* posX, s32 axis);
 s32 Zmp_DrawAllActors(void);
 void Zmp_DrawActorContext(PlayState* play, Actor* actor);
 void Zmp_DrawEndView(PlayState* play);
@@ -352,6 +416,14 @@ void Despawn(int slot);
 void KeepOnlyLocal();
 // Phase 5: "zmp_spawn ..." describing the local player (entrance it arrives by, place, health and block).
 std::string LocalSpawnInfo(int entrance, bool withPlace);
+// Phase 5b: the warp song invitation, for the overlay (by < 0: none). hold: ticks of L of the local player.
+struct WarpInvite {
+    int by = -1;
+    int scene = -1;
+    int ticks = 0;
+    int hold = 0;
+};
+WarpInvite Invite();
 // Phase 5: number of Play inits so far (a detached client has arrived when a new scene loaded).
 uint32_t PlayInitCount();
 // Per-player input of this tick (pad of the bundle).
@@ -406,6 +478,10 @@ struct Notice {
 };
 std::vector<Notice> RecentNotices(double maxAge);
 bool LocalTextHidden();
+// Phase 5b: msgMode of the text box of a slot (MSGMODE_NONE: closed).
+int SlotMsgMode(int slot);
+const MessageContext* SlotMessage(int slot);
+int Anchor();
 // After a portable save state load.
 void AfterStateLoad();
 } // namespace Zmp::Players

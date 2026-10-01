@@ -389,6 +389,10 @@ json LockstepJson() {
              { "error", ls.lastError },
              { "present", Zmp::Players::PresentCount() },
              { "anchor", gZmpSim.anchor },
+             { "invite_by", Zmp::Players::Invite().by },
+             { "invite_scene", Zmp::Players::Invite().scene },
+             { "invite_hold", Zmp::Players::Invite().hold },
+             { "age_pending", gZmpSim.agePending },
              { "multi", Zmp_MultiActive() != 0 },
              { "game_over_chooser", Zmp::Lockstep::GameOverChooser() },
              { "end_notice", ls.endNotice },
@@ -549,7 +553,8 @@ void Dispatch(const RequestPtr& req) {
                       { "session", SessionJson() },
                       { "cvar_profile_hash", Hex(CVarProfile::Hash()) },
                       { "cvar_reverts", CVarProfile::RevertCount() },
-                      { "audio_muted", Zmp_AudioMuted() }, { "audio_output_muted", Zmp_AudioOutputMuted() },
+                      { "audio_muted", Zmp_AudioMuted() },
+                      { "audio_output_muted", Zmp_AudioOutputMuted() },
                       { "net", Zmp::Client::StateName(Zmp::Client::Get().GetStatus().state) },
                       { "lockstep", LockstepJson() },
                       { "fps", ImGui::GetCurrentContext() != nullptr ? ImGui::GetIO().Framerate : 0.0f },
@@ -582,9 +587,28 @@ void Dispatch(const RequestPtr& req) {
                                 { "cs_trigger", Zmp::Players::CutsceneTrigger() } };
             resp["cs_state"] = gPlayState->csCtx.state;
             resp["cs_frames"] = gPlayState->csCtx.frames;
-            resp["msg_mode"] = gPlayState->msgCtx.msgMode;
-            resp["msg_text_id"] = gPlayState->msgCtx.textId;
-            resp["talk_state"] = Message_GetState(&gPlayState->msgCtx);
+            // Phase 5b: one text box per player. The text box of this instance's player (the anchor's during a
+            // cutscene everybody watches, when its own is closed), and the mode of every slot's.
+            MessageContext* msg = &gPlayState->msgCtx;
+            if (Zmp_MultiActive()) {
+                const MessageContext* own = Zmp::Players::SlotMessage(Zmp::Players::LocalSlot());
+                const MessageContext* shared = Zmp::Players::SlotMessage(Zmp::Players::Anchor());
+                bool cs = gPlayState->csCtx.state != CS_STATE_IDLE;
+                msg = (MessageContext*)((own == nullptr || (own->msgMode == MSGMODE_NONE && cs && shared != nullptr))
+                                            ? shared
+                                            : own);
+                if (msg == nullptr) {
+                    msg = &gPlayState->msgCtx;
+                }
+                json modes = json::array();
+                for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                    modes.push_back(Zmp::Players::SlotMsgMode(k));
+                }
+                resp["msg_modes"] = modes;
+            }
+            resp["msg_mode"] = msg->msgMode;
+            resp["msg_text_id"] = msg->textId;
+            resp["talk_state"] = Message_GetState(msg);
             // The simulation's pause context: the group game over menu (D-058).
             resp["pause_state"] = gPlayState->pauseCtx.state;
             resp["prompt_choice"] = gPlayState->pauseCtx.promptChoice;
@@ -627,6 +651,44 @@ void Dispatch(const RequestPtr& req) {
             resp["slot_rooms"] = slotRooms;
         }
         req->Reply(resp);
+    } else if (name == "query.sfx") {
+        // Phase 5b: where this machine hears the sounds of a player (its own camera) next to the canonical position
+        // of the simulation, and the sounds alive in the sound banks.
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+            return;
+        }
+        json r = { { "ok", true }, { "tick", sFrame } };
+        json links = json::array();
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            Player* p = Zmp::Players::SlotPlayer(k);
+            if (p == nullptr) {
+                continue;
+            }
+            const f32* pos = &p->actor.projectedPos.x;
+            f32 x = Zmp_SfxCoord(pos, 0), y = Zmp_SfxCoord(pos, 1), z = Zmp_SfxCoord(pos, 2);
+            links.push_back({ { "slot", k },
+                              { "canonical", { pos[0], pos[1], pos[2] } },
+                              { "heard", { x, y, z } },
+                              { "dist", sqrtf(x * x + y * y + z * z) } });
+        }
+        r["players"] = links;
+        json live = json::array();
+        for (int bank = 0; bank < 7; bank++) {
+            u8 i = gSoundBanks[bank][0].next;
+            int guard = 0;
+            while (i != 0xFF && guard++ < 64) {
+                SoundBankEntry* e = &gSoundBanks[bank][i];
+                live.push_back(
+                    { { "bank", bank },
+                      { "sfx", e->sfxId },
+                      { "heard", { Zmp_SfxCoord(e->posX, 0), Zmp_SfxCoord(e->posX, 1), Zmp_SfxCoord(e->posX, 2) } },
+                      { "canonical", { e->posX[0], e->posX[1], e->posX[2] } } });
+                i = e->next;
+            }
+        }
+        r["live"] = live;
+        req->Reply(r);
     } else if (name == "query.shared") {
         // Phase 5: the shared game (what every group must agree on once the patches arrived) and the world clock.
         std::vector<uint8_t> snap = SharedGame::Snapshot();

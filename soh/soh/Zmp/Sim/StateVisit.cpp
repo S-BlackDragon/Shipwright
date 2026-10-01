@@ -240,10 +240,17 @@ void VisitZmp(Visitor& v) {
     v.S("anchor", gZmpSim.anchor);
     v.S("ctx", gZmpSim.ctx);
     v.S("msg_owner", gZmpSim.msgOwner);
+    v.S("msg_loaded", gZmpSim.msgLoaded);
+    v.U("age_pending", gZmpSim.agePending);
     v.S("pause_owner", gZmpSim.pauseOwner);
     v.S("transition_by", gZmpSim.transitionBy);
     v.U("clock_hold", gZmpSim.clockHold);
     v.U("exits_locked", gZmpSim.exitsLocked);
+    v.S("warp_owner", gZmpSim.warpOwner);
+    v.S("invite_by", gZmpSim.inviteBy);
+    v.S("invite_entrance", gZmpSim.inviteEntrance);
+    v.S("invite_ticks", gZmpSim.inviteTicks);
+    v.S("invite_leave_in", gZmpSim.inviteLeaveIn);
     v.U("clock_hold_value", gZmpSim.clockHoldValue);
     v.U("shared_valid", gZmpSim.sharedValid);
     v.Bytes("shared_base", gZmpSim.sharedBase, gZmpSim.sharedValid ? gZmpSim.sharedSize : 0);
@@ -271,6 +278,7 @@ void VisitZmp(Visitor& v) {
         if (!s.present) {
             continue;
         }
+        v.U("msg_mode", (u32)Zmp::Players::SlotMsgMode(k));
         bool live = k == gZmpSim.ctx && InPlay();
         ZmpPlayerBlock b = Zmp::Players::SlotBlock(k);
         v.S("health", b.health);
@@ -306,6 +314,8 @@ void VisitZmp(Visitor& v) {
         v.S("heat_seconds", s.heatSeconds);
         v.S("heat_ticks", s.heatTicks);
         v.S("heat_preview", s.heatPreview);
+        v.S("invite_hold", s.inviteHold);
+        v.U("warp_pending", s.warpPending);
     }
 }
 

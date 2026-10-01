@@ -75,6 +75,11 @@ s16 sTextboxBackgroundYOffsets[] = {
 // original name: onpu_buff
 static u8 sOcarinaButtonIndexBuf[12] = { 0 };
 
+// ZMP: at file scope (they were function statics) because each player's text box has its own (Message_ZmpStatics)
+static s16 sAnalogStickHeld = false;
+static u8 D_80153D74 = 0;
+static u16 D_80153D78 = 0;
+
 s16 sOcarinaNotesAlphaValues[9] = { 0 };
 
 // Maps the ocarina song order to the quest item order
@@ -198,7 +203,6 @@ void Message_CloseTextbox(PlayState* play) {
 }
 
 void Message_HandleChoiceSelection(PlayState* play, u8 numChoices) {
-    static s16 sAnalogStickHeld = false;
     MessageContext* msgCtx = &play->msgCtx;
     Input* input = &play->state.input[0];
     bool dpad = CVarGetInteger(CVAR_SETTING("DpadInText"), 0);
@@ -2860,7 +2864,6 @@ void Message_StartTextbox(PlayState* play, u16 textId, Actor* actor) {
     osSyncPrintf("めっせーじ＝%x(%d)\n", textId, actor);
     osSyncPrintf(VT_RST);
 
-    Zmp_OnMessageStart(); // ZMP: the player in context owns the text box
     msgCtx->ocarinaAction = 0xFFFF;
     Message_OpenText(play, textId);
     msgCtx->talkActor = actor;
@@ -2916,7 +2919,13 @@ void Message_StartOcarina(PlayState* play, u16 ocarinaActionId) {
     s16 noStop;
     s32 k;
 
-    Zmp_OnMessageStart(); // ZMP: the player in context owns the ocarina
+    // ZMP: there is one ocarina (the instrument of the audio engine): while a player uses it, another one who
+    // takes it out puts it away at once. Whoever starts it owns it (its input plays the notes).
+    if (Zmp_OcarinaBusy()) {
+        msgCtx->ocarinaMode = OCARINA_MODE_04;
+        return;
+    }
+    Zmp_OnMessageStart();
     osSyncPrintf(VT_FGCOL(GREEN));
 
     for (i = sOcarinaSongBitFlags = 0; i < (QUEST_KOKIRI_EMERALD - QUEST_SONG_MINUET); i++) {
@@ -4395,8 +4404,6 @@ void Message_Update(PlayState* play) {
         0x0400, 0x0400, 0x0200, 0x0000, 0x1038, 0x0008, 0x200A, 0x088B, 0x0007, 0x0009, 0x000A, 0x107E, 0x2008, 0x2007,
         0x0015, 0x0016, 0x0017, 0x0003, 0x0000, 0x270B, 0x00C8, 0x012C, 0x012D, 0xFFDA, 0x0014, 0x0016, 0x0014, 0x0016,
     };
-    static u8 D_80153D74 = 0;
-    static u16 D_80153D78 = 0;
     MessageContext* msgCtx = &play->msgCtx;
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
     Player* player = GET_PLAYER(play);
@@ -4736,5 +4743,29 @@ SHIP_SAVESTATE_DEFINE(MessagePAL, MESSAGE_PAL_SHIP_SAVESTATE_FIELDS)
 
 // ZMP: the rest of the text box statics that the text's progress depends on (a player who joins a group while a text
 // box is open gets the group's values with its state, phase 5).
-#define MESSAGE_ZMP_SAVESTATE_FIELDS(F) F(sDisplayNextMessageAsEnglish) F(sLastLanguage) F(sTextBoxNum) F(sTextFade) F(sTextIsCredits) F(D_8014B30C)
+#define MESSAGE_ZMP_SAVESTATE_FIELDS(F) \
+    F(sDisplayNextMessageAsEnglish) F(sLastLanguage) F(sTextBoxNum) F(sTextFade) F(sTextIsCredits) F(D_8014B30C)
 SHIP_SAVESTATE_DEFINE(MessageZmp, MESSAGE_ZMP_SAVESTATE_FIELDS)
+
+// ZMP: one text box per player (phase 5b). The statics above that belong to one text box are saved and restored
+// together with the message context when the simulation changes of player (ZMP_MSG_STATICS_SIZE bytes are enough).
+#define MESSAGE_ZMP_SLOT_FIELDS(F)                                                                                    \
+    F(sDisplayNextMessageAsEnglish)                                                                                   \
+    F(sLastLanguage) F(sTextBoxNum) F(sTextFade) F(sMessageStartFrameCount) F(sOcarinaButtonIndexBufPos)              \
+        F(sOcarinaButtonIndexBufLen) F(sTextboxSkipped) F(sNextTextId) F(sTextIsCredits) F(D_8014B30C)                \
+            F(sLastPlayedSong) F(sHasSunsSong) F(sMessageHasSetSfx) F(sOcarinaSongBitFlags) F(sOcarinaButtonIndexBuf) \
+                F(sOcarinaNotesAlphaValues) F(sCharTexSize) F(sCharTexScale) F(sAnalogStickHeld) F(D_80153D74)        \
+                    F(D_80153D78)
+
+void Message_ZmpStatics(u8* buf, s32 load) {
+    u8* p = buf;
+#define MESSAGE_ZMP_SLOT_COPY(x)  \
+    if (load) {                   \
+        memcpy(&x, p, sizeof(x)); \
+    } else {                      \
+        memcpy(p, &x, sizeof(x)); \
+    }                             \
+    p += sizeof(x);
+    MESSAGE_ZMP_SLOT_FIELDS(MESSAGE_ZMP_SLOT_COPY)
+#undef MESSAGE_ZMP_SLOT_COPY
+}

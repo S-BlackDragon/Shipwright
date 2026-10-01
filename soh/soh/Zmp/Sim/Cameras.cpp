@@ -69,7 +69,7 @@ bool GlobalOnePoint(s16 csId) {
 // Actors whose own sub cameras (not one-point) everybody watches besides the bosses: scene transitions.
 bool GlobalActor(const Actor* actor) {
     switch (actor->id) {
-        case ACTOR_DOOR_WARP1:   // blue warp: leaves the scene for the whole group
+        // (the blue warp is its player's own since phase 5b: each player who enters it leaves alone)
         case ACTOR_EN_CLEAR_TAG: // boss-like
         case ACTOR_EN_FHG:       // Phantom Ganon's horse (boss intro)
             return true;
@@ -526,12 +526,15 @@ std::deque<NoticeRec> sNotices;
 
 extern "C" void Zmp_MessageDrawBegin(PlayState* play) {
     sHideText = false;
-    if (!Zmp_MultiActive() || gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE) {
+    if (!Zmp_MultiActive()) {
         return;
     }
-    int owner = gZmpSim.msgOwner;
+    // Phase 5b: the text box in context is its player's. This screen shows the local player's, and the anchor's
+    // during a cutscene everybody watches (the text of the cutscene).
+    int owner = gZmpSim.ctx;
     int local = Zmp::Players::LocalSlot();
-    if (!Present(owner) || owner == local || local < 0) {
+    bool shared = gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE;
+    if (owner == local || local < 0 || (shared && owner == gZmpSim.anchor)) {
         return;
     }
     GraphicsContext* g = play->state.gfxCtx;
@@ -604,13 +607,17 @@ std::vector<Notice> RecentNotices(double maxAge) {
 }
 
 bool LocalTextHidden() {
-    if (!Zmp_MultiActive() || gPlayState == nullptr || gZmpSim.globalCs || gPlayState->csCtx.state != CS_STATE_IDLE ||
-        gPlayState->msgCtx.msgMode == MSGMODE_NONE) {
+    // Another player of the scene has a text box open that this screen does not show.
+    if (!Zmp_MultiActive() || gPlayState == nullptr || gZmpSim.globalCs || gPlayState->csCtx.state != CS_STATE_IDLE) {
         return false;
     }
-    int owner = gZmpSim.msgOwner;
     int local = LocalSlot();
-    return Present(owner) && owner != local && local >= 0;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k != local && Present(k) && SlotMsgMode(k) != MSGMODE_NONE) {
+            return local >= 0;
+        }
+    }
+    return false;
 }
 
 const View* LocalPicture(PlayState* play, int slot) {

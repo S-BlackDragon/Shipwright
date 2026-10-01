@@ -35,7 +35,7 @@ s32 gZmpCameraInterfaceMuted = 0;
 
 namespace {
 
-constexpr u32 kSimMagic = 0x35534D5A; // "ZMS5" (phase 5 layout)
+constexpr u32 kSimMagic = 0x62354D5A; // "ZM5b" (phase 5b layout)
 int sLocalSlot = -1;
 
 // Debug RNG trace (desync hunting): who drew random numbers this tick, in order (run-length compressed).
@@ -55,6 +55,11 @@ bool sDrawBegun = false;
 View sSimView;
 MtxF sSimVP;
 MtxF sSimBillboard;
+// 3D sound from the local camera (phase 5b): clip space of the canonical camera -> clip space of the local one.
+// Both are affine in the world position, so the map between them is affine too (no perspective divide involved).
+bool sSfxRemapValid = false;
+float sSfxRemap[3][4];
+void ComputeSfxRemap(const MtxF& sim, const MtxF& loc);
 
 ZmpPlayerSlot& Slot(int k) {
     return gZmpSim.slots[k];
@@ -103,6 +108,37 @@ void LoadFromBlock(const ZmpPlayerBlock& b) {
     memcpy(gSaveContext.buttonStatus, b.buttonStatus, sizeof(b.buttonStatus));
 }
 
+// Phase 5b: the block of a slot goes from the current age (gSaveContext.linkAge) to the other one with the game's
+// own swap, using what this player wore at the other age (or the game's defaults).
+void SwapSlotAge(ZmpPlayerSlot& s) {
+    bool toAdult = gSaveContext.linkAge == LINK_AGE_CHILD;
+    ZmpPlayerBlock live;
+    SaveToBlock(live);
+    LoadFromBlock(s.block);
+    ItemEquips& in = toAdult ? gSaveContext.adultEquips : gSaveContext.childEquips;
+    ItemEquips& saved = toAdult ? gSaveContext.childEquips : gSaveContext.adultEquips;
+    if (s.otherValid) {
+        in = s.otherEquips;
+    } else {
+        in.buttonItems[0] = ITEM_NONE;
+    }
+    Inventory_SwapAgeEquipment();
+    if (!toAdult && !s.otherValid) {
+        // (the original has no "first time as a child": a child's sword and shield, the rest as it was)
+        bool sword = CHECK_OWNED_EQUIP(EQUIP_TYPE_SWORD, EQUIP_INV_SWORD_KOKIRI);
+        bool shield = CHECK_OWNED_EQUIP(EQUIP_TYPE_SHIELD, EQUIP_INV_SHIELD_DEKU);
+        gSaveContext.equips.buttonItems[0] = sword ? ITEM_SWORD_KOKIRI : ITEM_NONE;
+        gSaveContext.equips.equipment = (u16)(((sword ? EQUIP_VALUE_SWORD_KOKIRI : 0) << (EQUIP_TYPE_SWORD * 4)) |
+                                              ((shield ? EQUIP_VALUE_SHIELD_DEKU : 0) << (EQUIP_TYPE_SHIELD * 4)) |
+                                              (EQUIP_VALUE_TUNIC_KOKIRI << (EQUIP_TYPE_TUNIC * 4)) |
+                                              (EQUIP_VALUE_BOOTS_KOKIRI << (EQUIP_TYPE_BOOTS * 4)));
+    }
+    s.otherEquips = saved;
+    s.otherValid = 1;
+    SaveToBlock(s.block);
+    LoadFromBlock(live);
+}
+
 // A C / D-pad button that points at a bottle slot shows what that bottle holds.
 void FixBottleButtons(ZmpPlayerBlock& b) {
     for (int i = 1; i < 8; i++) {
@@ -134,8 +170,91 @@ void Park(PlayState* play, int k) {
     s.activeCam = play->activeCamera;
 }
 
+// --- one text box per player (phase 5b) ---
+constexpr size_t kMsgFontOff = offsetof(MessageContext, font);
+constexpr size_t kMsgTailOff = kMsgFontOff + sizeof(Font);
+
+void MsgCopySmall(MessageContext* dst, const MessageContext* src) {
+    memcpy(dst, src, kMsgFontOff);
+    memcpy((u8*)dst + kMsgTailOff, (const u8*)src + kMsgTailOff, sizeof(MessageContext) - kMsgTailOff);
+}
+
+void MsgSwitch(PlayState* play, int k) {
+    if (!gZmpSim.msgReady || !Valid(k) || k == gZmpSim.msgLoaded) {
+        return;
+    }
+    int cur = gZmpSim.msgLoaded;
+    if (Valid(cur)) {
+        MsgCopySmall(&gZmpSim.msgStore[cur], &play->msgCtx);
+        if (play->msgCtx.msgMode != MSGMODE_NONE) {
+            memcpy(&gZmpSim.msgStore[cur].font, &play->msgCtx.font, sizeof(Font));
+        }
+        Message_ZmpStatics(gZmpSim.msgStatics[cur], 0);
+    }
+    MsgCopySmall(&play->msgCtx, &gZmpSim.msgStore[k]);
+    if (gZmpSim.msgStore[k].msgMode != MSGMODE_NONE) {
+        memcpy(&play->msgCtx.font, &gZmpSim.msgStore[k].font, sizeof(Font));
+    }
+    Message_ZmpStatics(gZmpSim.msgStatics[k], 1);
+    gZmpSim.msgLoaded = (s8)k;
+}
+
+// Every slot starts from the text box state of this moment, closed (the slot in context keeps its own).
+void MsgInitSlots(PlayState* play) {
+    int c = gZmpSim.ctx;
+    for (int k = 0; k <= ZMP_MAX_PLAYERS; k++) {
+        MessageContext& m = gZmpSim.msgStore[k];
+        memcpy(&m, &play->msgCtx, sizeof(MessageContext));
+        Message_ZmpStatics(gZmpSim.msgStatics[k], 0);
+        if (k < ZMP_MAX_PLAYERS) {
+            m.textboxSegment = gZmpSim.msgSegment[k];
+        }
+        if (k != c) {
+            m.msgMode = MSGMODE_NONE;
+            m.msgLength = 0;
+        }
+    }
+    if (Valid(c)) {
+        if (play->msgCtx.textboxSegment != nullptr && play->msgCtx.textboxSegment != (void*)gZmpSim.msgSegment[c]) {
+            memmove(gZmpSim.msgSegment[c], play->msgCtx.textboxSegment, sizeof(gZmpSim.msgSegment[c]));
+        }
+        play->msgCtx.textboxSegment = gZmpSim.msgSegment[c];
+    }
+    gZmpSim.msgLoaded = (s8)c;
+    gZmpSim.msgReady = 1;
+}
+
+// A player who appears (or left) has no text box open.
+void MsgResetSlot(PlayState* play, int k) {
+    if (!gZmpSim.msgReady || !Valid(k)) {
+        return;
+    }
+    const MessageContext& idle = gZmpSim.msgStore[ZMP_MAX_PLAYERS];
+    if (k == gZmpSim.msgLoaded) {
+        void* seg = play->msgCtx.textboxSegment;
+        MsgCopySmall(&play->msgCtx, &idle);
+        play->msgCtx.textboxSegment = seg;
+        Message_ZmpStatics(gZmpSim.msgStatics[ZMP_MAX_PLAYERS], 1);
+        return;
+    }
+    MsgCopySmall(&gZmpSim.msgStore[k], &idle);
+    gZmpSim.msgStore[k].textboxSegment = gZmpSim.msgSegment[k];
+    memcpy(gZmpSim.msgStatics[k], gZmpSim.msgStatics[ZMP_MAX_PLAYERS], ZMP_MSG_STATICS_SIZE);
+}
+
+const MessageContext* SlotMsg(int k) {
+    if (gPlayState == nullptr) {
+        return nullptr;
+    }
+    if (!gZmpSim.msgReady || !Valid(k) || k == gZmpSim.msgLoaded) {
+        return &gPlayState->msgCtx;
+    }
+    return &gZmpSim.msgStore[k];
+}
+
 void Load(PlayState* play, int k) {
     ZmpPlayerSlot& s = Slot(k);
+    MsgSwitch(play, k);
     memcpy(&play->mainCamera, &s.camera, sizeof(Camera));
     memcpy(&play->actorCtx.targetCtx, &s.target, sizeof(TargetContext));
     LoadFromBlock(s.block);
@@ -205,10 +324,33 @@ int ContextSlot(const Actor* actor) {
     if (k >= 0) {
         return k;
     }
+    if (actor->id == ACTOR_DOOR_WARP1 && Present(gZmpSim.warpOwner)) {
+        return gZmpSim.warpOwner; // the blue warp acts on the player floating in it (phase 5b)
+    }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
         k = Zmp::Players::SlotOf(actor->parent);
         if (k >= 0) {
             return k;
+        }
+    }
+    // Phase 5b, one text box per player: whoever a player is talking with runs with that player's text box (and
+    // attends nobody else meanwhile), whoever is nearer.
+    for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+        if (Present(j) && Slot(j).player->talkActor == actor && (Slot(j).player->stateFlags1 & PLAYER_STATE1_TALKING)) {
+            return j;
+        }
+    }
+    // What listens to the ocarina hears the player who plays it (its song lives in that player's text box state).
+    int o = gZmpSim.msgOwner;
+    if (Present(o)) {
+        const MessageContext* m = SlotMsg(o);
+        if (m != nullptr && m->ocarinaMode != OCARINA_MODE_00 && m->ocarinaMode != OCARINA_MODE_04) {
+            const Vec3f& a = actor->world.pos;
+            const Vec3f& b = Slot(o).player->actor.world.pos;
+            f32 dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+            if (dx * dx + dy * dy + dz * dz < 600.0f * 600.0f) {
+                return o;
+            }
         }
     }
     k = NearestSlot(actor->world.pos);
@@ -425,9 +567,18 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.pauseOwner = -1;
     gZmpSim.transitionBy = -1;
     gZmpSim.undoValid = 0;
+    gZmpSim.warpOwner = -1;
+    gZmpSim.transitionSolo = 0;
+    gZmpSim.inviteBy = -1;
+    gZmpSim.inviteTicks = 0;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Slot(k).warpPending = 0;
+        Slot(k).inviteHold = 0;
+    }
     gZmpCtxPlayer = nullptr;
     gZmpSim.inPlay = 1;
     gZmpSim.groupDefeat = 0;
+    MsgInitSlots(play); // (Message_Init already ran for this Play)
     // A new scene (group scene change, respawn after the group game over): downed players stand up again with
     // three hearts.
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
@@ -646,6 +797,65 @@ extern "C" void Zmp_EnterOwner(PlayState* play, s32 which) {
     }
     int k = which == 0 ? gZmpSim.msgOwner : gZmpSim.pauseOwner;
     SwitchTo(play, Present(k) ? k : gZmpSim.anchor);
+}
+
+extern "C" s32 Zmp_AgeSwapAll(PlayState* play) {
+    if (!gZmpSim.enabled || !Valid(gZmpSim.ctx)) {
+        return 0;
+    }
+    // (the save context holds the block of the slot in context)
+    SaveToBlock(Slot(gZmpSim.ctx).block);
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Slot(k).active) {
+            SwapSlotAge(Slot(k));
+        }
+    }
+    LoadFromBlock(Slot(gZmpSim.ctx).block);
+    Zmp::Log("zmp: age change, every player's equipment swapped");
+    return 1;
+}
+
+extern "C" s32 Zmp_OcarinaBusy(void) {
+    if (!Zmp_MultiActive()) {
+        return 0;
+    }
+    int o = gZmpSim.msgOwner;
+    if (!Present(o) || o == gZmpSim.ctx) {
+        return 0;
+    }
+    const MessageContext* m = SlotMsg(o);
+    return m != nullptr && m->msgMode != MSGMODE_NONE;
+}
+
+extern "C" s32 Zmp_MessageUpdateAll(PlayState* play) {
+    if (!Zmp_MultiActive()) {
+        return 0;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            SwitchTo(play, k);
+            Message_Update(play);
+        }
+    }
+    SwitchTo(play, gZmpSim.anchor);
+    return 1;
+}
+
+extern "C" s32 Zmp_MessageDrawAll(PlayState* play) {
+    if (!Zmp_MultiActive()) {
+        return 0;
+    }
+    // The text box / ocarina runs part of its logic while drawing (it spawns the song effects): every player's is
+    // "drawn" on every machine, and what is not for this screen is thrown away (Zmp_MessageDrawBegin).
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            SwitchTo(play, k);
+            Zmp_MessageDrawBegin(play);
+            Message_Draw(play);
+            Zmp_MessageDrawEnd(play);
+        }
+    }
+    return 1;
 }
 
 extern "C" void Zmp_OnMessageStart(void) {
@@ -1011,6 +1221,126 @@ extern "C" s32 Zmp_PauseIsLocal(void) {
     return Zmp_MultiActive();
 }
 
+extern "C" {
+void DoorWarp1_ZmpRelease(Actor* thisx, PlayState* play);
+}
+
+extern "C" void Zmp_WarpBegin(Player* player) {
+    if (Zmp_MultiActive()) {
+        gZmpSim.warpOwner = (s8)Zmp::Players::SlotOf(&player->actor);
+    }
+}
+
+extern "C" void Zmp_WarpTransition(Player* player) {
+    if (!Zmp_MultiActive()) {
+        return;
+    }
+    int k = Present(gZmpSim.warpOwner) ? gZmpSim.warpOwner : Zmp::Players::SlotOf(&player->actor);
+    if (k >= 0) {
+        gZmpSim.transitionBy = (s8)k;
+        gZmpSim.transitionSolo = 1;
+    }
+}
+
+extern "C" s32 Zmp_WarpIsShared(void) {
+    return Zmp_MultiActive() && Zmp::Players::PresentCount() >= 2;
+}
+
+extern "C" s32 Zmp_WarpSongStart(Player* player, PlayState* play) {
+    if (!Zmp_MultiActive() || Zmp::Players::PresentCount() < 2 || !Zmp::Lockstep::SceneGroups()) {
+        return 0;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (k < 0) {
+        return 0;
+    }
+    gZmpSim.inviteBy = (s8)k;
+    gZmpSim.inviteEntrance = gSaveContext.respawn[RESPAWN_MODE_RETURN].entranceIndex;
+    gZmpSim.inviteSong = gSaveContext.respawn[RESPAWN_MODE_RETURN].data;
+    gZmpSim.inviteTicks = ZMP_INVITE_TICKS;
+    gZmpSim.inviteLeaveIn = ZMP_INVITE_LEAVE_TICKS;
+    // (the song is over for the ones who stay: the next ocarina of anybody must not find "warp chosen")
+    play->msgCtx.ocarinaMode = OCARINA_MODE_04;
+    for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+        Slot(j).inviteHold = 0;
+        Slot(j).warpPending = 0;
+    }
+    Zmp::Log("zmp: slot " + std::to_string(k) + " warps with a song to entrance " +
+             std::to_string(gZmpSim.inviteEntrance) + "; the others are invited");
+    return 1;
+}
+
+namespace {
+// Every tick without a pending scene change: the invitation runs (who holds L joins), and one player per tick starts
+// its own warp (the same scene change the song makes: respawn data of the warp pad, white fade).
+void SongWarpTick(PlayState* play) {
+    if (gZmpSim.inviteTicks > 0 && Valid(gZmpSim.inviteBy)) {
+        gZmpSim.inviteTicks--;
+        if (gZmpSim.inviteLeaveIn > 0 && --gZmpSim.inviteLeaveIn == 0 && Present(gZmpSim.inviteBy)) {
+            Slot(gZmpSim.inviteBy).warpPending = 1;
+        }
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (!Present(j) || j == gZmpSim.inviteBy || Slot(j).downed || Slot(j).warpPending) {
+                continue;
+            }
+            Player* p = Slot(j).player;
+            bool busy =
+                (p->stateFlags1 & (PLAYER_STATE1_DEAD | PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_TALKING |
+                                   PLAYER_STATE1_LOADING | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_ITEM_CS)) != 0;
+            bool held = (SlotInput(play, j).cur.button & BTN_L) != 0 && !busy;
+            Slot(j).inviteHold = held ? (s16)(Slot(j).inviteHold + 1) : (s16)0;
+            if (Slot(j).inviteHold >= ZMP_INVITE_HOLD_TICKS) {
+                Slot(j).inviteHold = 0;
+                Slot(j).warpPending = 1;
+                Zmp::Log("zmp: slot " + std::to_string(j) + " accepts the warp invitation");
+            }
+        }
+        if (gZmpSim.inviteTicks == 0) {
+            gZmpSim.inviteBy = -1;
+        }
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Slot(k).warpPending) {
+            continue;
+        }
+        Slot(k).warpPending = 0;
+        if (!Present(k)) {
+            continue;
+        }
+        gSaveContext.respawn[RESPAWN_MODE_RETURN].entranceIndex = gZmpSim.inviteEntrance;
+        gSaveContext.respawn[RESPAWN_MODE_RETURN].playerParams = 0x5FF;
+        gSaveContext.respawn[RESPAWN_MODE_RETURN].data = gZmpSim.inviteSong;
+        gSaveContext.respawnFlag = -3;
+        play->nextEntranceIndex = gZmpSim.inviteEntrance;
+        play->transitionTrigger = TRANS_TRIGGER_START;
+        play->transitionType = TRANS_TYPE_FADE_WHITE_FAST;
+        gSaveContext.nextTransitionType = TRANS_TYPE_FADE_WHITE;
+        gZmpSim.transitionBy = (s8)k;
+        return;
+    }
+}
+} // namespace
+
+Zmp::Players::WarpInvite Zmp::Players::Invite() {
+    WarpInvite w;
+    if (Zmp_MultiActive() && gZmpSim.inviteTicks > 0 && Valid(gZmpSim.inviteBy)) {
+        w.by = gZmpSim.inviteBy;
+        int e = gZmpSim.inviteEntrance;
+        w.scene = e >= 0 && e < ENTR_MAX ? gEntranceTable[e].scene : -1;
+        w.ticks = gZmpSim.inviteTicks;
+        w.hold = Valid(sLocalSlot) ? Slot(sLocalSlot).inviteHold : 0;
+    }
+    return w;
+}
+
+extern "C" s32 Zmp_PlayerOutsideRoom(Player* player, s32 room) {
+    if (!Zmp_MultiActive() || player == nullptr) {
+        return 0;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    return Present(k) && Slot(k).room >= 0 && Slot(k).room != room ? 1 : 0;
+}
+
 extern "C" s32 Zmp_ExitsLocked(void) {
     return Zmp_MultiActive() && gZmpSim.exitsLocked;
 }
@@ -1044,15 +1374,42 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         gZmpSim.undoSeqId = gSaveContext.seqId;
         gZmpSim.undoNatureId = gSaveContext.natureAmbienceId;
         gZmpSim.undoHaltAll = play->haltAllActors;
+        gZmpSim.undoNextCutsceneIndex = gSaveContext.nextCutsceneIndex;
         gZmpSim.undoValid = 1;
         gZmpSim.transitionBy = -1;
-        return 1;
+        gZmpSim.transitionSolo = 0;
+        if (gZmpSim.agePending != 0) {
+            // Phase 5b: the room changed age in another group. This scene reloads with the new age (a scene change
+            // of the whole group to the entrance it came in by), once no cutscene or menu is in the way.
+            int age = gZmpSim.agePending - 1;
+            if (age == gSaveContext.linkAge) {
+                gZmpSim.agePending = 0;
+            } else if (play->csCtx.state == CS_STATE_IDLE && !gZmpSim.globalCs && gSaveContext.cutsceneIndex < 0xFFF0 &&
+                       play->pauseCtx.state == 0 && play->gameOverCtx.state == GAMEOVER_INACTIVE) {
+                play->linkAgeOnLoad = age;
+                play->nextEntranceIndex = gSaveContext.entranceIndex;
+                play->transitionTrigger = TRANS_TRIGGER_START;
+                play->transitionType = TRANS_TYPE_FADE_WHITE;
+                gSaveContext.nextTransitionType = TRANS_TYPE_FADE_WHITE;
+                Zmp::Log("zmp: reloading the scene with the room's new age");
+            }
+        }
+        if (play->transitionTrigger == TRANS_TRIGGER_OFF) {
+            SongWarpTick(play); // (may start the warp of one player, handled right below)
+        }
+        if (play->transitionTrigger == TRANS_TRIGGER_OFF) {
+            return 1;
+        }
     }
     int k = gZmpSim.transitionBy;
+    bool solo = gZmpSim.transitionSolo != 0;
     gZmpSim.transitionBy = -1;
+    gZmpSim.transitionSolo = 0;
     gZmpSim.transitionEntrance = play->nextEntranceIndex;
-    bool own = Present(k) && play->gameOverCtx.state == GAMEOVER_INACTIVE && play->csCtx.state == CS_STATE_IDLE &&
-               !gZmpSim.globalCs && !gZmpSim.groupDefeat && gSaveContext.nextCutsceneIndex < 0xFFF0 &&
+    // (a blue warp takes its player alone even with the cutscene of the destination, phase 5b)
+    bool own = Present(k) && play->gameOverCtx.state == GAMEOVER_INACTIVE && !gZmpSim.groupDefeat &&
+               (solo ||
+                (play->csCtx.state == CS_STATE_IDLE && !gZmpSim.globalCs && gSaveContext.nextCutsceneIndex < 0xFFF0)) &&
                Zmp::Lockstep::SceneGroups();
     if (!own) {
         Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));
@@ -1062,7 +1419,7 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         // This machine's player leaves: the transition happens here, the others stay where they are.
         Zmp::Log("zmp: this player leaves the group through entrance " + std::to_string(play->nextEntranceIndex));
         Zmp::Players::KeepOnlyLocal();
-        Zmp::Lockstep::DetachForTransition(play->nextEntranceIndex);
+        Zmp::Lockstep::DetachForTransition(play->nextEntranceIndex, gSaveContext.nextCutsceneIndex >= 0xFFF0);
         return 1;
     }
     // Another player leaves: its Link goes away, the scene and everything the exit touched stay as they were.
@@ -1076,6 +1433,16 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         gSaveContext.seqId = gZmpSim.undoSeqId;
         gSaveContext.natureAmbienceId = gZmpSim.undoNatureId;
         play->haltAllActors = gZmpSim.undoHaltAll;
+        gSaveContext.nextCutsceneIndex = gZmpSim.undoNextCutsceneIndex;
+    }
+    if (gZmpSim.warpOwner == k) {
+        // The blue warp is free again for the next player.
+        gZmpSim.warpOwner = -1;
+        for (Actor* a = play->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
+            if (a->id == ACTOR_DOOR_WARP1) {
+                DoorWarp1_ZmpRelease(a, play);
+            }
+        }
     }
     Zmp::Log("zmp: slot " + std::to_string(k) + " leaves the scene through entrance " +
              std::to_string(play->nextEntranceIndex) + " (its Link goes away here)");
@@ -1085,6 +1452,7 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
 
 extern "C" void Zmp_DrawBeginView(PlayState* play) {
     sDrawBegun = false;
+    sSfxRemapValid = false;
     if (!Zmp_MultiActive()) {
         return;
     }
@@ -1105,8 +1473,60 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
         const View* local = Zmp::Players::LocalPicture(play, L);
         if (local != nullptr) {
             play->view = *local;
+            // (sound follows the picture: heard from the camera this machine draws with)
+            View heard = *local;
+            MtxF localVP;
+            MtxF unused;
+            ComputeViewMatrices(&heard, Zmp_SimFogFar(play), &localVP, &unused);
+            ComputeSfxRemap(sSimVP, localVP);
         }
     }
+}
+
+namespace {
+void ComputeSfxRemap(const MtxF& sim, const MtxF& loc) {
+    sSfxRemapValid = false;
+    double a[3][3] = { { sim.xx, sim.xy, sim.xz }, { sim.yx, sim.yy, sim.yz }, { sim.zx, sim.zy, sim.zz } };
+    double t[3] = { sim.xw, sim.yw, sim.zw };
+    double b[3][3] = { { loc.xx, loc.xy, loc.xz }, { loc.yx, loc.yy, loc.yz }, { loc.zx, loc.zy, loc.zz } };
+    double u[3] = { loc.xw, loc.yw, loc.zw };
+    double det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+                 a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    if (!(det > 1e-12 || det < -1e-12)) {
+        return;
+    }
+    double inv[3][3];
+    inv[0][0] = (a[1][1] * a[2][2] - a[1][2] * a[2][1]) / det;
+    inv[0][1] = (a[0][2] * a[2][1] - a[0][1] * a[2][2]) / det;
+    inv[0][2] = (a[0][1] * a[1][2] - a[0][2] * a[1][1]) / det;
+    inv[1][0] = (a[1][2] * a[2][0] - a[1][0] * a[2][2]) / det;
+    inv[1][1] = (a[0][0] * a[2][2] - a[0][2] * a[2][0]) / det;
+    inv[1][2] = (a[0][2] * a[1][0] - a[0][0] * a[1][2]) / det;
+    inv[2][0] = (a[1][0] * a[2][1] - a[1][1] * a[2][0]) / det;
+    inv[2][1] = (a[0][1] * a[2][0] - a[0][0] * a[2][1]) / det;
+    inv[2][2] = (a[0][0] * a[1][1] - a[0][1] * a[1][0]) / det;
+    for (int i = 0; i < 3; i++) {
+        double m[3];
+        for (int j = 0; j < 3; j++) {
+            m[j] = b[i][0] * inv[0][j] + b[i][1] * inv[1][j] + b[i][2] * inv[2][j];
+            sSfxRemap[i][j] = (float)m[j];
+        }
+        sSfxRemap[i][3] = (float)(u[i] - (m[0] * t[0] + m[1] * t[1] + m[2] * t[2]));
+    }
+    sSfxRemapValid = true;
+}
+} // namespace
+
+extern "C" f32 Zmp_SfxCoord(const f32* posX, s32 axis) {
+    // Only positions inside the game heap are projected actor positions; fixed positions of the code (the "no
+    // position" default, interface sounds) are not in the camera's space and stay as they are.
+    uintptr_t p = (uintptr_t)posX;
+    uintptr_t h = (uintptr_t)gSystemHeap;
+    if (!sSfxRemapValid || p < h || p >= h + SYSTEM_HEAP_SIZE) {
+        return posX[axis];
+    }
+    const float* m = sSfxRemap[axis];
+    return m[0] * posX[0] + m[1] * posX[1] + m[2] * posX[2] + m[3];
 }
 
 extern "C" MtxF* Zmp_SimViewProjection(PlayState* play) {
@@ -1338,6 +1758,14 @@ bool Found(int slot) {
     }
     s.activeCam = play->activeCamera;
     s.room = play->roomCtx.curRoom.num;
+    {
+        // (what the founder's own save keeps for its other age)
+        const ItemEquips& o =
+            gSaveContext.linkAge == LINK_AGE_CHILD ? gSaveContext.adultEquips : gSaveContext.childEquips;
+        s.otherEquips = o;
+        s.otherValid = o.buttonItems[0] != ITEM_NONE;
+    }
+    MsgInitSlots(play);
     if (gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT &&
         gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK) {
         gSaveContext.timerState = TIMER_STATE_OFF;
@@ -1378,6 +1806,7 @@ struct SpawnInfo {
     s16 yaw = 0;
     int room = -1;
     int health = 0;
+    int age = -1; // linkAge the block is of (-1: not told, taken as the group's)
     ZmpPlayerBlock block = {};
 };
 
@@ -1399,9 +1828,10 @@ SpawnInfo ParseSpawnInfo(const std::string& info) {
         }
         pos = next + 1;
     }
-    if (v.size() != 45) {
+    if (v.size() != 45 && v.size() != 46) {
         return si;
     }
+    si.age = v.size() > 45 ? v[45] : -1;
     si.valid = true;
     si.entrance = v[0];
     si.place = v[1] != 0;
@@ -1481,6 +1911,7 @@ std::string LocalSpawnInfo(int entrance, bool withPlace) {
     for (int i = 0; i < 4; i++) {
         s += " " + std::to_string(b.bottles[i]);
     }
+    s += " " + std::to_string((int)gSaveContext.linkAge); // (the age those buttons and equipment are of, phase 5b)
     return s;
 }
 
@@ -1515,6 +1946,7 @@ void Spawn(int slot, const std::string& infoText) {
     s.spectate = -1;
     s.reviveProgress = 0;
     s.reviver = -1;
+    s.otherValid = 0;
     // A new player starts with the anchor's equipment, buttons and ammo, empty bottles, full health and magic.
     SaveToBlock(s.block);
     s.block.health = gSaveContext.healthCapacity;
@@ -1545,6 +1977,15 @@ void Spawn(int slot, const std::string& infoText) {
         } else {
             s.block.health = (s16)MIN(0x30, (int)gSaveContext.healthCapacity);
         }
+    }
+    if (info.valid && info.age >= 0 && info.age != gSaveContext.linkAge) {
+        // Phase 5b: it comes from a group that had not changed age yet (it was on its way when the room did):
+        // its buttons and equipment are of the other age.
+        s32 now = gSaveContext.linkAge;
+        gSaveContext.linkAge = info.age;
+        SwapSlotAge(s);
+        gSaveContext.linkAge = now;
+        s.otherValid = 0;
     }
     FixBottleButtons(s.block);
     ActorEntry* entry = play->linkActorEntry;
@@ -1601,6 +2042,7 @@ void Spawn(int slot, const std::string& infoText) {
     Vec3f pos = SafeSpawnPos(play, base, yaw, n);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
+    MsgResetSlot(play, slot);
     Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, play->mainCamera.camDataIdx);
     s.room = (s16)spawnRoom;
     Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED") + " at " + where +
@@ -1644,6 +2086,7 @@ void Despawn(int slot) {
     Actor_Kill(&p->actor);
     s.present = 0;
     s.player = nullptr;
+    MsgResetSlot(play, slot);
     if (gZmpSim.msgOwner == slot) {
         gZmpSim.msgOwner = -1;
     }
@@ -1807,6 +2250,19 @@ void ApplyEquip(int slot, const ItemEquips& equips) {
     }
     EquipArg a{ slot, equips };
     RunInContext(slot, ApplyEquipInContext, &a);
+}
+
+const MessageContext* SlotMessage(int slot) {
+    return Valid(slot) ? SlotMsg(slot) : nullptr;
+}
+
+int Anchor() {
+    return gZmpSim.anchor;
+}
+
+int SlotMsgMode(int slot) {
+    const MessageContext* m = SlotMsg(slot);
+    return m != nullptr ? m->msgMode : MSGMODE_NONE;
 }
 
 int PresentCount() {
