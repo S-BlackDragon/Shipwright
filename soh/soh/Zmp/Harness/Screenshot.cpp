@@ -2,6 +2,7 @@
 
 #include "Screenshot.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -154,6 +155,51 @@ bool AllBlack(const std::vector<uint8_t>& bgra) {
 
 } // namespace
 
+bool ResizeForCapture(int width, int height, CaptureRestore* saved) {
+    FindCtx ctx;
+    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
+    if (ctx.best == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    HWND hwnd = ctx.best;
+    RECT client, outer;
+    if (!GetClientRect(hwnd, &client) || !GetWindowRect(hwnd, &outer)) {
+        return false;
+    }
+    if (client.right - client.left == width && client.bottom - client.top == height) {
+        return false;
+    }
+    long ow = (outer.right - outer.left) + (width - (client.right - client.left));
+    long oh = (outer.bottom - outer.top) + (height - (client.bottom - client.top));
+    long x = outer.left, y = outer.top;
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) {
+        // (the bigger window stays inside the monitor its tile is in)
+        x = std::max<long>(mi.rcWork.left, std::min<long>(x, mi.rcWork.right - ow));
+        y = std::max<long>(mi.rcWork.top, std::min<long>(y, mi.rcWork.bottom - oh));
+    }
+    saved->x = outer.left;
+    saved->y = outer.top;
+    saved->w = outer.right - outer.left;
+    saved->h = outer.bottom - outer.top;
+    saved->valid = true;
+    SetWindowPos(hwnd, nullptr, x, y, ow, oh, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+    return true;
+}
+
+void RestoreAfterCapture(const CaptureRestore& saved) {
+    if (!saved.valid) {
+        return;
+    }
+    FindCtx ctx;
+    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
+    if (ctx.best != nullptr) {
+        SetWindowPos(ctx.best, nullptr, saved.x, saved.y, saved.w, saved.h,
+                     SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+    }
+}
+
 bool CaptureGameWindow(const std::string& path, int* outW, int* outH, std::string* err) {
     FindCtx ctx;
     EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
@@ -231,6 +277,13 @@ bool CaptureGameWindow(const std::string& path, int* outW, int* outH, std::strin
 bool CaptureGameWindow(const std::string& path, int* outW, int* outH, std::string* err) {
     *err = "screenshot is only implemented on Windows";
     return false;
+}
+
+bool ResizeForCapture(int, int, CaptureRestore*) {
+    return false;
+}
+
+void RestoreAfterCapture(const CaptureRestore&) {
 }
 
 #endif

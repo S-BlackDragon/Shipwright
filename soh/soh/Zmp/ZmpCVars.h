@@ -35,6 +35,16 @@
 #define ZMP_CVAR_FOCUS_OVERRIDE CVAR_ZMP("Audio.FocusOverride")
 // Test instances: their windows never become the active window (D-063).
 #define ZMP_CVAR_TEST_NO_ACTIVATE CVAR_ZMP("Test.NoActivate")
+// Fast test suite (D-079), test builds only (ZMP_HARNESS):
+// - TimeScale: the lockstep's clock runs this many times faster (inputs every 50/N ms, N x 20 ticks per second, one
+//   drawn frame per tick). Same ticks, same inputs, same hashes; only the wait between ticks changes. 1 = real time.
+// - CaptureWidth/Height: size of the harness' captures whatever the window's size (the window grows for a few frames,
+//   without being activated, and goes back). 0 = the window's size.
+// - Mutant: name of a past bug brought back on purpose (mutation test of the suite, Zmp/Test/Mutants.h). Empty: none.
+#define ZMP_CVAR_TEST_TIME_SCALE CVAR_ZMP("Test.TimeScale")
+#define ZMP_CVAR_TEST_CAPTURE_W CVAR_ZMP("Test.CaptureWidth")
+#define ZMP_CVAR_TEST_CAPTURE_H CVAR_ZMP("Test.CaptureHeight")
+#define ZMP_CVAR_TEST_MUTANT CVAR_ZMP("Test.Mutant")
 
 // Periodic autosave of the group leader (phase 4): minutes of simulation between two (0 = off; the trigger counts
 // simulation ticks, never the clock); tests can give the interval in ticks instead. Resume: the founder of a group

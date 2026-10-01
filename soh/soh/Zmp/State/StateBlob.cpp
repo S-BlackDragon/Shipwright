@@ -1,4 +1,5 @@
 #include "StateBlob.h"
+#include "soh/Zmp/Test/Mutants.h"
 #include "FixedHeap.h"
 #include "ResourceSlots.h"
 
@@ -806,7 +807,8 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
             AppendNote(info, "actor table size differs");
         }
     }
-    if (sections.count(SEC_GAMESTATICS) && sections[SEC_GAMESTATICS].second == sizeof(int32_t) * 1) {
+    if (sections.count(SEC_GAMESTATICS) && sections[SEC_GAMESTATICS].second == sizeof(int32_t) * 1 &&
+        !Zmp_TestMutant("estado_efectos")) {
         int32_t gs[1];
         memcpy(gs, sections[SEC_GAMESTATICS].first, sizeof(gs));
         EffectSs_ZmpSetSearchIndex(gs[0]);
@@ -820,9 +822,37 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         memset(&gZmpSim, 0, sizeof(gZmpSim));
     }
     Zmp::Players::AfterStateLoad();
+    // (mutation test, "estado_texto": the statics of the cutscene's text and of the text box keep this process's
+    // values, as before D-065)
+    std::vector<uint8_t> keepDemo, keepMsg;
+    auto keep = [](void (*fn)(SaveStateCtx*), std::vector<uint8_t>& buf) {
+        SaveStateCtx ctx = {};
+        ctx.mode = SHIP_SAVESTATE_MEASURE;
+        fn(&ctx);
+        buf.resize(ctx.offset);
+        ctx = {};
+        ctx.mode = SHIP_SAVESTATE_SAVE;
+        ctx.buffer = buf.data();
+        fn(&ctx);
+    };
+    auto put = [](void (*fn)(SaveStateCtx*), std::vector<uint8_t>& buf) {
+        SaveStateCtx ctx = {};
+        ctx.mode = SHIP_SAVESTATE_LOAD;
+        ctx.buffer = buf.data();
+        fn(&ctx);
+    };
+    bool mutantText = Zmp_TestMutant("estado_texto") != 0;
+    if (mutantText) {
+        keep(Demo_SaveState, keepDemo);
+        keep(MessageZmp_SaveState, keepMsg);
+    }
     if (!LoadStatics(statics)) {
         *err = "static data layout differs (different build?) - state partially loaded";
         return false;
+    }
+    if (mutantText) {
+        put(Demo_SaveState, keepDemo);
+        put(MessageZmp_SaveState, keepMsg);
     }
     {
         const int16_t* ids = (const int16_t*)sections[SEC_TRANSITION_IDS].first;

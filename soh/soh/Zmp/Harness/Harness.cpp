@@ -108,6 +108,27 @@ uint32_t sInjectedFrames = 0;
 std::vector<Wait> sWaits;
 bool sQuitRequested = false;
 
+// A capture at its own size (fast suite): the window was resized for it; it is taken a few frames later (the swap
+// chain has the new size by then) and the window goes back to its tile.
+struct PendingShot {
+    RequestPtr req;
+    std::string path;
+    int frames = 0;
+    uint32_t afterTick = 0; // not before this simulation tick has been drawn (0: as soon as the window is ready)
+    CaptureRestore restore;
+};
+std::vector<PendingShot> sShots;
+
+void TakeShot(const RequestPtr& req, const std::string& path) {
+    int w = 0, h = 0;
+    std::string info;
+    if (CaptureGameWindow(path, &w, &h, &info)) {
+        req->Reply({ { "ok", true }, { "path", path }, { "width", w }, { "height", h }, { "method", info } });
+    } else {
+        req->Reply({ { "ok", false }, { "error", info } });
+    }
+}
+
 std::string GameStateName() {
     if (gGameState == nullptr) {
         return "none";
@@ -1039,12 +1060,25 @@ void Dispatch(const RequestPtr& req) {
     } else if (name == "screenshot") {
         std::string path = cmd.value("path", std::string("screenshot.png"));
         path = std::filesystem::absolute(path).string();
-        int w = 0, h = 0;
-        std::string info;
-        if (CaptureGameWindow(path, &w, &h, &info)) {
-            req->Reply({ { "ok", true }, { "path", path }, { "width", w }, { "height", h }, { "method", info } });
+        PendingShot shot;
+        shot.req = req;
+        shot.path = path;
+        int cw = cmd.value("width", CVarGetInteger(ZMP_CVAR_TEST_CAPTURE_W, 0));
+        int ch = cmd.value("height", CVarGetInteger(ZMP_CVAR_TEST_CAPTURE_H, 0));
+        // "tick": the picture of that simulation tick (several instances asked for the same tick show the same
+        // moment, whatever the speed of the clock).
+        shot.afterTick = cmd.value("tick", 0u);
+        if (!sShots.empty()) {
+            shot.frames = sShots.back().frames + 1; // (the window is already at the capture's size)
+            sShots.push_back(shot);
+        } else if (ResizeForCapture(cw, ch, &shot.restore)) {
+            shot.frames = 4;
+            sShots.push_back(shot);
+        } else if (shot.afterTick != 0) {
+            shot.frames = 1;
+            sShots.push_back(shot);
         } else {
-            req->Reply({ { "ok", false }, { "error", info } });
+            TakeShot(req, path);
         }
     } else if (name == "wait.tick" || name == "wait.stable" || name == "wait.scene" || name == "wait.state" ||
                name == "wait.sim_tick" || name == "wait.replay_end") {
@@ -1180,7 +1214,25 @@ static void UpdateWaits() {
     }
 }
 
+static void UpdateShots() {
+    for (auto it = sShots.begin(); it != sShots.end();) {
+        if (--it->frames > 0 || (it->afterTick != 0 && Sim::CurrentTick() <= it->afterTick)) {
+            ++it;
+            continue;
+        }
+        TakeShot(it->req, it->path);
+        CaptureRestore restore = it->restore;
+        it = sShots.erase(it);
+        if (sShots.empty()) {
+            RestoreAfterCapture(restore);
+        } else if (restore.valid) {
+            sShots.front().restore = restore; // (whoever is last puts the window back)
+        }
+    }
+}
+
 void OnFrameBegin(uint32_t tick) {
+    UpdateShots();
     // Wall time between two RunFrame iterations (one logic tick each): mean (EMA) and worst since the last query.
     {
         static std::chrono::steady_clock::time_point last;

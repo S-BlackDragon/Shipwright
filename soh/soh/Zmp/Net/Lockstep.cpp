@@ -1,4 +1,5 @@
 #include "Lockstep.h"
+#include "soh/Zmp/Test/Mutants.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -300,6 +301,9 @@ bool DetachArrived() {
 // Phase 5b: the scene this client walked into exists (its Play was created); its fade-in may still be running. From
 // here on the state of the scene's group can replace the local one (not before: D-064).
 bool DetachLoaded() {
+    if (Zmp_TestMutant("cierre_casa")) {
+        return InRealGame(); // (mutation test: asks for the group and loads its state in the middle of its own fade)
+    }
     return InRealGame() && (sDetachArrived || Players::PlayInitCount() != sDetachInits);
 }
 
@@ -746,7 +750,7 @@ void SendPendingInputs() {
     while (sNextInputTick <= cap && now >= sInputAt) {
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
         sNextInputTick++;
-        sInputAt += std::chrono::milliseconds(50);
+        sInputAt += std::chrono::microseconds(50000 / TimeScale());
     }
 }
 
@@ -773,6 +777,10 @@ void ProcessBlobRequests() {
             Sim::DumpState("logs/blob-save-" + std::to_string(tick) + ".txt", tick - 1, &derr);
         }
         auto t0 = Clock::now();
+        if (Zmp_TestMutant("congelon_entrar")) {
+            // (mutation test: whoever was playing freezes when somebody enters)
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        }
         if (State::Save(blob, tick, st.lastHash, &err, &info)) {
             json msg = { { "t", "STATE_BLOB" },       { "group_id", it->groupId },    { "tick", tick },
                          { "for_slot", it->forSlot }, { "data", json::binary(blob) }, { "hash", st.lastHash } };
@@ -1499,6 +1507,13 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
     if (sPhase != Phase::Running) {
         return;
     }
+    if (Zmp_TestMutant("sabotaje_actor") && !sLeader && tick % 400 == 120 && Players::IsPresent(sSlot) &&
+        gZmpSim.slots[sSlot].player != nullptr) {
+        // (mutation test: this machine moves an actor outside the simulation)
+        gZmpSim.slots[sSlot].player->actor.world.pos.x += 3.0f;
+        Log("zmp: MUTANT sabotaje_actor: this machine's Link moved 3 units outside the simulation at tick " +
+            std::to_string(tick));
+    }
     ReportSharedAndClock(tick);
     if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
         // Debug (desync hunting): a readable dump of every tick, 64 rotating files; a RESYNC keeps the ones before
@@ -1543,6 +1558,20 @@ int GateWaitMs() {
             std::max(ms, (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count());
     }
     return ms;
+}
+
+int TimeScale() {
+#ifdef ZMP_HARNESS
+    static int sScale = 0;
+    static int sScaleAge = 0;
+    if (sScale == 0 || ++sScaleAge >= 20) { // (read now and then: a CVar lookup per frame is not free)
+        sScaleAge = 0;
+        sScale = std::clamp(CVarGetInteger(ZMP_CVAR_TEST_TIME_SCALE, 1), 1, 16);
+    }
+    return sScale;
+#else
+    return 1;
+#endif
 }
 
 int CatchUpSpeed() {
@@ -1784,7 +1813,7 @@ extern "C" void Zmp_NoteSaveSkipped(void) {
 }
 
 extern "C" s32 Zmp_AllowSaveWrite(void) {
-    if (!gZmpSim.enabled) {
+    if (!gZmpSim.enabled || Zmp_TestMutant("guardado_no_anfitrion")) {
         return 1;
     }
     // Phase 5: the PC of the player who started the room's game with its own save (not the leader of each group).

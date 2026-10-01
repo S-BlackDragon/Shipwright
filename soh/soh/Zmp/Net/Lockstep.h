@@ -93,6 +93,8 @@ void OnTickEnd(uint32_t tick, uint64_t hash);
 int CatchUpSpeed();
 // Longest time the tick gate stayed closed (waiting for the server's next tick) since the last call.
 int GateWaitMs();
+// Fast test suite (test builds only; always 1 in the demo): how many times faster than real time the lockstep runs.
+int TimeScale();
 // Leaves the group (LEAVE_GROUP): the local Link disappears for the others.
 void Leave();
 // Console command applied by every client at the same tick (lockstep EVENT).

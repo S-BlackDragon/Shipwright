@@ -1,4 +1,5 @@
 #include "Zmp.h"
+#include "soh/Zmp/Test/Mutants.h"
 #include "Sim/ZmpSim.h"
 #include "Sim/ZmpPlayers.h"
 
@@ -416,6 +417,10 @@ extern "C" int Zmp_InstallNoActivateHook(void) {
     if (GetEnvironmentVariableA("ZMP_NO_ACTIVATE", value, sizeof(value)) == 0 || strcmp(value, "1") != 0) {
         return 0;
     }
+    if (Zmp_TestMutant("robo_foco")) {
+        Zmp_TestFocusMutantStart(); // (mutation test: the window is allowed to take the focus when it opens)
+        return 0;
+    }
     if (sNoActivateHook == nullptr) {
         sNoActivateHook = SetWindowsHookExW(WH_CBT, NoActivateCbtProc, nullptr, GetCurrentThreadId());
     }
@@ -445,6 +450,10 @@ static void UpdateFocusMute() {
     // Tests: the decision with the focus the harness says this instance has (it never moves the real focus and never
     // unmutes the speakers, D-063).
     int override = CVarGetInteger(ZMP_CVAR_FOCUS_OVERRIDE, -1);
+    if (enabled && override == 1 && Zmp_TestMutant("sonido_sin_foco")) {
+        sAudioOutputMuted.store(false); // (mutation test: the simulated focus turns the speakers on)
+    }
+    Zmp_TestFocusMutantFrame();
     sAudioMuted.store(enabled && override >= 0 ? override == 0 : realMute);
 }
 

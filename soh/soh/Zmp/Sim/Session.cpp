@@ -907,5 +907,9 @@ extern "C" int32_t Zmp_ShortFrame(void) {
 
 extern "C" int32_t Zmp_PresentationSpeed(void) {
     int catchUp = Zmp::Lockstep::CatchUpSpeed();
-    return catchUp > 0 ? catchUp : Zmp::Sim::sSpeed;
+    int scale = Zmp::Lockstep::TimeScale(); // (1 outside the accelerated tests of the fast suite)
+    if (catchUp > 0) {
+        return catchUp * scale;
+    }
+    return Zmp::Sim::sSpeed != 1 ? Zmp::Sim::sSpeed : scale;
 }

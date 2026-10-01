@@ -19,6 +19,7 @@
 //     that comes with it is simulation and stays for everybody).
 
 #include "ZmpPlayers.h"
+#include "soh/Zmp/Test/Mutants.h"
 
 #include <algorithm>
 #include <cstring>
@@ -114,7 +115,7 @@ void StepLocal(PlayState* play) {
     // (Camera_ZmpResetInterface): a player that joined during the event took its screen from the middle of it, and its
     // own camera does not ask again while its setting does not change (D-059).
     bool event = GroupEvent(play);
-    if (sL.wasEvent && !event) {
+    if (sL.wasEvent && !event && !Zmp_TestMutant("barras_entrar")) {
         sL.lbTarget = 0;
         sL.camAlpha = 0;
         LocalHudMode(HUD_VISIBILITY_ALL);
