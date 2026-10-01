@@ -16,6 +16,7 @@
 #include "soh/Zmp/Sim/ZmpPlayers.h"
 #include "soh/util.h"
 #include "soh/Zmp/Net/Autosave.h"
+#include "soh/Zmp/Ui/ChatBox.h"
 #include <chrono>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohMenu.h"
@@ -87,8 +88,10 @@ static std::string sDownedText;
 static std::chrono::steady_clock::time_point sDownedSince[ZMP_MAX_PLAYERS];
 static bool sDownedSeen[ZMP_MAX_PLAYERS];
 
+// Phase 5b: what the downed state has to say goes to the message box (once per situation); only the revive bar is
+// drawn over the game. The text of the current situation is kept for the tests.
 static void DownedLine(float y, const std::string& text, ImU32 color, float scale) {
-    CenteredLine(y, text, color, scale);
+    Chat::Post(Chat::Category::Players, text, "downed:" + text, 4.0);
     sDownedText += text + '\n';
 }
 
@@ -125,7 +128,6 @@ static void DrawDownedOverlay(int local, float y) {
         }
         if (who >= 0 && prog > 0) {
             DownedLine(y, Lockstep::SlotName(who) + " te esta reviviendo", IM_COL32(140, 255, 140, 255), 1.0f);
-            y += line;
             ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
         }
         return;
@@ -149,7 +151,6 @@ static void DrawDownedOverlay(int local, float y) {
         if (who == local && prog > 0) {
             DownedLine(y, "Reviviendo a " + Lockstep::SlotName(k) + "... sigue manteniendo A",
                        IM_COL32(140, 255, 140, 255), 1.1f);
-            y += line;
             ReviveBar(y, (float)prog / ZMP_REVIVE_TICKS, IM_COL32(90, 220, 90, 255));
             y += line;
         } else if (inRange) {
@@ -165,25 +166,37 @@ static void DrawDownedOverlay(int local, float y) {
 
 void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
     using Clock = std::chrono::steady_clock;
+    using Chat::Category;
+    bool debug = CVarGetInteger(ZMP_CVAR_DEBUG_OVERLAY, 0) != 0;
     static uint32_t sSeenResyncs = 0;
     static Clock::time_point sResyncShownAt;
     if (ls.resyncsSeen != sSeenResyncs) {
         sSeenResyncs = ls.resyncsSeen;
         sResyncShownAt = Clock::now();
+        Chat::Post(Category::Debug, "Resincronizado con el grupo (tick " + std::to_string(ls.lastResyncTick) + ")");
     }
     bool recentResync = ls.resyncsSeen > 0 &&
                         std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - sResyncShownAt).count() < 8;
+    static int sSeenDelay = -1;
+    if (ls.phase == Lockstep::Phase::Running && ls.delay != sSeenDelay) {
+        sSeenDelay = ls.delay;
+        Chat::Post(Category::Debug, "Retraso de entrada: " + std::to_string(ls.delay) + " ticks");
+    }
     std::string line;
     ImU32 color = IM_COL32(120, 255, 120, 255);
     switch (ls.phase) {
         case Lockstep::Phase::WaitingGroup:
             line = "Esperando a que alguien cargue una partida para crear el grupo";
             color = IM_COL32(255, 230, 120, 255);
+            Chat::Post(Category::System, line, "phase:waiting", 3.0);
             break;
         case Lockstep::Phase::Joining:
             line = ls.freeRun ? "Entrando en " + Lockstep::SceneName(ls.detachScene) + "..."
                               : std::string("Entrando en la partida del grupo...");
             color = IM_COL32(255, 230, 120, 255);
+            if (!ls.freeRun) {
+                Chat::Post(Category::System, line, "phase:joining", 3.0);
+            }
             break;
         case Lockstep::Phase::Detached:
             // Phase 5: on the way to another scene (no countdown: nobody waits for anybody).
@@ -225,39 +238,25 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
                 vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(0, 0, 0, alpha));
         }
     }
-    CenteredLine(y, line, color, 1.0f);
-    float big = ImGui::GetFontSize() * 1.4f + 10.0f;
-    float mid = vp->Pos.y + vp->Size.y * 0.30f;
+    if (debug) {
+        CenteredLine(y, line, color, 1.0f); // the diagnostic line (test instances; off in the demos)
+    }
     if (ls.phase == Lockstep::Phase::Running && ls.waiting) {
-        std::string who = ls.waitingFor.empty() ? "otro jugador" : ls.waitingFor;
-        CenteredLine(mid, "Esperando a " + who + "...", IM_COL32(255, 230, 120, 255), 1.4f);
-        mid += big;
+        // (only real connection drops get here: nobody waits for a slow player)
+        std::string who = ls.waitingFor.empty() ? "el servidor" : ls.waitingFor;
+        Chat::Post(Category::System, "Sin conexion con el grupo: esperando a " + who + "...", "waiting", 3.0);
     }
     if (ls.phase == Lockstep::Phase::Running) {
-        // Phase 5: who plays in another scene, and who just arrived somewhere.
-        std::map<int, std::string> elsewhere;
+        // Phase 5: who just arrived somewhere (the ZMP window lists where everybody is).
         std::string me = Client::Get().GetStatus().name;
-        for (auto& p : ls.players) {
-            if (p.name == me || p.group == 0 || p.group == ls.groupId || p.state == "disconnected") {
-                continue;
-            }
-            std::string& names = elsewhere[p.scene];
-            names += (names.empty() ? "" : ", ") + p.name;
-        }
-        float lineH = ImGui::GetFontSize() * 0.9f + 6.0f;
-        float ly = y + lineH + 2.0f;
-        for (auto& [scene, names] : elsewhere) {
-            CenteredLine(ly, names + ": " + Lockstep::SceneName(scene), IM_COL32(190, 210, 255, 230), 0.85f);
-            ly += lineH;
-        }
         for (auto& n : ls.sceneNotices) {
             if (n.age < 4.0 && n.name != me) {
-                CenteredLine(mid, n.name + " ha entrado en " + Lockstep::SceneName(n.scene),
-                             IM_COL32(170, 220, 255, 255), 1.1f);
-                mid += big;
+                Chat::Post(Category::Players, n.name + " ha entrado en " + Lockstep::SceneName(n.scene),
+                           "scene:" + n.name + ":" + std::to_string(n.scene), 6.0);
             }
         }
-        // Phase 5b: somebody of this scene travels with a warp song; holding L goes along.
+        // Phase 5b: somebody of this scene travels with a warp song; holding L goes along. Short and small, over
+        // the game (it asks for a decision in a few seconds).
         Players::WarpInvite inv = Players::Invite();
         if (inv.by >= 0 && inv.by != ls.slot) {
             std::string text =
@@ -265,33 +264,26 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
             if (inv.hold > 0) {
                 text += " (" + std::to_string(inv.hold * 100 / ZMP_INVITE_HOLD_TICKS) + " %)";
             }
-            CenteredLine(mid, text, IM_COL32(255, 230, 120, 255), 1.2f);
-            mid += big;
+            CenteredLine(vp->Pos.y + vp->Size.y * 0.74f, text, IM_COL32(255, 230, 120, 255), 0.9f);
         }
     }
     if (ls.phase == Lockstep::Phase::Running && Zmp_MultiActive()) {
-        DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.62f);
+        DrawDownedOverlay(ls.slot, vp->Pos.y + vp->Size.y * 0.66f);
         // Group game over (D-058): the menu reads the anchor's pad; the others see who decides.
         std::string chooser = Lockstep::GameOverChooser();
         if (!chooser.empty()) {
-            CenteredLine(vp->Pos.y + vp->Size.y * 0.16f, chooser + " (el anfitrion) elige si guardar y continuar",
-                         IM_COL32(255, 230, 120, 255), 1.2f);
+            Chat::Post(Category::System, chooser + " (el anfitrion) elige si guardar y continuar", "chooser", 4.0, 2.0f);
         }
         // A save from the pause menu (or the game over menu) of a player that is not the leader writes nothing.
         if (ls.saveSkipped) {
-            CenteredLine(vp->Pos.y + vp->Size.y * 0.80f, "Solo el anfitrion guarda la partida",
-                         IM_COL32(255, 230, 150, 255), 1.1f);
+            Chat::Post(Category::System, "Solo el anfitrion guarda la partida", "saveskipped", 4.0);
         }
-        // Phase 4: "Guardado" for 2 s on the screen of the PC that wrote the autosave (D-054; phase 5: the save owner).
+        // Phase 4: "Guardado" on the screen of the PC that wrote the autosave (D-054; phase 5: the save owner).
         if (Autosave::SecondsSinceSave() < 2.0) {
-            ImDrawList* sdl = ImGui::GetForegroundDrawList(vp);
-            float fs = ImGui::GetFontSize() * 1.0f;
-            ImVec2 sp(vp->Pos.x + vp->Size.x - fs * 6.0f, vp->Pos.y + vp->Size.y - fs * 2.2f);
-            sdl->AddRectFilled(ImVec2(sp.x - 6, sp.y - 3), ImVec2(sp.x + fs * 4.6f, sp.y + fs + 3),
-                               IM_COL32(0, 0, 0, 140), 4.0f);
-            sdl->AddText(ImGui::GetFont(), fs, sp, IM_COL32(200, 255, 200, 255), "Guardado");
+            Chat::Post(Category::System, "Partida guardada", "saved", 3.0, 0.5f);
         }
-        // Phase 4: this player's heat / deep water timer (the original's timer is not used in multiplayer).
+        // Phase 4: this player's heat / deep water timer (the original's timer is not used in multiplayer). Part of
+        // the game's HUD, not a message.
         int heat = Players::SlotHeatSeconds(ls.slot);
         if (heat >= 0) {
             ImDrawList* hdl = ImGui::GetForegroundDrawList(vp);
@@ -305,18 +297,16 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
                          heat <= 10 ? IM_COL32(255, 80, 60, 255) : IM_COL32(255, 200, 90, 255), buf);
         }
         // Phase 4: what the other players got (their text box is not shown here).
-        float ny = vp->Pos.y + vp->Size.y * 0.12f;
         for (auto& n : Players::RecentNotices(5.0)) {
             if (n.slot == ls.slot) {
                 continue;
             }
-            CenteredLine(ny, Lockstep::SlotName(n.slot) + " ha obtenido: " + SohUtils::GetItemName(n.itemId),
-                         IM_COL32(255, 235, 150, 255), 1.0f);
-            ny += ImGui::GetFontSize() * 1.2f + 8.0f;
+            Chat::Post(Category::Items, Lockstep::SlotName(n.slot) + " ha obtenido: " + SohUtils::GetItemName(n.itemId),
+                       "item:" + std::to_string(n.slot) + ":" + std::to_string(n.itemId), 5.5);
         }
     }
     if (!ls.lastError.empty() && ls.phase != Lockstep::Phase::Running) {
-        CenteredLine(mid + big, ls.lastError, IM_COL32(255, 90, 90, 255), 1.0f);
+        Chat::Post(Category::System, ls.lastError, "error:" + ls.lastError, 10.0, 2.0f);
     }
 }
 
@@ -324,6 +314,8 @@ void RoomWindow::DrawOverlay() {
     if (!CVarGetInteger(ZMP_CVAR_OVERLAY, 1)) {
         return;
     }
+    using Chat::Category;
+    bool debug = CVarGetInteger(ZMP_CVAR_DEBUG_OVERLAY, 0) != 0;
     NetStatus st = Client::Get().GetStatus();
     std::string name = CVarGetString(ZMP_CVAR_NAME, "Player");
     std::string text = "ZMP " + name + " | " + StatusLine(st);
@@ -334,23 +326,49 @@ void RoomWindow::DrawOverlay() {
     // Wrap long messages (a rejection explains the reason) inside the window.
     float wrap = vp->Size.x - 16.0f;
     ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, wrap, text.c_str());
-    // Top centre: the hearts and the magic bar of the HUD are on the left, the buttons on the right.
-    pos.x = vp->Pos.x + std::max(6.0f, (vp->Size.x - size.x) * 0.5f);
-    dl->AddRectFilled(ImVec2(pos.x - 3, pos.y - 2), ImVec2(pos.x + size.x + 3, pos.y + size.y + 2),
-                      IM_COL32(0, 0, 0, 150), 3.0f);
-    ImVec4 c = StatusColor(st.state);
-    dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str(), nullptr, wrap);
+    if (debug) {
+        // Top centre: the hearts and the magic bar of the HUD are on the left, the buttons on the right.
+        pos.x = vp->Pos.x + std::max(6.0f, (vp->Size.x - size.x) * 0.5f);
+        dl->AddRectFilled(ImVec2(pos.x - 3, pos.y - 2), ImVec2(pos.x + size.x + 3, pos.y + size.y + 2),
+                          IM_COL32(0, 0, 0, 150), 3.0f);
+        ImVec4 c = StatusColor(st.state);
+        dl->AddText(ImGui::GetFont(), fontSize, pos, ImGui::ColorConvertFloat4ToU32(c), text.c_str(), nullptr, wrap);
+    }
+    {
+        // The connection, when it changes (a rejection explains why and stays longer).
+        static int sSeenState = -1;
+        static size_t sSeenPlayers = 0;
+        static std::string sSeenLine;
+        std::string now = StatusLine(st);
+        bool bad = st.state == NetState::Rejected || st.state == NetState::Error;
+        if ((int)st.state != sSeenState || (bad && now != sSeenLine)) {
+            if (sSeenState != -1 || st.state != NetState::Disconnected) {
+                Chat::Post(Category::System, now, "", 0.0, bad ? 3.0f : 1.0f);
+            }
+            sSeenState = (int)st.state;
+            sSeenLine = now;
+            sSeenPlayers = st.players.size();
+        } else if (st.state == NetState::Connected && st.players.size() != sSeenPlayers) {
+            Chat::Post(Category::Players, st.players.size() > sSeenPlayers ? "Un jugador ha entrado en la sala (" +
+                                                                                  std::to_string(st.players.size()) + ")"
+                                                                            : "Un jugador ha salido de la sala (" +
+                                                                                  std::to_string(st.players.size()) + ")");
+            sSeenPlayers = st.players.size();
+        }
+    }
 
-    // Second line: lockstep (multiplayer) or determinism session (replay, recording, pause).
+    // Lockstep (multiplayer) or determinism session (replay, recording, pause).
     auto ls = Lockstep::GetStatus();
     if (!ls.endNotice.empty()) {
         // After a group game over "no" (D-058), on the file select screen.
-        CenteredLine(vp->Pos.y + vp->Size.y * 0.30f, ls.endNotice, IM_COL32(255, 230, 120, 255), 1.4f);
+        Chat::Post(Category::System, ls.endNotice, "end:" + ls.endNotice, 20.0, 2.5f);
     }
     if (ls.phase != Lockstep::Phase::Idle) {
         DrawLockstepOverlay(ls, pos.y + size.y + 6.0f);
+        Chat::Draw();
         return;
     }
+    Chat::Draw();
     auto ss = Sim::GetStatus();
     if (ss.mode == Sim::Mode::Off) {
         return;
@@ -457,6 +475,8 @@ void RoomWindow::DrawConnectionForm() {
         Client::Get().Disconnect();
     }
 
+    ImGui::Separator();
+    Chat::DrawSettings();
     ImGui::Separator();
     ImGui::TextColored(StatusColor(st.state), "%s", StatusLine(st).c_str());
     if (st.state == NetState::Connected) {

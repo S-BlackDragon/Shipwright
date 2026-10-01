@@ -35,6 +35,8 @@
 #include "soh/Zmp/Net/Autosave.h"
 #include "soh/Zmp/Net/SharedGame.h"
 #include "soh/Zmp/Ui/ZmpWindow.h"
+#include "soh/Zmp/Ui/ChatBox.h"
+#include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/State/StateBlob.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -73,6 +75,7 @@ std::vector<float> sTickGaps;
 uint32_t sGapLastTick = 0;
 std::chrono::steady_clock::time_point sGapLastAt;
 bool sGapValid = false;
+int sGapSettled = 0;
 
 struct PadStep {
     uint32_t buttons = 0;
@@ -658,6 +661,16 @@ void Dispatch(const RequestPtr& req) {
             resp["slot_rooms"] = slotRooms;
         }
         req->Reply(resp);
+    } else if (name == "query.chat") {
+        // Phase 5b: the message box: what it shows now and everything posted so far ([category, text]).
+        json r = { { "ok", true }, { "tick", sFrame }, { "visible", Zmp::Chat::VisibleLines() } };
+        json hist = json::array();
+        for (auto& [cat, text] : Zmp::Chat::History()) {
+            hist.push_back({ cat, text });
+        }
+        r["history"] = hist;
+        r["debug_overlay"] = CVarGetInteger(ZMP_CVAR_DEBUG_OVERLAY, 0) != 0;
+        req->Reply(r);
     } else if (name == "query.gaps") {
         // Time between consecutive logic ticks since the last reset: worst, 99th percentile, mean.
         std::vector<float> g = sTickGaps;
@@ -1117,10 +1130,30 @@ void OnFrameBegin(uint32_t tick) {
             float ms = std::chrono::duration<float, std::milli>(now - last).count();
             sFrameIntervalMs = sFrameIntervalMs == 0.0f ? ms : sFrameIntervalMs * 0.98f + ms * 0.02f;
             sFrameIntervalMaxMs = std::max(sFrameIntervalMaxMs, ms);
+            if (ms > 90.0f && sFrame > 0) {
+                // (diagnosis of pauses, phase 5b: what was going on is in the lines around this one)
+                Zmp::Log("harness: slow frame, " + std::to_string((int)ms) + " ms before tick " +
+                         std::to_string(Sim::CurrentTick()));
+            }
         }
         last = now;
         uint32_t simTick = Sim::CurrentTick();
-        if (!sGapValid || simTick < sGapLastTick) {
+        // Only the ticks of a player who is playing count: not its own scene changes (its fade, its catch-up when it
+        // enters a group), which are its own and hold nobody else.
+        {
+            auto lst = Zmp::Lockstep::GetStatus();
+            bool playing = lst.phase != Zmp::Lockstep::Phase::Running ||
+                           (!lst.covered && !lst.catchingUp && Zmp::Players::IsPresent(lst.slot));
+            if (lst.phase != Zmp::Lockstep::Phase::Running && lst.phase != Zmp::Lockstep::Phase::Idle) {
+                playing = false; // detached / joining
+            }
+            sGapSettled = playing ? std::min(sGapSettled + 1, 1000) : 0;
+            if (sGapSettled < 20) {
+                sGapValid = false;
+            }
+        }
+        if (sGapSettled < 20) {
+        } else if (!sGapValid || simTick < sGapLastTick) {
             sGapValid = true;
             sGapLastTick = simTick;
             sGapLastAt = now;

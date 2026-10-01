@@ -339,7 +339,7 @@ void SendJoin() {
         " in_play=" + (inPlay ? "1" : "0") + (follow.empty() ? "" : " follow=" + follow));
 }
 
-void ResetGame(const char* why) {
+void ResetGame(const char* why, bool keepTicks = false) {
     if (sPhase == Phase::Running || sPhase == Phase::Joining) {
         Log(std::string("net: leaving lockstep (") + why + ")");
     }
@@ -358,7 +358,7 @@ void ResetGame(const char* why) {
     sHavePendingBlob = false;
     sResyncHold = false;
     sWaitingNow = false;
-    {
+    if (!keepTicks) {
         std::lock_guard<std::mutex> lock(sMutex);
         sBundles.clear();
     }
@@ -584,7 +584,8 @@ void HandleControl(json& msg) {
         sJoinStartValid = true;
         if (sPhase == Phase::Running) {
             // Rejoin after a reconnection: the local simulation is replaced by the leader's.
-            ResetGame("rejoin");
+            // (the ticks already received are the new group's: it plays on while this client enters, phase 5b)
+            ResetGame("rejoin", true);
         }
         bool fromDetach = sPhase == Phase::Detached;
         sPhase = Phase::Joining;

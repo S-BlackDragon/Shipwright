@@ -44,6 +44,25 @@
 #define ZMP_CVAR_FOLLOW CVAR_ZMP("Follow")
 #define ZMP_CVAR_OVERWRITE_ROOM_GAME CVAR_ZMP("OverwriteRoomGame")
 
+// Phase 5b: the message box at the bottom left (Ui/ChatBox.cpp). Local presentation settings.
+#define ZMP_CVAR_CHAT_HIDDEN CVAR_ZMP("Chat.Hidden")
+#define ZMP_CVAR_CHAT_X CVAR_ZMP("Chat.X")           // left edge, fraction of the picture's width
+#define ZMP_CVAR_CHAT_BOTTOM CVAR_ZMP("Chat.Bottom") // bottom edge, fraction of the picture's height
+#define ZMP_CVAR_CHAT_WIDTH CVAR_ZMP("Chat.Width")
+#define ZMP_CVAR_CHAT_LINES CVAR_ZMP("Chat.Lines")
+#define ZMP_CVAR_CHAT_FONT_SCALE CVAR_ZMP("Chat.FontScale")
+#define ZMP_CVAR_CHAT_BG_ALPHA CVAR_ZMP("Chat.BackgroundAlpha")
+#define ZMP_CVAR_CHAT_SECONDS CVAR_ZMP("Chat.Seconds")
+#define ZMP_CVAR_CHAT_COLOR_R CVAR_ZMP("Chat.ColorR")
+#define ZMP_CVAR_CHAT_COLOR_G CVAR_ZMP("Chat.ColorG")
+#define ZMP_CVAR_CHAT_COLOR_B CVAR_ZMP("Chat.ColorB")
+#define ZMP_CVAR_CHAT_CAT_PLAYERS CVAR_ZMP("Chat.ShowPlayers")
+#define ZMP_CVAR_CHAT_CAT_ITEMS CVAR_ZMP("Chat.ShowItems")
+#define ZMP_CVAR_CHAT_CAT_SYSTEM CVAR_ZMP("Chat.ShowSystem")
+#define ZMP_CVAR_CHAT_CAT_DEBUG CVAR_ZMP("Chat.ShowDebug")
+// The diagnostic lines at the top (connection, tick, delay, hash): off in the demos, on in the test instances.
+#define ZMP_CVAR_DEBUG_OVERLAY CVAR_ZMP("DebugOverlay")
+
 #define ZMP_DEFAULT_HOST "127.0.0.1"
 #define ZMP_DEFAULT_PORT 47100
 #define ZMP_DEFAULT_ROOM "zmp"
