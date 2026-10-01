@@ -63,6 +63,7 @@ struct Status {
     std::string lastShared;  // description of the last patch received
     uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
     int lastSpawnMs = -1;    // phase 5b: until this player's Link appeared in the group it entered
+    int nameTags = 0;        // name tags over the Links shown on this screen
     bool covered = false; // phase 5b: entering a scene's group, the screen stays black until this player's Link is in
     bool catchingUp = false; // phase 5b: the group's state is loaded, this player's Link is not in it yet
     int lastJoinMs = -1;     // phase 5: time from leaving a scene to playing in the next group (ms)

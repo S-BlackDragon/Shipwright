@@ -384,6 +384,7 @@ struct SavedLight {
     LightInfo dir2;
 };
 SavedLight sSaved;
+bool sHideAdj = false; // this frame's picture ignores another player's own light effect (tests read it)
 
 u8 Clamp8(s16 v) {
     return (u8)(v > 255 ? 255 : (v < 0 ? 0 : v));
@@ -451,12 +452,42 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     StepLocalLight(play);
     EnvironmentContext* env = &play->envCtx;
     LightContext* lc = &play->lightCtx;
+    // Phase 5b: the darkening of another player's own effect (the fairy that revives it, its spin attack) is not
+    // drawn here.
+    int owner = gZmpSim.adjOwner;
+    bool adjusted = env->adjFogNear != 0 || env->adjFogFar != 0;
+    for (int i = 0; i < 3; i++) {
+        adjusted = adjusted || env->adjAmbientColor[i] != 0 || env->adjLight1Color[i] != 0 || env->adjFogColor[i] != 0;
+    }
+    bool hideAdj = adjusted && owner >= 0 && owner < ZMP_MAX_PLAYERS && owner != Zmp::Players::LocalSlot() &&
+                   Zmp::Players::LocalSlot() >= 0;
+    sHideAdj = hideAdj;
     // Only the indoor light settings (picked by the floor) change per room; outdoor lighting follows the time of day.
-    if (!sLocal.valid || !env->indoors || env->unk_BF != 0xFF ||
-        (sLocal.index == env->unk_BD && sLocal.prev == env->unk_BE && sLocal.blend == env->unk_D8)) {
+    bool ownRoom = sLocal.valid && env->indoors && env->unk_BF == 0xFF &&
+                   !(sLocal.index == env->unk_BD && sLocal.prev == env->unk_BE && sLocal.blend == env->unk_D8);
+    if (!ownRoom && !hideAdj) {
         return;
     }
     sSaved.active = true;
+    if (!ownRoom) {
+        // the scene's lights as the simulation has them, before the adjustment (z_kankyo.c, Environment_Update)
+        memcpy(sSaved.ambient, lc->ambientColor, 3);
+        memcpy(sSaved.fog, lc->fogColor, 3);
+        sSaved.fogNear = lc->fogNear;
+        sSaved.fogFar = lc->fogFar;
+        sSaved.dir1 = env->dirLight1;
+        sSaved.dir2 = env->dirLight2;
+        for (int i = 0; i < 3; i++) {
+            lc->ambientColor[i] = env->lightSettings.ambientColor[i];
+            env->dirLight1.params.dir.color[i] = env->lightSettings.light1Color[i];
+            env->dirLight2.params.dir.color[i] = env->lightSettings.light2Color[i];
+            lc->fogColor[i] = env->lightSettings.fogColor[i];
+        }
+        lc->fogNear = env->lightSettings.fogNear <= 996 ? env->lightSettings.fogNear : 996;
+        lc->fogFar = env->lightSettings.fogFar <= 12800 ? env->lightSettings.fogFar : 12800;
+        return;
+    }
+    s16 adjOn = hideAdj ? 0 : 1;
     memcpy(sSaved.ambient, lc->ambientColor, 3);
     memcpy(sSaved.fog, lc->fogColor, 3);
     sSaved.fogNear = lc->fogNear;
@@ -467,12 +498,13 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     const EnvLightSettings& b = env->lightSettingsList[sLocal.index];
     f32 t = sLocal.blend;
     for (int i = 0; i < 3; i++) {
-        lc->ambientColor[i] = Clamp8((s16)(LERP(a.ambientColor[i], b.ambientColor[i], t) + env->adjAmbientColor[i]));
+        lc->ambientColor[i] =
+            Clamp8((s16)(LERP(a.ambientColor[i], b.ambientColor[i], t) + adjOn * env->adjAmbientColor[i]));
         env->dirLight1.params.dir.color[i] =
-            Clamp8((s16)(LERP(a.light1Color[i], b.light1Color[i], t) + env->adjLight1Color[i]));
+            Clamp8((s16)(LERP(a.light1Color[i], b.light1Color[i], t) + adjOn * env->adjLight1Color[i]));
         env->dirLight2.params.dir.color[i] =
-            Clamp8((s16)(LERP(a.light2Color[i], b.light2Color[i], t) + env->adjLight1Color[i]));
-        lc->fogColor[i] = Clamp8((s16)(LERP(a.fogColor[i], b.fogColor[i], t) + env->adjFogColor[i]));
+            Clamp8((s16)(LERP(a.light2Color[i], b.light2Color[i], t) + adjOn * env->adjLight1Color[i]));
+        lc->fogColor[i] = Clamp8((s16)(LERP(a.fogColor[i], b.fogColor[i], t) + adjOn * env->adjFogColor[i]));
     }
     env->dirLight1.params.dir.x = (s8)LERP16(a.light1Dir[0], b.light1Dir[0], t);
     env->dirLight1.params.dir.y = (s8)LERP16(a.light1Dir[1], b.light1Dir[1], t);
@@ -480,8 +512,8 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     env->dirLight2.params.dir.x = (s8)LERP16(a.light2Dir[0], b.light2Dir[0], t);
     env->dirLight2.params.dir.y = (s8)LERP16(a.light2Dir[1], b.light2Dir[1], t);
     env->dirLight2.params.dir.z = (s8)LERP16(a.light2Dir[2], b.light2Dir[2], t);
-    s16 fogNear = (s16)(LERP16(a.fogNear & 0x3FF, b.fogNear & 0x3FF, t) + env->adjFogNear);
-    s16 fogFar = (s16)(LERP16(a.fogFar, b.fogFar, t) + env->adjFogFar);
+    s16 fogNear = (s16)(LERP16(a.fogNear & 0x3FF, b.fogNear & 0x3FF, t) + adjOn * env->adjFogNear);
+    s16 fogFar = (s16)(LERP16(a.fogFar, b.fogFar, t) + adjOn * env->adjFogFar);
     lc->fogNear = fogNear <= 996 ? fogNear : 996;
     lc->fogFar = fogFar <= 12800 ? fogFar : 12800;
 }
@@ -505,6 +537,10 @@ extern "C" f32 Zmp_SimFogFar(PlayState* play) {
 }
 
 namespace Zmp::Players {
+
+bool LightEffectHidden() {
+    return sHideAdj;
+}
 
 int LocalLightSetting() {
     return sLocal.valid ? sLocal.index : -1;

@@ -32,7 +32,28 @@ struct Field {
     uint8_t scene; // scene of a scene flag
     bool rupees;
     bool age = false; // Link's age (phase 5b): never written into a running scene, it asks for a reload instead
+    bool bottles = false; // phase 5b: which of the four bottles the room has (not a field of the save: each
+                          // player's bottle slots hold its own contents)
 };
+
+// Phase 5b: progress made in another scene that changes how this one looks (the original only reads these when the
+// scene loads). When one of them arrives while the group plays in that scene, the scene is loaded again in place.
+struct SceneFlag {
+    uint16_t flag; // event flag (index << 4 | bit)
+    int16_t scene;
+};
+const SceneFlag kSceneFlags[] = {
+    { EVENTCHKINF_RAISED_LAKE_HYLIA_WATER, SCENE_LAKE_HYLIA },
+    { EVENTCHKINF_USED_WATER_TEMPLE_BLUE_WARP, SCENE_LAKE_HYLIA },
+    { EVENTCHKINF_USED_FOREST_TEMPLE_BLUE_WARP, SCENE_KOKIRI_FOREST },
+    { EVENTCHKINF_USED_FIRE_TEMPLE_BLUE_WARP, SCENE_DEATH_MOUNTAIN_TRAIL },
+    { EVENTCHKINF_CARPENTERS_FREE(0), SCENE_GERUDO_VALLEY },
+    { EVENTCHKINF_CARPENTERS_FREE(1), SCENE_GERUDO_VALLEY },
+    { EVENTCHKINF_CARPENTERS_FREE(2), SCENE_GERUDO_VALLEY },
+    { EVENTCHKINF_CARPENTERS_FREE(3), SCENE_GERUDO_VALLEY },
+};
+
+const uint32_t kVirtualOff = 0xFFFF0000u; // saveOff of a field that is not a place of the save context
 
 std::vector<Field> sFields;
 std::map<uint16_t, size_t> sByOff;
@@ -102,6 +123,9 @@ void Build() {
     // Phase 5b: everybody changes age together, in whatever group (low byte of linkAge: 0 adult, 1 child).
     Add(SAVE_OFF(linkAge), 1, kBits);
     sFields.back().age = true;
+    // Phase 5b: a bottle somebody finds is everybody's at once, in whatever scene (empty for the others).
+    Add(kVirtualOff, 1, kBits);
+    sFields.back().bottles = true;
     // FNV-1a of the table and of the save context size.
     uint32_t h = 2166136261u;
     auto mix = [&](uint32_t v) {
@@ -233,9 +257,17 @@ std::vector<uint8_t> Snapshot() {
     std::vector<uint8_t> buf(sSize);
     const uint8_t* save = (const uint8_t*)&gSaveContext;
     for (auto& f : sFields) {
+        if (f.bottles) {
+            buf[f.off] = (uint8_t)Players::BottleMask();
+            continue;
+        }
         memcpy(&buf[f.off], save + f.saveOff, f.size);
         if (f.age && gZmpSim.agePending != 0) {
             buf[f.off] = (uint8_t)(gZmpSim.agePending - 1); // the age this group is about to reload with
+        }
+        if (f.rupees && gZmpSim.rupeeDebt > 0) {
+            // what the room owes counts as rupees below zero (see ApplyToGame)
+            Put(&buf[f.off], f.size, (uint32_t)(int32_t)(gSaveContext.rupees - gZmpSim.rupeeDebt));
         }
     }
     int scene;
@@ -300,6 +332,29 @@ bool ApplyToGame(const std::vector<uint8_t>& patch, std::string* summary) {
     bool inScene = InPlayScene(&scene);
     for (auto& e : entries) {
         const Field& f = *e.f;
+        if (f.bottles) {
+            uint32_t have = (uint32_t)Players::BottleMask();
+            uint32_t now = ApplyEntry(have, f, e.a, e.b);
+            for (int i = 0; i < 4; i++) {
+                if ((now & (1u << i)) && !(have & (1u << i))) {
+                    Players::ShareBottle(i);
+                }
+            }
+            continue;
+        }
+        if (f.rupees) {
+            // Phase 5b: two groups can spend the same rupees at the same moment. Nothing is given away: what is
+            // missing stays as a debt of the room, shown as zero rupees, and the next rupees pay it off first.
+            int32_t have = (int32_t)gSaveContext.rupees - (int32_t)gZmpSim.rupeeDebt;
+            int32_t now = have + SignExtend(e.a, f.size);
+            int32_t debt = now < 0 ? -now : 0;
+            if (debt > gZmpSim.rupeeDebt) {
+                Log("shared: the room spent more rupees than it had: it owes " + std::to_string(debt));
+            }
+            gSaveContext.rupees = (s16)(now < 0 ? 0 : now);
+            gZmpSim.rupeeDebt = (s16)(debt > 0x7FFF ? 0x7FFF : debt);
+            continue;
+        }
         uint32_t v = Get(save + f.saveOff, f.size);
         uint32_t nv = ApplyEntry(v, f, e.a, e.b);
         if (f.age) {
@@ -313,10 +368,19 @@ bool ApplyToGame(const std::vector<uint8_t>& patch, std::string* summary) {
             }
             continue;
         }
-        if (f.rupees && SignExtend(nv, f.size) < 0) {
-            nv = 0; // spent in two places at once: nobody goes below zero (the difference is sent back as a change)
-        }
         Put(save + f.saveOff, f.size, nv);
+        if (inScene && f.saveOff >= SAVE_OFF(eventChkInf) && f.saveOff < SAVE_OFF(eventChkInf) + sizeof(gSaveContext.eventChkInf)) {
+            // (a flag that changes how this scene looks: it is loaded again, in place)
+            uint32_t word = (uint32_t)((f.saveOff - SAVE_OFF(eventChkInf)) / 2);
+            for (auto& sf : kSceneFlags) {
+                uint32_t bit = 1u << (sf.flag & 0xF);
+                if ((uint32_t)(sf.flag >> 4) == word && sf.scene == scene && ((v ^ nv) & bit)) {
+                    gZmpSim.refreshPending = 1;
+                    Log("shared: progress made elsewhere changes this scene (flag " + std::to_string(sf.flag) +
+                        "): it reloads in place");
+                }
+            }
+        }
         if (inScene && f.live != kNone && f.scene == scene) {
             u32* live = LiveFlag(f.live);
             *live = ApplyEntry(*live, f, e.a, e.b);
@@ -356,6 +420,12 @@ void ClearBaseline() {
 }
 
 std::vector<uint8_t> TakeTickPatch() {
+    if (gZmpSim.rupeeDebt > 0 && gSaveContext.rupees > 0) {
+        // (the room's debt is paid with the first rupees that come in)
+        s16 pay = gSaveContext.rupees < gZmpSim.rupeeDebt ? gSaveContext.rupees : gZmpSim.rupeeDebt;
+        gSaveContext.rupees -= pay;
+        gZmpSim.rupeeDebt -= pay;
+    }
     if (!HasBaseline()) {
         return {};
     }

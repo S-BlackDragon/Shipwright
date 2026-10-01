@@ -294,6 +294,7 @@ json PlayerJson(Player* player, int slot = 0) {
         { "floor_y", a->floorHeight },
         { "spectating", spectate >= 0 ? json(spectate) : json(nullptr) },
         { "pause_local", Zmp::Pause::State() },
+        { "pause_save_stage", Zmp::Pause::SaveStage() },
         { "active_cam", multi ? Zmp::Players::SlotActiveCam(slot) : gPlayState->activeCamera },
         { "cs_action", player->csAction },
         { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
@@ -418,6 +419,7 @@ json LockstepJson() {
              { "shared_applied", ls.sharedApplied },
              { "last_shared", ls.lastShared },
              { "group_joins", ls.groupJoins },
+             { "name_tags", ls.nameTags },
              { "last_join_ms", ls.lastJoinMs },
              { "clock_hold", gZmpSim.clockHold },
              { "scene_notices", notices },
@@ -627,6 +629,19 @@ void Dispatch(const RequestPtr& req) {
             resp["prev_room"] = gPlayState->roomCtx.prevRoom.num;
             resp["rooms_loaded"] = Zmp::Players::LoadedRooms(gPlayState);
             resp["text_hidden"] = Zmp::Players::LocalTextHidden();
+            // Phase 5b: the title card with the scene's name (running in the simulation) and whether this screen shows it
+            resp["play_inits"] = Zmp::Players::PlayInitCount();
+            resp["rupee_debt"] = gZmpSim.rupeeDebt;
+            resp["bg_image"] = Zmp::Players::LocalBgImage();
+            resp["hud_health"] = Zmp::Players::HudHealth();
+            resp["picture_eye"] = Vec3(Zmp::Players::PictureEye());
+            resp["picture_at"] = Vec3(Zmp::Players::PictureAt());
+            resp["do_action"] = gPlayState->interfaceCtx.unk_1F0;
+            resp["light_effect_hidden"] = Zmp::Players::LightEffectHidden();
+            resp["light_adj"] = gPlayState->envCtx.adjAmbientColor[0];
+            resp["light_ambient"] = gPlayState->lightCtx.ambientColor[0];
+            resp["title_alpha"] = gPlayState->actorCtx.titleCtx.alpha;
+            resp["title_hidden"] = Zmp_TitleCardHidden() != 0;
             resp["local_light"] = Zmp::Players::LocalLightSetting();
             resp["sim_light"] = gPlayState->envCtx.unk_BD;
             resp["env_indoors"] = gPlayState->envCtx.indoors;
@@ -662,6 +677,13 @@ void Dispatch(const RequestPtr& req) {
             resp["slot_rooms"] = slotRooms;
         }
         req->Reply(resp);
+    } else if (name == "query.project") {
+        // Phase 5b: where a point of the world is in the picture of a player (clip space, as the simulation has it).
+        Vec3f world = { cmd.value("x", 0.0f), cmd.value("y", 0.0f), cmd.value("z", 0.0f) };
+        Vec3f proj;
+        f32 w = 0.0f;
+        bool ok = Zmp::Players::ProjectForSlot(cmd.value("slot", -1), world, &proj, &w);
+        req->Reply({ { "ok", ok }, { "tick", sFrame }, { "proj", { proj.x, proj.y, proj.z } }, { "w", w } });
     } else if (name == "query.chat") {
         // Phase 5b: the message box: what it shows now and everything posted so far ([category, text]).
         json r = { { "ok", true }, { "tick", sFrame }, { "visible", Zmp::Chat::VisibleLines() } };

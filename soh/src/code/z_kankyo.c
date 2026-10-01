@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include <libultraship/libultra.h>
 #include "vt.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
@@ -2442,6 +2443,8 @@ void Environment_DrawSandstorm(PlayState* play, u8 sandstormState) {
 void Environment_AdjustLights(PlayState* play, f32 arg1, f32 arg2, f32 arg3, f32 arg4) {
     f32 temp;
     s32 i;
+
+    Zmp_OnLightAdjust(play); // ZMP: the darkening of one player's own effect is drawn only on its screen
 
     if (play->roomCtx.curRoom.behaviorType1 != ROOM_BEHAVIOR_TYPE1_5 && Play_CamIsNotFixed(play)) {
         arg1 = CLAMP_MIN(arg1, 0.0f);

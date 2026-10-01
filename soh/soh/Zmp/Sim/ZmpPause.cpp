@@ -189,6 +189,10 @@ int State() {
     return sActive ? sPause.state : 0;
 }
 
+int SaveStage() {
+    return sActive ? sPause.unk_1EC : 0;
+}
+
 } // namespace Zmp::Pause
 
 extern "C" s32 Zmp_PauseRunningLocal(void) {

@@ -1247,6 +1247,9 @@ void Play_Update(PlayState* play) {
                 Zmp_EnterOwner(play, 1); // ZMP
                 GameOver_Update(play);
                 Zmp_RestoreAnchor(play); // ZMP
+                // ZMP: a player reviving with a fairy keeps the game over context busy; the text boxes of the other
+                // players go on meanwhile (the original has one player and stops its text)
+                Zmp_MessageUpdateDuringRevive(play);
             } else {
                 PLAY_LOG(3733);
                 // ZMP: one text box per player, each with its player's input (phase 5b)

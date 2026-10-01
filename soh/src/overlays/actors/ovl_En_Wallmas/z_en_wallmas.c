@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 /*
  * File: z_en_wallmas
  * Overlay: En_Wallmas
@@ -500,6 +501,7 @@ void EnWallmas_TakePlayer(EnWallmas* this, PlayState* play) {
     if (this->timer == 0x1E) {
         Sfx_PlaySfxCentered(NA_SE_OC_ABYSS);
         Play_TriggerRespawn(play);
+        Zmp_NoteTransitionBy(player); // ZMP: the hand takes only the player it holds back to the entrance
     }
 }
 

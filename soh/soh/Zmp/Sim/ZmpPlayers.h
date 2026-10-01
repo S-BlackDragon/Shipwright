@@ -81,8 +81,13 @@ typedef struct {
     // Phase 5b, age: the buttons and worn equipment this player had at the other age (what the original keeps in
     // childEquips / adultEquips for its one Link). Not valid: the game's defaults for that age.
     u8 otherValid;
-    u8 pad2;
+    // Phase 5b: where this player stood when its scene was loaded again in place (a change of age, progress made
+    // elsewhere that changes the scene); it is put back there once the scene is up.
+    u8 restoreValid;
     ItemEquips otherEquips;
+    s16 restoreRoom;
+    s16 restoreYaw;
+    Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
     u8 pad1[7];
@@ -162,7 +167,20 @@ typedef struct {
     // Phase 5b, age: another group changed the room's age (1 + new linkAge; 0: nothing pending). This group reloads
     // its scene with it as soon as no cutscene is running.
     u8 agePending;
-    u8 pad6[5];
+    // Phase 5b: whose arrival started the title card with the name of the scene (-1: the whole group arrived, as
+    // when the scene loads). The card runs in the simulation as always; only that player's screen draws it.
+    s8 titleFor;
+    // Phase 5b: the player whose own effect darkens the scene's lights (a fairy that revives it, its spin attack
+    // charge, its ocarina effect); -1: an effect of the world, for everybody. The lights change in the simulation
+    // as always; the other players' screens draw them without that change.
+    s8 adjOwner;
+    // Phase 5b: this group's scene has to be loaded again in place (see SharedGame.cpp, kSceneFlags).
+    u8 refreshPending;
+    u8 pad6[2];
+    // Phase 5b: rupees the room spent beyond what it had (two groups buying at the same moment); shown as zero
+    // rupees and paid off by the next ones.
+    s16 rupeeDebt;
+    s16 pad7[3];
     u8 msgStatics[ZMP_MAX_PLAYERS + 1][ZMP_MSG_STATICS_SIZE];
     u8 msgSegment[ZMP_MAX_PLAYERS][0x2200]; // each slot's text box background and icon (msgCtx.textboxSegment)
     MessageContext msgStore[ZMP_MAX_PLAYERS + 1];
@@ -213,6 +231,15 @@ void Zmp_EnterOwner(PlayState* play, s32 which);
 // Phase 5b, age (z_play.c, Play_Destroy with a change of age): every player's buttons and equipment are swapped,
 // each with its own of the other age. Returns 0 outside a session (the original swap runs).
 s32 Zmp_AgeSwapAll(PlayState* play);
+// Phase 5b: the name of the scene is shown to who enters it, not to the ones already there. z_player.c (the card
+// starts) and z_actor.c (TitleCard_Draw).
+// z_kankyo.c, Environment_AdjustLights: whose effect it is (see adjOwner).
+void Zmp_OnLightAdjust(PlayState* play);
+// z_play.c: while a player revives with a fairy (the game over context is busy with it) the text boxes of the other
+// players go on. Returns 0 outside a session.
+s32 Zmp_MessageUpdateDuringRevive(PlayState* play);
+void Zmp_OnTitleCard(void);
+s32 Zmp_TitleCardHidden(void);
 s32 Zmp_MessageUpdateAll(PlayState* play);
 s32 Zmp_MessageDrawAll(PlayState* play);
 // z_message_PAL.c: another player is using the ocarina (there is one instrument).
@@ -355,6 +382,12 @@ s32 Zmp_KeepObjects(void);
 // list is built with the local player's camera.
 void Zmp_DrawBeginView(PlayState* play);
 MtxF* Zmp_SimViewProjection(PlayState* play);
+// Phase 5b: the view an actor's projected position is taken from (the player who has it best in sight), a box test
+// against every player's picture, and the pre-rendered room pictures per player (z_actor.c, z_boss_goma.c, z_room.c).
+MtxF* Zmp_ActorViewProjection(PlayState* play, Actor* actor);
+s32 Zmp_AnyViewBox(PlayState* play, Actor* actor, f32 maxX, f32 maxY, f32 minZ, f32 maxZ);
+void Zmp_RoomImageBegin(PlayState* play, Room* room);
+void Zmp_RoomImageEnd(PlayState* play);
 // Phase 5b, 3D sound: sound positions are actor positions projected with the canonical camera (simulation state,
 // the same on every machine). The audio code reads them through this: on a machine whose picture comes from another
 // camera, the coordinate (axis 0..2 of the Vec3f at posX) as seen from that local camera. Presentation only: the
@@ -480,6 +513,18 @@ std::vector<Notice> RecentNotices(double maxAge);
 bool LocalTextHidden();
 // Phase 5b: msgMode of the text box of a slot (MSGMODE_NONE: closed).
 int SlotMsgMode(int slot);
+// Phase 5b: the last picture ignored the light effect of another player (its fairy, its spin attack charge).
+bool LightEffectHidden();
+int LocalBgImage();
+Vec3f PictureEye();
+Vec3f PictureAt();
+int HudHealth();
+// Phase 5b: which of the four bottles this group has (bit i: bottle i), and "everybody gets bottle i" (empty).
+int BottleMask();
+void ShareBottle(int i);
+// Tests: nobody of this group has bottle i any more; a world position as the picture of a player has it.
+void ClearBottle(int i);
+bool ProjectForSlot(int slot, const Vec3f& world, Vec3f* proj, f32* w);
 const MessageContext* SlotMessage(int slot);
 int Anchor();
 // After a portable save state load.
@@ -493,5 +538,7 @@ void OnLocalPad(const OSContPad& pad);
 void Reset();
 bool IsOpen();
 int State();
+// Stage of the save question of the local menu (the original's unk_1EC: 4 is the "Game saved." screen).
+int SaveStage();
 } // namespace Zmp::Pause
 #endif

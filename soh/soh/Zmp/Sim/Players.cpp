@@ -7,6 +7,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <algorithm>
 #include <cstdio>
 
 #include "soh/Zmp/ZmpLog.h"
@@ -37,6 +39,8 @@ namespace {
 
 constexpr u32 kSimMagic = 0x62354D5A; // "ZM5b" (phase 5b layout)
 int sLocalSlot = -1;
+// The slot whose Link is being spawned into a scene the group is already playing in (-1: none, or the scene's load).
+int sMidPlaySpawn = -1;
 
 // Debug RNG trace (desync hunting): who drew random numbers this tick, in order (run-length compressed).
 struct RandTraceEntry {
@@ -59,7 +63,17 @@ MtxF sSimBillboard;
 // Both are affine in the world position, so the map between them is affine too (no perspective divide involved).
 bool sSfxRemapValid = false;
 float sSfxRemap[3][4];
-void ComputeSfxRemap(const MtxF& sim, const MtxF& loc);
+bool ComputeSfxRemap(const MtxF& sim, const MtxF& loc, float out[3][4]);
+// Phase 5b: the view-projection of each player's own picture (simulation: the same on every machine), the map from
+// each of them to the local picture (sound), and which of them each actor's position was projected with.
+MtxF sSlotVP[ZMP_MAX_PLAYERS];
+bool sSlotVPValid[ZMP_MAX_PLAYERS];
+float sSfxRemapOf[ZMP_MAX_PLAYERS][3][4];
+bool sSfxRemapOk[ZMP_MAX_PLAYERS];
+std::unordered_map<const float*, int8_t> sProjSlot;
+int sLocalBgImage = -1; // picture of the pre-rendered room drawn on this screen (tests)
+Vec3f sPictureEye = {}; // where the camera of this screen's picture is (tests)
+Vec3f sPictureAt = {};  // and what it looks at
 
 ZmpPlayerSlot& Slot(int k) {
     return gZmpSim.slots[k];
@@ -410,6 +424,11 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     Camera_InitPlayerSettings(&play->mainCamera, player);
     Camera_RequestMode(&play->mainCamera, CAM_MODE_NORMAL);
     if (bgCamIndex != 0xFF && bgCamIndex >= 0) {
+        // (this camera started as a copy of the anchor's, which already has that index: without forgetting it the
+        // change is skipped and the camera keeps the settings Camera_InitPlayerSettings gave it, not the room's
+        // fixed camera. Phase 5b: each player's own fixed camera is what its screen shows in houses and shops.)
+        play->mainCamera.camDataIdx = -1;
+        play->mainCamera.unk_14A &= ~0x40;
         Camera_ChangeDataIdx(&play->mainCamera, bgCamIndex);
     }
     Attention_Init(&play->actorCtx.targetCtx, &player->actor, play);
@@ -571,6 +590,8 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.transitionSolo = 0;
     gZmpSim.inviteBy = -1;
     gZmpSim.inviteTicks = 0;
+    gZmpSim.titleFor = -1;
+    gZmpSim.adjOwner = -1;
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Slot(k).warpPending = 0;
         Slot(k).inviteHold = 0;
@@ -761,6 +782,14 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
                 gZmpCtxPlayer = Slot(t).player;
             }
             Camera_Update(&play->mainCamera);
+            if (k != anchor && play->view.unk_124 != 0) {
+                // Phase 5b: the first-person look, the crawlspace and the swimming cameras ask to be updated after
+                // the picture (the original does it at the end of the draw, for its one camera: the anchor's here).
+                // The cameras of the other players do it now; before, they never got that update and a player who
+                // was not the first of the scene could not look around in first person.
+                Camera_Update(&play->mainCamera);
+                play->view.unk_124 = 0;
+            }
             if (Present(t)) {
                 play->mainCamera.player = Slot(k).player;
                 gZmpCtxPlayer = Slot(k).player;
@@ -813,6 +842,41 @@ extern "C" s32 Zmp_AgeSwapAll(PlayState* play) {
     LoadFromBlock(Slot(gZmpSim.ctx).block);
     Zmp::Log("zmp: age change, every player's equipment swapped");
     return 1;
+}
+
+extern "C" void Zmp_OnLightAdjust(PlayState* play) {
+    if (!Zmp_MultiActive()) {
+        return;
+    }
+    // The effects of one player: the fairy that heals or revives it, the charge of its spin attack, the light of its
+    // ocarina song. Anything else (a cutscene, a boss, a shop) is the world's and everybody sees it.
+    const Actor* a = Zmp::Players::CurrentActor();
+    bool personal = a != nullptr && (a->id == ACTOR_EN_ELF || a->id == ACTOR_EN_M_THUNDER || a->id == ACTOR_OCEFF_SPOT);
+    gZmpSim.adjOwner = personal ? gZmpSim.ctx : (s8)-1;
+}
+
+extern "C" s32 Zmp_MessageUpdateDuringRevive(PlayState* play) {
+    if (!Zmp_MultiActive() || gZmpSim.groupDefeat) {
+        return 0;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && !(Slot(k).player->stateFlags1 & PLAYER_STATE1_DEAD)) {
+            SwitchTo(play, k);
+            Message_Update(play);
+        }
+    }
+    SwitchTo(play, gZmpSim.anchor);
+    return 1;
+}
+
+extern "C" void Zmp_OnTitleCard(void) {
+    if (gZmpSim.enabled) {
+        gZmpSim.titleFor = (s8)sMidPlaySpawn;
+    }
+}
+
+extern "C" s32 Zmp_TitleCardHidden(void) {
+    return Zmp_MultiActive() && Valid(gZmpSim.titleFor) && gZmpSim.titleFor != sLocalSlot;
 }
 
 extern "C" s32 Zmp_OcarinaBusy(void) {
@@ -1378,21 +1442,51 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         gZmpSim.undoValid = 1;
         gZmpSim.transitionBy = -1;
         gZmpSim.transitionSolo = 0;
-        if (gZmpSim.agePending != 0) {
-            // Phase 5b: the room changed age in another group. This scene reloads with the new age (a scene change
-            // of the whole group to the entrance it came in by), once no cutscene or menu is in the way.
-            int age = gZmpSim.agePending - 1;
-            if (age == gSaveContext.linkAge) {
-                gZmpSim.agePending = 0;
-            } else if (play->csCtx.state == CS_STATE_IDLE && !gZmpSim.globalCs && gSaveContext.cutsceneIndex < 0xFFF0 &&
-                       play->pauseCtx.state == 0 && play->gameOverCtx.state == GAMEOVER_INACTIVE) {
-                play->linkAgeOnLoad = age;
-                play->nextEntranceIndex = gSaveContext.entranceIndex;
-                play->transitionTrigger = TRANS_TRIGGER_START;
-                play->transitionType = TRANS_TYPE_FADE_WHITE;
-                gSaveContext.nextTransitionType = TRANS_TYPE_FADE_WHITE;
-                Zmp::Log("zmp: reloading the scene with the room's new age");
+        // Phase 5b: players put back where they stood before their scene was loaded again in place.
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            ZmpPlayerSlot& s = Slot(k);
+            if (!s.restoreValid || !Present(k)) {
+                continue;
             }
+            s.restoreValid = 0;
+            bool loaded = false;
+            for (int r : Zmp::Players::LoadedRooms(play)) {
+                loaded = loaded || r == s.restoreRoom;
+            }
+            if (loaded) {
+                Player* p = s.player;
+                p->actor.world.pos = p->actor.prevPos = p->actor.home.pos = s.restorePos;
+                p->actor.shape.rot.y = p->actor.world.rot.y = p->yaw = s.restoreYaw;
+                Zmp::Players::SetSlotRoom(k, s.restoreRoom);
+            }
+        }
+        bool idle = play->csCtx.state == CS_STATE_IDLE && !gZmpSim.globalCs && gSaveContext.cutsceneIndex < 0xFFF0 &&
+                    play->pauseCtx.state == 0 && play->gameOverCtx.state == GAMEOVER_INACTIVE;
+        int age = gZmpSim.agePending != 0 ? gZmpSim.agePending - 1 : (int)gSaveContext.linkAge;
+        if (gZmpSim.agePending != 0 && age == gSaveContext.linkAge) {
+            gZmpSim.agePending = 0;
+        }
+        if ((gZmpSim.agePending != 0 || gZmpSim.refreshPending != 0) && idle) {
+            // Phase 5b: the room changed age in another group, or progress made elsewhere changes this scene. The
+            // scene is loaded again (a scene change of the whole group, white fade) once no cutscene or menu is in
+            // the way, and everybody is put back where it stood.
+            for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                ZmpPlayerSlot& s = Slot(k);
+                if (Present(k)) {
+                    s.restoreValid = 1;
+                    s.restorePos = s.player->actor.world.pos;
+                    s.restoreYaw = s.player->actor.shape.rot.y;
+                    s.restoreRoom = s.room;
+                }
+            }
+            Zmp::Log(gZmpSim.agePending != 0 ? "zmp: reloading the scene with the room's new age"
+                                             : "zmp: reloading the scene in place (it changed through progress made elsewhere)");
+            gZmpSim.refreshPending = 0;
+            play->linkAgeOnLoad = age;
+            play->nextEntranceIndex = gSaveContext.entranceIndex;
+            play->transitionTrigger = TRANS_TRIGGER_START;
+            play->transitionType = TRANS_TYPE_FADE_WHITE;
+            gSaveContext.nextTransitionType = TRANS_TYPE_FADE_WHITE;
         }
         if (play->transitionTrigger == TRANS_TRIGGER_OFF) {
             SongWarpTick(play); // (may start the warp of one player, handled right below)
@@ -1453,6 +1547,11 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
 extern "C" void Zmp_DrawBeginView(PlayState* play) {
     sDrawBegun = false;
     sSfxRemapValid = false;
+    sProjSlot.clear();
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        sSlotVPValid[k] = false;
+        sSfxRemapOk[k] = false;
+    }
     if (!Zmp_MultiActive()) {
         return;
     }
@@ -1462,30 +1561,49 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     sSimView = sim;
     sDrawBegun = true;
     int L = sLocalSlot;
-    // Rooms with a pre-rendered background (houses, shops) only look right from their one fixed camera:
-    // everybody draws with the canonical view there.
-    bool prerendered = play->roomCtx.curRoom.meshHeader != nullptr && play->roomCtx.curRoom.meshHeader->base.type == 1;
     // A cutscene is seen by everybody through the same camera (PLAN.md 2.9: scripted cutscenes are GLOBAL).
     bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
-    // Otherwise each player sees its own active camera (phase 4): its main camera, or a sub camera of its own
-    // one-point cutscene (chest, item, crawlspace...), or the global cutscene camera everybody shares.
-    if (!prerendered && !cutscene && L != gZmpSim.anchor && Present(L)) {
+    // Phase 5b: what every player sees, for the simulation ("is it on anybody's screen?", Zmp_ActorViewProjection):
+    // the view of each player's own active camera, the same numbers on every machine.
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Present(k)) {
+            continue;
+        }
+        const View* own = (cutscene || k == gZmpSim.anchor) ? nullptr : Zmp::Players::LocalPicture(play, k);
+        if (own != nullptr) {
+            View v = *own;
+            MtxF unused;
+            ComputeViewMatrices(&v, Zmp_SimFogFar(play), &sSlotVP[k], &unused);
+        } else {
+            sSlotVP[k] = sSimVP;
+        }
+        sSlotVPValid[k] = true;
+    }
+    // Each player sees its own active camera (phase 4): its main camera, or a sub camera of its own one-point
+    // cutscene (chest, item, crawlspace...), or the global cutscene camera everybody shares. Phase 5b: also in the
+    // rooms with a pre-rendered background (houses, shops, the market), whose picture is the one of the local
+    // player's fixed camera (z_room.c, Zmp_RoomImageBegin).
+    if (!cutscene && L != gZmpSim.anchor && Present(L)) {
         const View* local = Zmp::Players::LocalPicture(play, L);
         if (local != nullptr) {
             play->view = *local;
-            // (sound follows the picture: heard from the camera this machine draws with)
-            View heard = *local;
-            MtxF localVP;
-            MtxF unused;
-            ComputeViewMatrices(&heard, Zmp_SimFogFar(play), &localVP, &unused);
-            ComputeSfxRemap(sSimVP, localVP);
         }
     }
+    sPictureEye = play->view.eye;
+    sPictureAt = play->view.lookAt;
+    // Sound follows the picture: heard from the camera this machine draws with, whichever view each sound's position
+    // was projected with.
+    const MtxF& heard = (Present(L) && sSlotVPValid[L]) ? sSlotVP[L] : sSimVP;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (sSlotVPValid[k]) {
+            sSfxRemapOk[k] = ComputeSfxRemap(sSlotVP[k], heard, sSfxRemapOf[k]);
+        }
+    }
+    sSfxRemapValid = ComputeSfxRemap(sSimVP, heard, sSfxRemap);
 }
 
 namespace {
-void ComputeSfxRemap(const MtxF& sim, const MtxF& loc) {
-    sSfxRemapValid = false;
+bool ComputeSfxRemap(const MtxF& sim, const MtxF& loc, float out[3][4]) {
     double a[3][3] = { { sim.xx, sim.xy, sim.xz }, { sim.yx, sim.yy, sim.yz }, { sim.zx, sim.zy, sim.zz } };
     double t[3] = { sim.xw, sim.yw, sim.zw };
     double b[3][3] = { { loc.xx, loc.xy, loc.xz }, { loc.yx, loc.yy, loc.yz }, { loc.zx, loc.zy, loc.zz } };
@@ -1493,7 +1611,7 @@ void ComputeSfxRemap(const MtxF& sim, const MtxF& loc) {
     double det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
                  a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
     if (!(det > 1e-12 || det < -1e-12)) {
-        return;
+        return false;
     }
     double inv[3][3];
     inv[0][0] = (a[1][1] * a[2][2] - a[1][2] * a[2][1]) / det;
@@ -1509,11 +1627,11 @@ void ComputeSfxRemap(const MtxF& sim, const MtxF& loc) {
         double m[3];
         for (int j = 0; j < 3; j++) {
             m[j] = b[i][0] * inv[0][j] + b[i][1] * inv[1][j] + b[i][2] * inv[2][j];
-            sSfxRemap[i][j] = (float)m[j];
+            out[i][j] = (float)m[j];
         }
-        sSfxRemap[i][3] = (float)(u[i] - (m[0] * t[0] + m[1] * t[1] + m[2] * t[2]));
+        out[i][3] = (float)(u[i] - (m[0] * t[0] + m[1] * t[1] + m[2] * t[2]));
     }
-    sSfxRemapValid = true;
+    return true;
 }
 } // namespace
 
@@ -1526,11 +1644,126 @@ extern "C" f32 Zmp_SfxCoord(const f32* posX, s32 axis) {
         return posX[axis];
     }
     const float* m = sSfxRemap[axis];
+    auto it = sProjSlot.find(posX);
+    if (it != sProjSlot.end() && sSfxRemapOk[it->second]) {
+        m = sSfxRemapOf[it->second][axis]; // (an actor's position: projected with the view of that player)
+    }
     return m[0] * posX[0] + m[1] * posX[1] + m[2] * posX[2] + m[3];
 }
 
 extern "C" MtxF* Zmp_SimViewProjection(PlayState* play) {
     return sDrawBegun ? &sSimVP : &play->viewProjectionMtxF;
+}
+
+// Phase 5b: "is this actor on screen?" counts the screen of any player. The actor's projected position (simulation
+// state: actors read it to decide things, and it is where their sounds come from) is taken from the view of the
+// player who has it best in sight: its own player for what belongs to one (its Link, its fairy, its arrows), else
+// the player whose culling volume holds it nearest to the centre of the picture, else the nearest player. Every
+// machine computes the same views, so every machine picks the same one.
+extern "C" MtxF* Zmp_ActorViewProjection(PlayState* play, Actor* actor) {
+    if (!sDrawBegun) {
+        return &play->viewProjectionMtxF;
+    }
+    int own = Zmp::Players::SlotOf(actor);
+    if (own < 0 && actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
+        own = Zmp::Players::SlotOf(actor->parent);
+    }
+    int best = -1;
+    if (own >= 0 && sSlotVPValid[own]) {
+        best = own;
+    } else {
+        f32 bestScore = 0.0f;
+        int nearest = -1;
+        f32 nearestD = 0.0f;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (!sSlotVPValid[k] || !Present(k)) {
+                continue;
+            }
+            const Vec3f& pp = Slot(k).player->actor.world.pos;
+            f32 dx = pp.x - actor->world.pos.x, dy = pp.y - actor->world.pos.y, dz = pp.z - actor->world.pos.z;
+            f32 d = dx * dx + dy * dy + dz * dz;
+            if (nearest < 0 || d < nearestD) {
+                nearest = k;
+                nearestD = d;
+            }
+            Vec3f proj;
+            f32 w;
+            SkinMatrix_Vec3fMtxFMultXYZW(&sSlotVP[k], &actor->world.pos, &proj, &w);
+            if (!Actor_CullingVolumeTest(play, actor, &proj, w)) {
+                continue;
+            }
+            f32 inv = (w < 1.0f) ? 1.0f : 1.0f / w;
+            f32 score = std::max(fabsf(proj.x), fabsf(proj.y)) * inv + (proj.z < 0.0f ? 10.0f : 0.0f);
+            if (best < 0 || score < bestScore) {
+                best = k;
+                bestScore = score;
+            }
+        }
+        if (best < 0) {
+            best = nearest;
+        }
+    }
+    if (best < 0) {
+        return &sSimVP;
+    }
+    sProjSlot[&actor->projectedPos.x] = (int8_t)best;
+    return &sSlotVP[best];
+}
+
+// An actor waits to be looked at (Gohma on the ceiling): true when it is inside that box of the picture of any player.
+extern "C" s32 Zmp_AnyViewBox(PlayState* play, Actor* actor, f32 maxX, f32 maxY, f32 minZ, f32 maxZ) {
+    if (!Zmp_MultiActive()) {
+        return fabsf(actor->projectedPos.x) < maxX && fabsf(actor->projectedPos.y) < maxY &&
+               actor->projectedPos.z < maxZ && actor->projectedPos.z > minZ;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!sSlotVPValid[k] || !Present(k)) {
+            continue;
+        }
+        Vec3f proj;
+        f32 w;
+        SkinMatrix_Vec3fMtxFMultXYZW(&sSlotVP[k], &actor->world.pos, &proj, &w);
+        if (fabsf(proj.x) < maxX && fabsf(proj.y) < maxY && proj.z < maxZ && proj.z > minZ) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+extern "C" BgImage* func_80096A74(PolygonType1* polygon1, PlayState* play);
+
+// Phase 5b, rooms with a pre-rendered background (z_room.c): the picture of a room with several fixed cameras is the
+// one of the camera of each player. Choosing it writes the camera into that player's Link (the original does it for
+// its one Link while drawing), so it is chosen for every player, on every machine; then the room is drawn for the
+// local player.
+extern "C" void Zmp_RoomImageBegin(PlayState* play, Room* room) {
+    if (!sDrawBegun) {
+        return;
+    }
+    PolygonType1* polygon1 = &room->meshHeader->polygon1;
+    int L = sLocalSlot;
+    sLocalBgImage = -1;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Present(k)) {
+            continue;
+        }
+        SwitchTo(play, k);
+        if (polygon1->format == 2) {
+            BgImage* img = func_80096A74(polygon1, play);
+            if (k == L && img != nullptr) {
+                sLocalBgImage = img->id;
+            }
+        }
+    }
+    bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
+    SwitchTo(play, (Present(L) && !cutscene) ? L : gZmpSim.anchor);
+}
+
+extern "C" void Zmp_RoomImageEnd(PlayState* play) {
+    if (!sDrawBegun) {
+        return;
+    }
+    SwitchTo(play, gZmpSim.anchor);
 }
 
 extern "C" s32 Zmp_DrawAllActors(void) {
@@ -1947,6 +2180,7 @@ void Spawn(int slot, const std::string& infoText) {
     s.reviveProgress = 0;
     s.reviver = -1;
     s.otherValid = 0;
+    s.restoreValid = 0;
     // A new player starts with the anchor's equipment, buttons and ammo, empty bottles, full health and magic.
     SaveToBlock(s.block);
     s.block.health = gSaveContext.healthCapacity;
@@ -2043,7 +2277,9 @@ void Spawn(int slot, const std::string& infoText) {
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
     MsgResetSlot(play, slot);
+    sMidPlaySpawn = slot;
     Player* p = SpawnPlayerActor(play, slot, pos, yaw, params, play->mainCamera.camDataIdx);
+    sMidPlaySpawn = -1;
     s.room = (s16)spawnRoom;
     Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED") + " at " + where +
         (info.valid ? " (block from its previous group)" : ""));
@@ -2263,6 +2499,64 @@ int Anchor() {
 int SlotMsgMode(int slot) {
     const MessageContext* m = SlotMsg(slot);
     return m != nullptr ? m->msgMode : MSGMODE_NONE;
+}
+
+int BottleMask() {
+    int mask = 0;
+    for (int i = 0; i < 4; i++) {
+        bool have = gSaveContext.inventory.items[SLOT_BOTTLE_1 + i] != ITEM_NONE;
+        for (int k = 0; gZmpSim.enabled && k < ZMP_MAX_PLAYERS && !have; k++) {
+            have = Slot(k).active && k != gZmpSim.ctx && Slot(k).block.bottles[i] != ITEM_NONE;
+        }
+        mask |= have ? (1 << i) : 0;
+    }
+    return mask;
+}
+
+void ClearBottle(int i) {
+    if (i < 0 || i > 3) {
+        return;
+    }
+    gSaveContext.inventory.items[SLOT_BOTTLE_1 + i] = ITEM_NONE;
+    for (int k = 0; gZmpSim.enabled && k < ZMP_MAX_PLAYERS; k++) {
+        Slot(k).block.bottles[i] = ITEM_NONE;
+    }
+}
+
+bool ProjectForSlot(int slot, const Vec3f& world, Vec3f* proj, f32* w) {
+    if (!Valid(slot) || !sSlotVPValid[slot]) {
+        return false;
+    }
+    Vec3f src = world;
+    SkinMatrix_Vec3fMtxFMultXYZW(&sSlotVP[slot], &src, proj, w);
+    return true;
+}
+
+void ShareBottle(int i) {
+    if (i < 0 || i > 3) {
+        return;
+    }
+    if (gSaveContext.inventory.items[SLOT_BOTTLE_1 + i] == ITEM_NONE) {
+        gSaveContext.inventory.items[SLOT_BOTTLE_1 + i] = ITEM_BOTTLE;
+    }
+    for (int k = 0; gZmpSim.enabled && k < ZMP_MAX_PLAYERS; k++) {
+        if (Slot(k).active && Slot(k).block.bottles[i] == ITEM_NONE) {
+            Slot(k).block.bottles[i] = ITEM_BOTTLE;
+        }
+    }
+    Zmp::Log("zmp: bottle " + std::to_string(i + 1) + " found in another scene: everybody has it (empty)");
+}
+
+Vec3f PictureEye() {
+    return sPictureEye;
+}
+
+Vec3f PictureAt() {
+    return sPictureAt;
+}
+
+int LocalBgImage() {
+    return sLocalBgImage;
 }
 
 int PresentCount() {

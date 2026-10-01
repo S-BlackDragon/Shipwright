@@ -242,6 +242,10 @@ void VisitZmp(Visitor& v) {
     v.S("msg_owner", gZmpSim.msgOwner);
     v.S("msg_loaded", gZmpSim.msgLoaded);
     v.U("age_pending", gZmpSim.agePending);
+    v.S("title_for", gZmpSim.titleFor);
+    v.S("adj_owner", gZmpSim.adjOwner);
+    v.U("refresh_pending", gZmpSim.refreshPending);
+    v.S("rupee_debt", gZmpSim.rupeeDebt);
     v.S("pause_owner", gZmpSim.pauseOwner);
     v.S("transition_by", gZmpSim.transitionBy);
     v.U("clock_hold", gZmpSim.clockHold);

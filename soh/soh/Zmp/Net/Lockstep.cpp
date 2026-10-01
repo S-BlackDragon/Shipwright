@@ -944,6 +944,11 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         gZmpSim.exitsLocked = (u8)(atoi(cmd.c_str() + 15) != 0);
         return true;
     }
+    if (cmd.rfind("zmp_bottle_clear ", 0) == 0) {
+        // Tests (phase 5b): the group has no bottle in that slot (the debug game starts with the four of them).
+        Players::ClearBottle(atoi(cmd.c_str() + 17));
+        return true;
+    }
     if (cmd == "zmp_age") {
         // Tests (phase 5b): what pulling or returning the Master Sword does to its group: the scene loads again with
         // the other age (a scene change of the world, like the cutscene's).
@@ -1670,6 +1675,7 @@ Status GetStatus() {
     s.sharedApplied = sSharedApplied;
     s.lastShared = sLastShared;
     s.groupJoins = sGroupJoins;
+    s.nameTags = (int)sTagged.size();
     s.lastJoinMs = sLastJoinMs;
     s.lastSpawnMs = sLastSpawnMs;
     s.catchingUp = sPhase == Phase::Running && Zmp_MultiActive() && !Players::IsPresent(sSlot) && !sResyncHold;

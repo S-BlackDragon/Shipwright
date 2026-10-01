@@ -270,8 +270,13 @@ extern "C" void Zmp_DrawPresentEnd(PlayState* play) {
     }
 }
 
+namespace {
+int sHudHealth = -1;
+} // namespace
+
 extern "C" void Zmp_HudBegin(PlayState* play) {
     sHudSwapped = false;
+    sHudHealth = gSaveContext.health; // (the health the heart meter of this screen is drawn with: tests)
     if (!Ready(play) || !sL.init || SharedHud(play)) {
         return;
     }
@@ -299,6 +304,10 @@ extern "C" s32 Zmp_DoActionIsLocal(void) {
 }
 
 namespace Zmp::Players {
+
+int HudHealth() {
+    return sHudHealth;
+}
 
 void PresentReset() {
     sL = LocalScreen{};

@@ -296,6 +296,16 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
             hdl->AddText(ImGui::GetFont(), fs, hp,
                          heat <= 10 ? IM_COL32(255, 80, 60, 255) : IM_COL32(255, 200, 90, 255), buf);
         }
+        // Phase 5b: two groups spent the same rupees at once: the room owes the difference.
+        {
+            static int sSeenDebt = 0;
+            if (gZmpSim.rupeeDebt > sSeenDebt) {
+                Chat::Post(Category::System, "La cartera comun se quedo sin rupias: la sala debe " +
+                                                 std::to_string(gZmpSim.rupeeDebt) +
+                                                 " (se descuentan de las proximas que consigais)");
+            }
+            sSeenDebt = gZmpSim.rupeeDebt;
+        }
         // Phase 4: what the other players got (their text box is not shown here).
         for (auto& n : Players::RecentNotices(5.0)) {
             if (n.slot == ls.slot) {

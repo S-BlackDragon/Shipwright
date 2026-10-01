@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "z_boss_goma.h"
 #include "textures/boss_title_cards/object_goma.h"
 #include "objects/object_goma/object_goma.h"
@@ -781,8 +782,8 @@ void BossGoma_Encounter(BossGoma* this, PlayState* play) {
             break;
 
         case 3: // wait for the player to look at Gohma
-            if (fabsf(this->actor.projectedPos.x) < 150.0f && fabsf(this->actor.projectedPos.y) < 250.0f &&
-                this->actor.projectedPos.z < 800.0f && this->actor.projectedPos.z > 0.0f) {
+            // ZMP: looked at by any player (the original reads the one camera)
+            if (Zmp_AnyViewBox(play, &this->actor, 150.0f, 250.0f, 0.0f, 800.0f)) {
                 this->lookedAtFrames++;
                 Math_ApproachZeroF(&this->actor.speedXZ, 0.5f, 2.0f);
                 Math_ApproachS(&this->actor.world.rot.y,

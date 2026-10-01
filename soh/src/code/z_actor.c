@@ -847,6 +847,7 @@ void TitleCard_Init(PlayState* play, TitleCardContext* titleCtx) {
 void TitleCard_InitBossName(PlayState* play, TitleCardContext* titleCtx, void* texture, s16 x, s16 y, u8 width,
                             u8 height, s16 hasTranslation) {
     static char newName[512];
+    Zmp_OnTitleCard(); // ZMP: a card started by a player who arrives is drawn only on its screen
 
     if (gSaveContext.language != LANGUAGE_ENG) {
         size_t length = strlen(texture);
@@ -881,6 +882,7 @@ void TitleCard_InitBossName(PlayState* play, TitleCardContext* titleCtx, void* t
 void TitleCard_InitPlaceName(PlayState* play, TitleCardContext* titleCtx, void* texture, s32 x, s32 y, s32 width,
                              s32 height, s32 delay) {
     SceneTableEntry* loadedScene = play->loadedScene;
+    Zmp_OnTitleCard(); // ZMP: a card started by a player who arrives is drawn only on its screen
     //  size_t size = loadedScene->titleFile.vromEnd - loadedScene->titleFile.vromStart;
     switch (play->sceneNum) {
         case SCENE_DEKU_TREE:
@@ -1134,7 +1136,7 @@ void TitleCard_Draw(PlayState* play, TitleCardContext* titleCtx) {
     s32 doubleWidth;
     s32 titleY;
 
-    if (titleCtx->alpha != 0) {
+    if (titleCtx->alpha != 0 && !Zmp_TitleCardHidden()) { // ZMP: only on the screen of the player who arrived
         width = titleCtx->width;
         height = titleCtx->height;
         s16 TitleCard_PosX_Modifier = titleCtx->isBossCard ? CVarGetInteger(CVAR_COSMETIC("HUD.TitleCard.Boss.PosX"), 0)
@@ -3091,9 +3093,10 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
             HREG(66) = i;
 
             if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(68) == 0)) {
-                // ZMP: projected with the canonical camera of the simulation (not the local one)
-                SkinMatrix_Vec3fMtxFMultXYZW(Zmp_SimViewProjection(play), &actor->world.pos, &actor->projectedPos,
-                                             &actor->projectedW);
+                // ZMP: projected with a camera of the simulation, never the local one: the view of the player who has
+                // this actor best in sight ("on screen" counts anybody's screen)
+                SkinMatrix_Vec3fMtxFMultXYZW(Zmp_ActorViewProjection(play, actor), &actor->world.pos,
+                                             &actor->projectedPos, &actor->projectedW);
             }
 
             if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(69) == 0)) {

@@ -1837,7 +1837,8 @@ void KaleidoScope_DrawPages(PlayState* play, GraphicsContext* gfxCtx) {
             POLY_OPA_DISP =
                 KaleidoScope_QuadTextureIA8(POLY_OPA_DISP, sPromptChoiceTexs[gSaveContext.language][1], 48, 16, 16);
         } else if (((pauseCtx->state == 7 && pauseCtx->unk_1EC >= 4) || pauseCtx->state == 0xF) &&
-                   !CVarGetInteger(CVAR_ENHANCEMENT("SkipSaveConfirmation"), 0)) {
+                   !CVarGetInteger(CVAR_ENHANCEMENT("SkipSaveConfirmation"), 0) &&
+                   Zmp_AllowSaveWrite()) { // ZMP: "Game saved." only on the PC that saved (the others get a notice)
             POLY_OPA_DISP =
                 KaleidoScope_QuadTextureIA8(POLY_OPA_DISP, sSaveConfirmationTexs[gSaveContext.language], 152, 16, 0);
         } else if ((pauseCtx->state != 7) || (pauseCtx->unk_1EC < 4)) {
@@ -4418,6 +4419,21 @@ void KaleidoScope_Update(PlayState* play) {
                     case 1:
                         if (CHECK_BTN_ALL(input->press.button, BTN_A)) {
                             if (pauseCtx->promptChoice != 0) {
+                                Interface_SetDoAction(play, DO_ACTION_NONE);
+                                gSaveContext.buttonStatus[0] = gSaveContext.buttonStatus[1] =
+                                    gSaveContext.buttonStatus[2] = gSaveContext.buttonStatus[3] = BTN_ENABLED;
+                                gSaveContext.buttonStatus[5] = gSaveContext.buttonStatus[6] =
+                                    gSaveContext.buttonStatus[7] = gSaveContext.buttonStatus[8] = BTN_ENABLED;
+                                gSaveContext.hudVisibilityMode = 0;
+                                Interface_ChangeHudVisibilityMode(50);
+                                pauseCtx->unk_1EC = 2;
+                                WREG(2) = -6240;
+                                YREG(8) = pauseCtx->unk_204;
+                                func_800F64E0(0);
+                            } else if (!Zmp_AllowSaveWrite()) {
+                                // ZMP: only the PC of the room's host writes the game. Here nothing was saved: no
+                                // "Game saved." screen, the menu closes its question and a notice says why.
+                                Zmp_NoteSaveSkipped();
                                 Interface_SetDoAction(play, DO_ACTION_NONE);
                                 gSaveContext.buttonStatus[0] = gSaveContext.buttonStatus[1] =
                                     gSaveContext.buttonStatus[2] = gSaveContext.buttonStatus[3] = BTN_ENABLED;
