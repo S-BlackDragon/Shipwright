@@ -319,6 +319,7 @@ void VisitZmp(Visitor& v) {
         v.S("heat_ticks", s.heatTicks);
         v.S("heat_preview", s.heatPreview);
         v.S("invite_hold", s.inviteHold);
+        v.S("room2", s.room2);
         v.U("warp_pending", s.warpPending);
     }
 }

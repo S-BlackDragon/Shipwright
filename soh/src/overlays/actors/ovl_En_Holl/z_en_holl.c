@@ -1,3 +1,4 @@
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "z_en_holl.h"
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
@@ -194,6 +195,27 @@ void EnHoll_HorizontalVisibleNarrow(EnHoll* this, PlayState* play) {
         orthogonalDistToPlayer < sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][0]) {
 
         transitionActorIndex = GET_TRANSITION_ACTOR_INDEX(&this->actor);
+        if (Zmp_MultiActive()) {
+            // ZMP: the original juggles the engine's two rooms (current and previous). With several players any
+            // number of rooms is loaded: near the passage the room on its other side is loaded too (it is seen
+            // through it); once the player walks away from it, its room is the one of its side, and rooms nobody
+            // is in or looking into are unloaded (phase 5b: before, a third room was never loaded this way).
+            TransitionActorEntry* entry = &play->transiActorCtx.list[transitionActorIndex];
+
+            if (orthogonalDistToPlayer > sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][1]) {
+                this->actor.room = entry->sides[this->side].room;
+                Zmp_HollSettle(play, this->actor.room);
+            } else {
+                this->actor.room = entry->sides[this->side ^ 1].room;
+                Zmp_HollNear(play, entry->sides[this->side].room, this->actor.room);
+                this->planeAlpha =
+                    (255.0f / (sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][2] -
+                               sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][3])) *
+                    (orthogonalDistToPlayer - sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][3]);
+                this->planeAlpha = CLAMP(this->planeAlpha, 0, 255);
+            }
+            return;
+        }
         if (orthogonalDistToPlayer > sHorizontalVisibleNarrowTriggerDists[triggerDistsIndex][1]) {
             if (play->roomCtx.prevRoom.num >= 0 && play->roomCtx.status == 0) {
                 this->actor.room = play->transiActorCtx.list[transitionActorIndex].sides[this->side].room;
@@ -403,6 +425,24 @@ void EnHoll_WaitRoomLoaded(EnHoll* this, PlayState* play) {
 void EnHoll_Update(Actor* thisx, PlayState* play) {
     EnHoll* this = (EnHoll*)thisx;
 
+    if (Zmp_MultiActive()) {
+        // ZMP: a passage serves every player, each in its own context (the original has one player; an actor
+        // otherwise runs for the nearest one only, and a second player at the same passage was not seen)
+        s32 back = gZmpSim.ctx;
+        s32 k = -1;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* player;
+
+            Zmp_SetContext(play, k);
+            player = GET_PLAYER(play);
+            this->actor.xzDistToPlayer = Actor_WorldDistXZToActor(&this->actor, &player->actor);
+            this->actor.yDistToPlayer = Actor_HeightDiff(&this->actor, &player->actor);
+            this->actionFunc(this, play);
+        }
+        Zmp_SetContext(play, back);
+        return;
+    }
     this->actionFunc(this, play);
 }
 

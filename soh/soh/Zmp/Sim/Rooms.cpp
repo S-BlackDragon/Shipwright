@@ -67,12 +67,14 @@ bool Occupied(int room) {
         return false;
     }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
-        if (Zmp::Players::IsPresent(k) && gZmpSim.slots[k].room == room) {
+        if (Zmp::Players::IsPresent(k) && (gZmpSim.slots[k].room == room || gZmpSim.slots[k].room2 == room)) {
             return true;
         }
     }
     return false;
 }
+
+bool sPreload = false; // the room being requested is the far side of a passage: the player stays in its own
 
 void SwapRooms(Room* a, Room* b) {
     if (a == b) {
@@ -139,6 +141,28 @@ extern "C" s32 Zmp_RoomRequest(PlayState* play, RoomContext* rc, s32 roomNum) {
         return -1;
     }
     int k = Ctx();
+    if (sPreload) {
+        if (Loaded(play, roomNum)) {
+            return 1;
+        }
+        if (rc->status != 0) {
+            bool queued = false;
+            for (int i = 0; i < gZmpSim.queuedRoomCount; i++) {
+                queued = queued || gZmpSim.queuedRooms[i] == roomNum;
+            }
+            if (!queued && gZmpSim.queuedRoomCount < ZMP_MAX_QUEUED_ROOMS) {
+                gZmpSim.queuedRooms[gZmpSim.queuedRoomCount++] = (s8)roomNum;
+            }
+            return 1;
+        }
+        if (rc->prevRoom.num >= 0 && rc->prevRoom.num != rc->curRoom.num && Occupied(rc->prevRoom.num)) {
+            PushExtra(rc->prevRoom);
+        }
+        gZmpSim.loadingRoom = (s8)roomNum;
+        Zmp::Log("zmp: rooms: room " + std::to_string(roomNum) + " loads for slot " + std::to_string(k) +
+                 ", who stands at the passage to it (loaded " + RoomList(play) + ")");
+        return -1;
+    }
     if (Loaded(play, roomNum)) {
         // Already loaded (another player is there, or it is loading): this player is in it now.
         Zmp::Players::SetSlotRoom(k, roomNum);
@@ -167,6 +191,77 @@ extern "C" s32 Zmp_RoomRequest(PlayState* play, RoomContext* rc, s32 roomNum) {
     gZmpSim.loadingRoom = (s8)roomNum;
     Zmp::Log("zmp: rooms: slot " + std::to_string(k) + " -> room " + std::to_string(roomNum) + " (load; loaded " +
              RoomList(play) + ")");
+    return -1;
+}
+
+extern "C" void Zmp_HollNear(PlayState* play, s32 room, s32 otherRoom) {
+    int k = Ctx();
+    if (k < 0 || k >= ZMP_MAX_PLAYERS) {
+        return;
+    }
+    ZmpPlayerSlot& s = gZmpSim.slots[k];
+    bool other = s.room2 >= 0 && s.room2 != otherRoom; // (it was at another passage a moment ago)
+    s.room2 = (s16)otherRoom;
+    s.room2Fresh = 3;
+    if (!Loaded(play, otherRoom)) {
+        sPreload = true;
+        Room_RequestNewRoom(play, &play->roomCtx, otherRoom);
+        sPreload = false;
+    }
+    if (s.room != room && Loaded(play, room) && play->roomCtx.status == 0) {
+        Zmp::Players::SetSlotRoom(k, room);
+        Zmp::Players::ArrangeRooms(play, k);
+        other = true;
+    }
+    if (other && play->roomCtx.status == 0) {
+        Room_FinishRoomChange(play, &play->roomCtx);
+    }
+}
+
+// Every tick: a player who is no longer at a passage (it walked off sideways, was moved, fell) stops keeping the room
+// on its other side loaded.
+extern "C" void Zmp_HollTick(PlayState* play) {
+    bool dropped = false;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        ZmpPlayerSlot& s = gZmpSim.slots[k];
+        if (s.room2 >= 0 && (!Zmp::Players::IsPresent(k) || --s.room2Fresh <= 0)) {
+            s.room2 = -1;
+            dropped = true;
+        }
+    }
+    if (dropped && play->roomCtx.status == 0) {
+        Room_FinishRoomChange(play, &play->roomCtx);
+    }
+}
+
+extern "C" void Zmp_HollSettle(PlayState* play, s32 room) {
+    int k = Ctx();
+    if (k < 0 || k >= ZMP_MAX_PLAYERS) {
+        return;
+    }
+    ZmpPlayerSlot& s = gZmpSim.slots[k];
+    bool changed = s.room2 >= 0 || s.room != room;
+    s.room2 = -1;
+    if (s.room != room) {
+        if (Loaded(play, room)) {
+            Zmp::Players::SetSlotRoom(k, room);
+            Zmp::Players::ArrangeRooms(play, k);
+        } else {
+            Room_RequestNewRoom(play, &play->roomCtx, room);
+            return;
+        }
+    }
+    if (changed && play->roomCtx.status == 0) {
+        Room_FinishRoomChange(play, &play->roomCtx); // (rooms nobody is in or looking into are unloaded)
+    }
+}
+
+extern "C" s32 Zmp_NextPresentSlot(s32 after) {
+    for (int k = after + 1; k < ZMP_MAX_PLAYERS; k++) {
+        if (Zmp::Players::IsPresent(k)) {
+            return k;
+        }
+    }
     return -1;
 }
 
@@ -552,12 +647,32 @@ void ArrangeRooms(PlayState* play, int slot) {
     }
     int r = gZmpSim.slots[slot].room;
     RoomContext* rc = &play->roomCtx;
-    if (r < 0 || rc->curRoom.num == r) {
-        return;
+    if (r >= 0 && rc->curRoom.num != r) {
+        Room* p = FindLoaded(rc, r);
+        if (p != nullptr) {
+            SwapRooms(p, &rc->curRoom);
+        }
     }
-    Room* p = FindLoaded(rc, r);
-    if (p != nullptr) {
-        SwapRooms(p, &rc->curRoom);
+    // Phase 5b: the other loaded rooms in a fixed order (by number), whatever order the contexts were visited in:
+    // each machine also arranges the rooms for its own player while it draws, and with three or more rooms the
+    // previous room and the kept ones ended up exchanged between machines (same rooms, different hash).
+    if (gZmpSim.extraRoomCount > 0) {
+        std::vector<Room> others;
+        bool prev = rc->prevRoom.num >= 0;
+        if (prev) {
+            others.push_back(rc->prevRoom);
+        }
+        for (int i = 0; i < gZmpSim.extraRoomCount; i++) {
+            others.push_back(gZmpSim.extraRooms[i]);
+        }
+        std::stable_sort(others.begin(), others.end(), [](const Room& x, const Room& y) { return x.num < y.num; });
+        size_t n = 0;
+        if (prev) {
+            rc->prevRoom = others[n++];
+        }
+        for (int i = 0; i < gZmpSim.extraRoomCount; i++) {
+            gZmpSim.extraRooms[i] = others[n++];
+        }
     }
 }
 

@@ -88,6 +88,10 @@ typedef struct {
     ItemEquips otherEquips;
     s16 restoreRoom;
     s16 restoreYaw;
+    // Phase 5b: the room on the other side of the open passage this player stands at (kept loaded: it is seen
+    // through the passage); -1 none.
+    s16 room2;
+    s16 room2Fresh; // ticks left before room2 is dropped if the passage does not ask for it again
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -337,6 +341,13 @@ void Zmp_OnItemGet(Player* player, s32 itemId);
 // Rooms (phase 4, Rooms.cpp).
 // OTRRoom_RequestNewRoom: returns -1 to let the original load the room, otherwise its return value.
 s32 Zmp_RoomRequest(PlayState* play, RoomContext* roomCtx, s32 roomNum);
+// Phase 5b, open passages between rooms (z_en_holl.c): the player in context stands near one (its room is `room`,
+// the one on the other side is loaded too), or walked away from it into `room`.
+void Zmp_HollNear(PlayState* play, s32 room, s32 otherRoom);
+void Zmp_HollSettle(PlayState* play, s32 room);
+void Zmp_HollTick(PlayState* play);
+// Present players in slot order: the next one after `after` (-1 to start), or -1.
+s32 Zmp_NextPresentSlot(s32 after);
 void Zmp_RoomLoadBegin(PlayState* play, RoomContext* roomCtx);
 void Zmp_RoomLoadEnd(PlayState* play, RoomContext* roomCtx);
 // Room_FinishRoomChange: 1 when handled (multiplayer: unloads only the rooms nobody stands in).

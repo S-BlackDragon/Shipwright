@@ -423,6 +423,7 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     s.camera.parentCamIdx = SUBCAM_FREE;
     s.activeCam = CAM_ID_MAIN;
     s.room = play->roomCtx.curRoom.num;
+    s.room2 = -1;
     s.player = nullptr;
     s.present = 1;
     s.hasView = 0;
@@ -580,6 +581,7 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
         Slot(k).hasView = 0;
         Slot(k).activeCam = CAM_ID_MAIN;
         Slot(k).room = -1;
+        Slot(k).room2 = -1;
         Slot(k).heatState = 0;
     }
     for (int i = 0; i < NUM_CAMS; i++) {
@@ -1493,6 +1495,7 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         gZmpSim.undoValid = 1;
         gZmpSim.transitionBy = -1;
         gZmpSim.transitionSolo = 0;
+        Zmp_HollTick(play);
         // Phase 5b: players put back where they stood before their scene was loaded again in place.
         for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
             ZmpPlayerSlot& s = Slot(k);
@@ -2037,6 +2040,7 @@ bool Found(int slot) {
         Slot(k).reviver = -1;
         Slot(k).activeCam = CAM_ID_MAIN;
         Slot(k).room = -1;
+        Slot(k).room2 = -1;
     }
     s.activeCam = play->activeCamera;
     s.room = play->roomCtx.curRoom.num;
@@ -2230,6 +2234,7 @@ void Spawn(int slot, const std::string& infoText) {
     s.reviver = -1;
     s.otherValid = 0;
     s.restoreValid = 0;
+    s.room2 = -1;
     // A new player starts with the anchor's equipment, buttons and ammo, empty bottles, full health and magic.
     SaveToBlock(s.block);
     s.block.health = gSaveContext.healthCapacity;
