@@ -116,10 +116,9 @@ u8 D_8015FCE4;       // only written to, never read
 // ZMP: the text box and camera commands of the running cutscene already started and where each got to (simulation state
 // kept outside the heap): a player who joins a group during a cutscene must get the group's values with its state
 // (phase 5).
-#define DEMO_SHIP_SAVESTATE_FIELDS(F)                                                                    \
-    F(D_8011E1C0)                                                                                        \
-    F(D_8011E1C4) F(sTitleCsState) F(D_8015FCC0) F(D_8015FCC2) F(D_8015FCC4) F(D_8015FCC6) F(D_8015FCC8) \
-        F(sQuakeIndex)
+#define DEMO_SHIP_SAVESTATE_FIELDS(F) \
+    F(D_8011E1C0)                     \
+    F(D_8011E1C4) F(sTitleCsState) F(D_8015FCC0) F(D_8015FCC2) F(D_8015FCC4) F(D_8015FCC6) F(D_8015FCC8) F(sQuakeIndex)
 SHIP_SAVESTATE_DEFINE(Demo, DEMO_SHIP_SAVESTATE_FIELDS)
 
 void func_80068ECC(PlayState* play, CutsceneContext* csCtx);

@@ -158,6 +158,12 @@ uint32_t sSharedApplied = 0;
 std::string sLastShared;
 uint32_t sGroupJoins = 0;
 int sLastJoinMs = -1;
+// Phase 5b: from leaving the scene (or asking to enter) until this player's Link is in the group.
+std::chrono::steady_clock::time_point sInputAt; // when the next input is due (one per 50 ms)
+uint32_t sNextServerTick = 0;                   // the tick after the newest one received from the server (0: none yet)
+int sLastSpawnMs = -1;
+std::chrono::steady_clock::time_point sJoinStart;
+bool sJoinStartValid = false;
 
 bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
@@ -284,6 +290,12 @@ bool DetachArrived() {
         return false;
     }
     return sDetachArrived || Players::PlayInitCount() != sDetachInits;
+}
+
+// Phase 5b: the scene this client walked into exists (its Play was created); its fade-in may still be running. From
+// here on the state of the scene's group can replace the local one (not before: D-064).
+bool DetachLoaded() {
+    return InRealGame() && (sDetachArrived || Players::PlayInitCount() != sDetachInits);
 }
 
 void SendJoin() {
@@ -568,6 +580,8 @@ void HandleControl(json& msg) {
         sGroupId = msg.value("group_id", 0u);
         sJoinTick = msg.value("spawn_tick", 0u);
         sJoinIsRejoin = msg.value("rejoin", false);
+        sJoinStart = sPhase == Phase::Detached ? sDetachAt : Clock::now();
+        sJoinStartValid = true;
         if (sPhase == Phase::Running) {
             // Rejoin after a reconnection: the local simulation is replaced by the leader's.
             ResetGame("rejoin");
@@ -667,17 +681,51 @@ void HandleControl(json& msg) {
     }
 }
 
-// Sends the local pad for every tick up to the current one + D. Runs every frame (also while the tick gate
-// is closed, otherwise nobody could ever send the input the gate is waiting for). The pad is the last one
-// read in a tick.
+// Sends the local pad, one input per tick of real time (20 Hz), for the ticks the group has still to play. Runs every
+// frame (also while the tick gate is closed). The pad is the last one read in a tick.
+//
+// Phase 5b ("nobody waits for anybody"): the input no longer follows the tick this client is simulating. A client
+// that is behind (it just loaded the group's state, or its PC hiccuped) catches up by itself (CatchUpSpeed) and
+// its input is on time meanwhile, so the group never has to wait for it. The pace is this client's clock, never the
+// ticks that arrive (a group cannot feed itself ticks faster than real time); the server emits each tick when the
+// last input for it arrives, so the group runs at the pace of its slowest clock, as before.
 void SendPendingInputs() {
     if (sPhase != Phase::Running) {
         return;
     }
-    uint32_t target = Sim::CurrentTick() + (uint32_t)std::max(1, sDelay);
-    while (sNextInputTick <= target) {
+    uint32_t d = (uint32_t)std::max(1, sDelay);
+    uint32_t next; // the tick after the newest one the server sent
+    size_t queued;
+    {
+        std::lock_guard<std::mutex> lock(sMutex);
+        next = sNextServerTick;
+        queued = sBundles.size();
+    }
+    if (Zmp_MultiActive() && !Players::IsPresent(sSlot) && queued > d + 3) {
+        // Entering a group that kept playing: this player's Link appears at the tick of its first input, so it sends
+        // none until it has (nearly) caught up.
+        return;
+    }
+    if (queued > d + 40) {
+        // More than two seconds behind (a PC that cannot keep up): its player would act on what it saw long ago.
+        // No input until it has caught up: its Link stands still and the group goes on.
+        return;
+    }
+    auto now = Clock::now();
+    if (sNextInputTick < next) {
+        // The group played ticks without this client's input (it is entering, or its input was late and the server
+        // went on): the ticks already played need none; the next one it can still be in time for is D ahead.
+        sNextInputTick = next + d - 1;
+        sInputAt = now;
+    }
+    if (now - sInputAt > std::chrono::seconds(1)) {
+        sInputAt = now;
+    }
+    uint32_t cap = next + d + 3; // (while the server waits for somebody else, a few inputs ahead are enough)
+    while (sNextInputTick <= cap && now >= sInputAt) {
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
         sNextInputTick++;
+        sInputAt += std::chrono::milliseconds(50);
     }
 }
 
@@ -738,13 +786,13 @@ void LoadPendingBlob() {
         sLoadFrames = 0;
         return;
     }
-    if (joining && sFreeRun && !DetachArrived()) {
+    if (joining && sFreeRun && !DetachLoaded()) {
         // Phase 5: on its way from another scene, the group's state is loaded once the local scene change finished
         // (loading it in the middle of leaving a pre-rendered room, a house, crashed the renderer).
         sLoadFrames = 0;
         return;
     }
-    if (joining && ++sLoadFrames < 5) {
+    if (joining && ++sLoadFrames < (sFreeRun ? 2 : 5)) {
         return;
     }
     std::string err;
@@ -1055,6 +1103,7 @@ void OnNetMessage(json&& msg) {
         }
         sServerDelay = b.delay;
         sGroupTick = std::max(sGroupTick, b.tick);
+        sNextServerTick = std::max(sNextServerTick, b.tick + 1);
         sBundles[b.tick] = std::move(b);
     } else if (t == "PLAYER_LIST") {
         sPlayers.clear();
@@ -1095,6 +1144,13 @@ void OnNetMessage(json&& msg) {
         }
         sWaitingFor = names;
     } else {
+        if (t == "GROUP_JOIN_PENDING" || t == "GROUP_FOUND") {
+            // Another group from here on: the ticks of the one this client was in must not be taken for this one's
+            // (phase 5b: the ticks of the new group arrive while its state is still on the way).
+            sBundles.clear();
+            sGroupTick = 0;
+            sNextServerTick = 0;
+        }
         sControl.push_back(std::move(msg));
     }
 }
@@ -1138,8 +1194,11 @@ void OnFrameBegin() {
     for (auto& msg : control) {
         HandleControl(msg);
     }
-    if (sConnected && !sJoinSent && !(sPhase == Phase::Detached && sDetachSolo && !DetachArrived())) {
+    if (sConnected && !sJoinSent && !(sPhase == Phase::Detached && sDetachSolo && !DetachArrived()) &&
+        !(sPhase == Phase::Detached && !sDetachSolo && !DetachLoaded())) {
         // (a player arriving with its own cutscene asks only once it is there: it founds a group of its own)
+        // (phase 5b: a player walking into another scene asks once that scene is loaded, still behind its fade: the
+        // group it enters gives its state of that moment and plays on, so the newcomer has little to catch up with)
         SendJoin();
     }
     if (sPhase == Phase::Running && sSoloGroup && InRealGame()) {
@@ -1243,6 +1302,9 @@ void OnPadRead(void* padsV) {
     if (sLocalInputBlocked) {
         local = Sim::PadRecord{}; // the pause menu is open: this player's Link stands still (PLAN.md 2.7)
     }
+    if (sPhase == Phase::Running && Zmp_MultiActive() && !Players::IsPresent(sSlot)) {
+        local = Sim::PadRecord{}; // entering a group (screen still covered): nothing pressed blind reaches its Link
+    }
     sLastLocal = local;
     if (sFreeRun && sPhase != Phase::Running) {
         // Detached: only this player's Link moves (the others it left behind stand still until the scene unloads).
@@ -1299,6 +1361,13 @@ void OnPadRead(void* padsV) {
     for (auto& e : b.events) {
         if (e.kind == "SPAWN") {
             Players::Spawn(e.slot, e.cmd);
+            if (e.slot == sSlot && sJoinStartValid) {
+                sJoinStartValid = false;
+                sLastSpawnMs =
+                    (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sJoinStart).count();
+                Log("net: this player's Link appears in the group at tick " + std::to_string(tick) + ", " +
+                    std::to_string(sLastSpawnMs) + " ms after asking to enter");
+            }
             if (sLeader && e.slot != sSlot) {
                 // A player of a resumed session: its block, health, place and room (D-054).
                 auto rit = sResumePlayers.find(SlotName(e.slot));
@@ -1422,8 +1491,12 @@ int CatchUpSpeed() {
     if (sPhase != Phase::Running) {
         return 0;
     }
+    // Phase 5b: whoever is behind catches up by itself (after loading the group's state while the group played on,
+    // after a hiccup of its own PC or connection); nobody waits for it.
     std::lock_guard<std::mutex> lock(sMutex);
-    return sBundles.size() > (size_t)(sDelay + 3) ? 2 : 0;
+    size_t behind = sBundles.size();
+    size_t d = (size_t)std::max(0, sDelay);
+    return behind > d + 12 ? 8 : behind > d + 6 ? 4 : behind > d + 1 ? 2 : 0;
 }
 
 void SaveGroupBlocks(int fileNum) {
@@ -1576,9 +1649,17 @@ Status GetStatus() {
     s.lastShared = sLastShared;
     s.groupJoins = sGroupJoins;
     s.lastJoinMs = sLastJoinMs;
+    s.lastSpawnMs = sLastSpawnMs;
+    s.catchingUp = sPhase == Phase::Running && Zmp_MultiActive() && !Players::IsPresent(sSlot) && !sResyncHold;
+    // The screen stays covered (the scene change's own black) from the moment this client asks the scene's group for
+    // its state until its Link is in that group; if nobody plays there, the game's fade-in just goes on.
+    s.covered =
+        s.catchingUp || (sFreeRun && sPhase == Phase::Joining && DetachLoaded()) ||
+        (sFreeRun && sPhase == Phase::Detached && sJoinSent && !sDetachWaiting && !sDetachSolo && DetachLoaded());
     if (sWaitingNow) {
         s.waitMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count();
-        s.waiting = s.waitMs >= 250;
+        // (phase 5b: a short wait is not worth a notice; it is for real connection drops)
+        s.waiting = s.waitMs >= 1000;
     }
     std::lock_guard<std::mutex> lock(sMutex);
     s.queued = sBundles.size();

@@ -202,9 +202,31 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
         default:
             break;
     }
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    {
+        // Phase 5b: entering the group of a scene. The group did not stop: this client loads its state behind the
+        // black of its own scene change and catches up; the picture fades in once its Link is in the scene.
+        static Clock::time_point sUncoveredAt;
+        static bool sWasCovered = false;
+        int alpha = 0;
+        if (ls.covered) {
+            sWasCovered = true;
+            alpha = 255;
+        } else if (sWasCovered) {
+            sWasCovered = false;
+            sUncoveredAt = Clock::now();
+        }
+        if (!ls.covered && sUncoveredAt.time_since_epoch().count() != 0) {
+            double ms = std::chrono::duration<double, std::milli>(Clock::now() - sUncoveredAt).count();
+            alpha = ms < 300.0 ? (int)(255.0 * (1.0 - ms / 300.0)) : 0;
+        }
+        if (alpha > 0) {
+            ImGui::GetForegroundDrawList(vp)->AddRectFilled(
+                vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(0, 0, 0, alpha));
+        }
+    }
     CenteredLine(y, line, color, 1.0f);
     float big = ImGui::GetFontSize() * 1.4f + 10.0f;
-    ImGuiViewport* vp = ImGui::GetMainViewport();
     float mid = vp->Pos.y + vp->Size.y * 0.30f;
     if (ls.phase == Lockstep::Phase::Running && ls.waiting) {
         std::string who = ls.waitingFor.empty() ? "otro jugador" : ls.waitingFor;

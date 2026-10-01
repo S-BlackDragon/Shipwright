@@ -62,6 +62,9 @@ struct Status {
     uint32_t sharedApplied = 0;
     std::string lastShared;  // description of the last patch received
     uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
+    int lastSpawnMs = -1;    // phase 5b: until this player's Link appeared in the group it entered
+    bool covered = false; // phase 5b: entering a scene's group, the screen stays black until this player's Link is in
+    bool catchingUp = false; // phase 5b: the group's state is loaded, this player's Link is not in it yet
     int lastJoinMs = -1;     // phase 5: time from leaving a scene to playing in the next group (ms)
     std::vector<SceneNotice> sceneNotices;
     std::string endNotice;    // "X ha terminado la partida" for 15 s after a group game over "no" (D-058)

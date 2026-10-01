@@ -68,6 +68,11 @@ namespace Zmp::Harness {
 namespace {
 float sFrameIntervalMs = 0.0f;
 float sFrameIntervalMaxMs = 0.0f;
+// Phase 5b ("nobody waits for anybody"): wall time between two consecutive logic ticks, since the last reset.
+std::vector<float> sTickGaps;
+uint32_t sGapLastTick = 0;
+std::chrono::steady_clock::time_point sGapLastAt;
+bool sGapValid = false;
 
 struct PadStep {
     uint32_t buttons = 0;
@@ -389,6 +394,8 @@ json LockstepJson() {
              { "error", ls.lastError },
              { "present", Zmp::Players::PresentCount() },
              { "anchor", gZmpSim.anchor },
+             { "last_spawn_ms", ls.lastSpawnMs },
+             { "catching_up", ls.catchingUp },
              { "invite_by", Zmp::Players::Invite().by },
              { "invite_scene", Zmp::Players::Invite().scene },
              { "invite_hold", Zmp::Players::Invite().hold },
@@ -651,6 +658,28 @@ void Dispatch(const RequestPtr& req) {
             resp["slot_rooms"] = slotRooms;
         }
         req->Reply(resp);
+    } else if (name == "query.gaps") {
+        // Time between consecutive logic ticks since the last reset: worst, 99th percentile, mean.
+        std::vector<float> g = sTickGaps;
+        std::sort(g.begin(), g.end());
+        double sum = 0;
+        for (float v : g) {
+            sum += v;
+        }
+        json r = { { "ok", true },
+                   { "tick", sFrame },
+                   { "count", g.size() },
+                   { "max_ms", g.empty() ? 0.0f : g.back() },
+                   { "p99_ms", g.empty() ? 0.0f : g[(size_t)((g.size() - 1) * 0.99)] },
+                   { "mean_ms", g.empty() ? 0.0 : sum / g.size() },
+                   { "over_100", (int)(g.end() - std::upper_bound(g.begin(), g.end(), 100.0f)) },
+                   { "frame_max_ms", sFrameIntervalMaxMs } };
+        if (cmd.value("reset", false)) {
+            sTickGaps.clear();
+            sGapValid = false;
+            sFrameIntervalMaxMs = 0.0f;
+        }
+        req->Reply(r);
     } else if (name == "query.sfx") {
         // Phase 5b: where this machine hears the sounds of a player (its own camera) next to the canonical position
         // of the simulation, and the sounds alive in the sound banks.
@@ -1090,6 +1119,20 @@ void OnFrameBegin(uint32_t tick) {
             sFrameIntervalMaxMs = std::max(sFrameIntervalMaxMs, ms);
         }
         last = now;
+        uint32_t simTick = Sim::CurrentTick();
+        if (!sGapValid || simTick < sGapLastTick) {
+            sGapValid = true;
+            sGapLastTick = simTick;
+            sGapLastAt = now;
+        } else if (simTick != sGapLastTick) {
+            // (a client catching up runs several ticks per frame: each gap is the frame's time shared out)
+            float ms = std::chrono::duration<float, std::milli>(now - sGapLastAt).count();
+            if (sTickGaps.size() < 400000) {
+                sTickGaps.push_back(ms);
+            }
+            sGapLastTick = simTick;
+            sGapLastAt = now;
+        }
     }
     sFrame = tick;
     for (auto& req : TakeRequests()) {

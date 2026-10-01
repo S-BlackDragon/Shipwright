@@ -4749,13 +4749,13 @@ SHIP_SAVESTATE_DEFINE(MessageZmp, MESSAGE_ZMP_SAVESTATE_FIELDS)
 
 // ZMP: one text box per player (phase 5b). The statics above that belong to one text box are saved and restored
 // together with the message context when the simulation changes of player (ZMP_MSG_STATICS_SIZE bytes are enough).
-#define MESSAGE_ZMP_SLOT_FIELDS(F)                                                                                    \
-    F(sDisplayNextMessageAsEnglish)                                                                                   \
-    F(sLastLanguage) F(sTextBoxNum) F(sTextFade) F(sMessageStartFrameCount) F(sOcarinaButtonIndexBufPos)              \
-        F(sOcarinaButtonIndexBufLen) F(sTextboxSkipped) F(sNextTextId) F(sTextIsCredits) F(D_8014B30C)                \
-            F(sLastPlayedSong) F(sHasSunsSong) F(sMessageHasSetSfx) F(sOcarinaSongBitFlags) F(sOcarinaButtonIndexBuf) \
-                F(sOcarinaNotesAlphaValues) F(sCharTexSize) F(sCharTexScale) F(sAnalogStickHeld) F(D_80153D74)        \
-                    F(D_80153D78)
+#define MESSAGE_ZMP_SLOT_FIELDS(F)                                                                                   \
+    F(sDisplayNextMessageAsEnglish)                                                                                  \
+    F(sLastLanguage)                                                                                                 \
+    F(sTextBoxNum) F(sTextFade) F(sMessageStartFrameCount) F(sOcarinaButtonIndexBufPos) F(sOcarinaButtonIndexBufLen) \
+        F(sTextboxSkipped) F(sNextTextId) F(sTextIsCredits) F(D_8014B30C) F(sLastPlayedSong) F(sHasSunsSong)         \
+            F(sMessageHasSetSfx) F(sOcarinaSongBitFlags) F(sOcarinaButtonIndexBuf) F(sOcarinaNotesAlphaValues)       \
+                F(sCharTexSize) F(sCharTexScale) F(sAnalogStickHeld) F(D_80153D74) F(D_80153D78)
 
 void Message_ZmpStatics(u8* buf, s32 load) {
     u8* p = buf;
