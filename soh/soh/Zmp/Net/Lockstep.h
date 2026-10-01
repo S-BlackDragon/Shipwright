@@ -85,6 +85,8 @@ void OnPadRead(void* pads);
 void OnTickEnd(uint32_t tick, uint64_t hash);
 // Presentation speed-up while this client is behind the group (queued bundles).
 int CatchUpSpeed();
+// Longest time the tick gate stayed closed (waiting for the server's next tick) since the last call.
+int GateWaitMs();
 // Leaves the group (LEAVE_GROUP): the local Link disappears for the others.
 void Leave();
 // Console command applied by every client at the same tick (lockstep EVENT).

@@ -76,6 +76,7 @@ uint32_t sGapLastTick = 0;
 std::chrono::steady_clock::time_point sGapLastAt;
 bool sGapValid = false;
 int sGapSettled = 0;
+float sGateWaitMaxMs = 0.0f; // longest time the tick gate stayed closed (waiting for the others), settled ticks only
 
 struct PadStep {
     uint32_t buttons = 0;
@@ -686,8 +687,10 @@ void Dispatch(const RequestPtr& req) {
                    { "p99_ms", g.empty() ? 0.0f : g[(size_t)((g.size() - 1) * 0.99)] },
                    { "mean_ms", g.empty() ? 0.0 : sum / g.size() },
                    { "over_100", (int)(g.end() - std::upper_bound(g.begin(), g.end(), 100.0f)) },
+                   { "wait_max_ms", sGateWaitMaxMs },
                    { "frame_max_ms", sFrameIntervalMaxMs } };
         if (cmd.value("reset", false)) {
+            sGateWaitMaxMs = 0.0f;
             sTickGaps.clear();
             sGapValid = false;
             sFrameIntervalMaxMs = 0.0f;
@@ -1150,6 +1153,12 @@ void OnFrameBegin(uint32_t tick) {
             sGapSettled = playing ? std::min(sGapSettled + 1, 1000) : 0;
             if (sGapSettled < 20) {
                 sGapValid = false;
+            }
+        }
+        {
+            float waited = (float)Zmp::Lockstep::GateWaitMs(); // (read every frame: waits of its own scene changes are dropped)
+            if (sGapSettled >= 20) {
+                sGateWaitMaxMs = std::max(sGateWaitMaxMs, waited);
             }
         }
         if (sGapSettled < 20) {

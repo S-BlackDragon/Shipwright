@@ -1,6 +1,9 @@
 #include "ZmpClient.h"
 
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <thread>
 #include <filesystem>
 
 #include <SDL2/SDL_net.h>
@@ -145,13 +148,55 @@ static bool SendAll(TCPsocket sock, const std::vector<uint8_t>& data) {
     return SDLNet_TCP_Send(sock, data.data(), (int)data.size()) == (int)data.size();
 }
 
+// Phase 5b: nothing the game thread sends may hold it (the state of a group for a player who enters is 50 KB; on a
+// real connection the socket takes its time). Messages are queued and one writer thread puts them on the socket in
+// order. The queue lives for the whole process (never destroyed: the writer thread may outlive the statics).
+namespace {
+struct Outbox {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::deque<std::vector<uint8_t>> frames;
+    bool open = false; // a connection past its HELLO exists
+    bool started = false;
+};
+Outbox* sOut = new Outbox();
+} // namespace
+
 bool Client::Send(const nlohmann::json& msg) {
     std::vector<uint8_t> frame = EncodeFrame(msg);
-    std::lock_guard<std::mutex> lock(mSendMutex);
-    if (mSock == nullptr) {
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(sOut->mutex);
+        if (!sOut->open) {
+            return false;
+        }
+        sOut->frames.push_back(std::move(frame));
+        if (!sOut->started) {
+            sOut->started = true;
+            std::thread([this]() {
+                for (;;) {
+                    std::vector<uint8_t> next;
+                    {
+                        std::unique_lock<std::mutex> lk(sOut->mutex);
+                        sOut->cv.wait(lk, [] { return !sOut->frames.empty(); });
+                        next = std::move(sOut->frames.front());
+                        sOut->frames.pop_front();
+                    }
+                    std::lock_guard<std::mutex> lk(mSendMutex);
+                    auto t0 = std::chrono::steady_clock::now();
+                    if (mSock != nullptr && !SendAll((TCPsocket)mSock, next)) {
+                        Log("net: send failed (" + std::to_string(next.size()) + " bytes)");
+                    }
+                    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                    if (ms > 20.0) {
+                        Log("net: slow send, " + std::to_string(next.size()) + " bytes took " +
+                            std::to_string((int)ms) + " ms on the socket");
+                    }
+                }
+            }).detach();
+        }
     }
-    return SendAll((TCPsocket)mSock, frame);
+    sOut->cv.notify_one();
+    return true;
 }
 
 static uint64_t SteadyMs() {
@@ -217,6 +262,11 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
             std::lock_guard<std::mutex> lock(mSendMutex);
             mSock = sock;
             ok = SendAll(sock, EncodeFrame(hello));
+        }
+        {
+            std::lock_guard<std::mutex> lock(sOut->mutex);
+            sOut->frames.clear();
+            sOut->open = ok;
         }
         bool welcomed = false;
         FrameReader reader;
@@ -298,6 +348,21 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
             }
         }
 
+        // (what was already handed over still goes out, e.g. the LEAVE_GROUP of a player who quits)
+        for (int i = 0; i < 20; i++) {
+            {
+                std::lock_guard<std::mutex> lock(sOut->mutex);
+                if (sOut->frames.empty()) {
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        {
+            std::lock_guard<std::mutex> lock(sOut->mutex);
+            sOut->open = false;
+            sOut->frames.clear();
+        }
         {
             std::lock_guard<std::mutex> lock(mSendMutex);
             mSock = nullptr;

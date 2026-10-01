@@ -109,6 +109,7 @@ bool sWaitingNow = false;
 Clock::time_point sWaitStart;
 uint32_t sStalls = 0;
 uint32_t sMaxStallMs = 0;
+uint32_t sGateWaitMax = 0; // longest wait at the tick gate since GateWaitMs() was last read
 uint32_t sResyncs = 0;
 uint32_t sResyncsSeen = 0;
 uint32_t sLastResyncTick = 0;
@@ -640,10 +641,23 @@ void HandleControl(json& msg) {
     } else if (t == "RESYNC") {
         uint32_t bad = msg.value("bad_tick", 0u);
         uint32_t T = msg.value("tick", 0u);
+        bool target = false;
+        if (msg.contains("targets") && msg["targets"].is_array()) {
+            for (auto& x : msg["targets"]) {
+                if (x.get<int>() == sSlot) {
+                    target = true;
+                }
+            }
+        }
         sResyncsSeen++;
         sLastResyncTick = bad;
-        Sim::WriteDesyncDump(bad);
-        for (int i = 0; i < 4; i++) {
+        // Phase 5b: only the player that differs and the leader it is compared with write their dumps (it costs a
+        // frame); the others just go on.
+        bool involved = target || sLeader;
+        if (involved) {
+            Sim::WriteDesyncDump(bad);
+        }
+        for (int i = 0; involved && i < 4; i++) {
             if (sDumpTicks[i] == bad) {
                 std::error_code ec;
                 std::filesystem::copy_file("logs/hashdump-" + std::to_string(i) + ".txt",
@@ -651,7 +665,7 @@ void HandleControl(json& msg) {
                                            std::filesystem::copy_options::overwrite_existing, ec);
             }
         }
-        if (CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
+        if (involved && CVarGetInteger(ZMP_CVAR_DEBUG_TICK_DUMPS, 0)) {
             std::error_code ec;
             std::string dir = "logs/desync-" + std::to_string(bad) + "-ticks";
             std::filesystem::create_directories(dir, ec);
@@ -661,14 +675,6 @@ void HandleControl(json& msg) {
                     std::filesystem::copy_file("logs/tickdump-" + std::to_string(i) + ".txt",
                                                dir + "/" + std::to_string(t) + ".txt",
                                                std::filesystem::copy_options::overwrite_existing, ec);
-                }
-            }
-        }
-        bool target = false;
-        if (msg.contains("targets") && msg["targets"].is_array()) {
-            for (auto& x : msg["targets"]) {
-                if (x.get<int>() == sSlot) {
-                    target = true;
                 }
             }
         }
@@ -752,12 +758,15 @@ void ProcessBlobRequests() {
             std::string derr;
             Sim::DumpState("logs/blob-save-" + std::to_string(tick) + ".txt", tick - 1, &derr);
         }
+        auto t0 = Clock::now();
         if (State::Save(blob, tick, st.lastHash, &err, &info)) {
             json msg = { { "t", "STATE_BLOB" },       { "group_id", it->groupId },    { "tick", tick },
                          { "for_slot", it->forSlot }, { "data", json::binary(blob) }, { "hash", st.lastHash } };
             Send(msg);
+            double total = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
             Log("net: STATE_BLOB sent for slot " + std::to_string(it->forSlot) + " at tick " + std::to_string(tick) +
-                " (" + std::to_string(blob.size()) + " bytes, " + std::to_string((int)info.ms) + " ms)");
+                " (" + std::to_string(blob.size()) + " bytes, " + std::to_string((int)info.ms) + " ms to save, " +
+                std::to_string((int)total) + " ms in all on the game thread)");
         } else {
             Log("net: state save failed: " + err);
         }
@@ -1284,6 +1293,7 @@ bool ShouldRunTick() {
                 (who.empty() ? "" : " waiting_for=" + who));
         }
         sMaxStallMs = std::max(sMaxStallMs, ms);
+        sGateWaitMax = std::max(sGateWaitMax, ms);
     }
     return true;
 }
@@ -1486,6 +1496,17 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
             " stalls=" + std::to_string(sStalls));
     }
     MaybeAutosave(tick, hash);
+}
+
+// How long the tick gate has been closed right now, waiting for the server's next tick (0: open). The time a player
+// is held by the others; a slow frame of its own PC is not in it.
+int GateWaitMs() {
+    int ms = (int)sGateWaitMax;
+    sGateWaitMax = 0;
+    if (sPhase == Phase::Running && sWaitingNow) {
+        ms = std::max(ms, (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sWaitStart).count());
+    }
+    return ms;
 }
 
 int CatchUpSpeed() {
