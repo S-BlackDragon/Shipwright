@@ -16,6 +16,10 @@
 //   guardado_no_anfitrion  a PC that is not the host writes its save file (D-058)
 //   cierre_casa            the group state is loaded in the middle of the player's own scene change (D-064: the game
 //                          closed leaving Link's house into an occupied forest)
+//   estado_temblor         the quakes in progress do not travel in the group state (D-081): desync on entering
+//                          during a quake
+//   camara_heredada        a Link that appears keeps the camera mode of the player who was there (D-080): the game
+//                          reads past a camera table in rooms with a fixed background
 
 #ifdef __cplusplus
 extern "C" {

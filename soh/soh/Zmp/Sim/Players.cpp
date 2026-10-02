@@ -1,6 +1,7 @@
 // ZMP: several Player actors in one lockstep simulation. See ZmpPlayers.h for the model.
 
 #include "ZmpPlayers.h"
+#include "soh/Zmp/Test/Mutants.h"
 #include "Session.h"
 
 #include <cmath>
@@ -444,8 +445,10 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     // game's own camera does when a scene loads: Camera_InitPlayerSettings below reads the table of the setting the
     // room gives it with this mode, and a room with a fixed background gives the one setting that has only the
     // normal mode (with the mode of an anchor who was talking, the read went past that table: D-080).
-    s.camera.mode = CAM_MODE_NORMAL;
-    s.camera.animState = 0;
+    if (!Zmp_TestMutant("camara_heredada")) { // (mutation test: the camera keeps the anchor's mode, as before D-080)
+        s.camera.mode = CAM_MODE_NORMAL;
+        s.camera.animState = 0;
+    }
     // Its own main camera, not queued behind the anchor's cutscenes (Cameras.cpp keeps the global ones).
     s.camera.status = CAM_STAT_ACTIVE;
     s.camera.childCamIdx = SUBCAM_FREE;

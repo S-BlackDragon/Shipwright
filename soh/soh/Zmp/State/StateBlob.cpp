@@ -843,9 +843,15 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         fn(&ctx);
     };
     bool mutantText = Zmp_TestMutant("estado_texto") != 0;
+    // ("estado_temblor": the quakes in progress keep this process's values, as before D-081)
+    bool mutantQuake = Zmp_TestMutant("estado_temblor") != 0;
+    std::vector<uint8_t> keepQuake;
     if (mutantText) {
         keep(Demo_SaveState, keepDemo);
         keep(MessageZmp_SaveState, keepMsg);
+    }
+    if (mutantQuake) {
+        keep(Quake_SaveState, keepQuake);
     }
     if (!LoadStatics(statics)) {
         *err = "static data layout differs (different build?) - state partially loaded";
@@ -854,6 +860,9 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     if (mutantText) {
         put(Demo_SaveState, keepDemo);
         put(MessageZmp_SaveState, keepMsg);
+    }
+    if (mutantQuake) {
+        put(Quake_SaveState, keepQuake);
     }
     {
         const int16_t* ids = (const int16_t*)sections[SEC_TRANSITION_IDS].first;
