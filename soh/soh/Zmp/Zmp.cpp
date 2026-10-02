@@ -17,6 +17,7 @@
 #endif
 
 #include <ship/Context.h>
+#include <ship/debug/CrashHandler.h>
 #include <ship/window/Window.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 
@@ -471,6 +472,23 @@ static void UpdateFocusMute() {
     sAudioMuted.store(enabled && override >= 0 ? override == 0 : realMute);
 }
 
+#if defined(ZMP_HARNESS) && defined(_WIN32)
+// Test instances: a game that crashes writes the same report as always and ends. The game's own handler then shows a
+// "Crash" dialog that stays on the screen until somebody clicks it: a window of a test in front of whoever is using
+// the PC (D-063), and a process that never ends by itself.
+static LONG WINAPI TestCrashFilter(PEXCEPTION_POINTERS ex) {
+    char line[64];
+    snprintf(line, sizeof(line), "zmp: CRASH exception 0x%lx (test instance: no dialog)",
+             (unsigned long)ex->ExceptionRecord->ExceptionCode);
+    Zmp::Log(line);
+    auto handler = Ship::Context::GetRawInstance()->GetCrashHandler();
+    if (handler != nullptr) {
+        handler->PrintStack(ex->ContextRecord);
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 extern "C" void Zmp_Init(void) {
     Zmp::Log("zmp: init (name=" + std::string(CVarGetString(ZMP_CVAR_NAME, "Player")) + ")");
 
@@ -482,6 +500,12 @@ extern "C" void Zmp_Init(void) {
 #ifdef ZMP_HARNESS
     int harnessPort = CVarGetInteger(ZMP_CVAR_HARNESS_PORT, 0);
     if (harnessPort > 0 && harnessPort < 65536) {
+#ifdef _WIN32
+        if (!Zmp_TestMutant("cuadro_crash")) { // (mutation test: the game's own handler and its dialog)
+            SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+            SetUnhandledExceptionFilter(TestCrashFilter);
+        }
+#endif
         if (!Zmp::Harness::Start((uint16_t)harnessPort)) {
             Zmp::Log("zmp: harness failed to start on port " + std::to_string(harnessPort));
         }

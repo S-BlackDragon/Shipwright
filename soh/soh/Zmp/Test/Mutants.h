@@ -20,6 +20,8 @@
 //                          during a quake
 //   camara_heredada        a Link that appears keeps the camera mode of the player who was there (D-080): the game
 //                          reads past a camera table in rooms with a fixed background
+//   cuadro_crash           a test instance that crashes keeps the game's "Crash" dialog on the screen and never
+//                          ends by itself
 
 #ifdef __cplusplus
 extern "C" {

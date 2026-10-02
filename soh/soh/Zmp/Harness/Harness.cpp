@@ -1102,6 +1102,11 @@ void Dispatch(const RequestPtr& req) {
         bool ok =
             Sim::DebugSetActorHealth(cmd.value("category", 5), cmd.value("index", 0), cmd.value("health", 0), &err);
         req->Reply({ { "ok", ok }, { "error", err } });
+    } else if (name == "debug.crash") {
+        // A test instance that crashes on purpose (an invalid write on the game thread), to test what it leaves behind.
+        req->Reply({ { "ok", true } });
+        volatile int* nowhere = nullptr;
+        *nowhere = 1;
     } else if (name == "debug.late_inputs") {
         // A machine whose input is late on purpose: it sends none for hold_ms, and its game stands still for
         // freeze_ms first (then it plays the ticks it already has, and reports their hashes, with no input sent yet).
