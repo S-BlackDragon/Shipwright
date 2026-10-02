@@ -91,7 +91,8 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(EnHeishi1)                 \
     X(Player)                    \
     X(Demo)                      \
-    X(MessageZmp)
+    X(MessageZmp)                \
+    X(Quake)
 // clang-format on
 
 #define ZMP_DECLARE_SAVESTATE(Tag) extern "C" void Tag##_SaveState(SaveStateCtx* ctx);

@@ -279,6 +279,20 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: start a one-point cutscene of the player (tests)",
                           { { "cs_id", Ship::ArgumentType::TEXT }, { "timer", Ship::ArgumentType::TEXT } } });
+    // Fast suite tests (a lockstep event): a quake of the game's own (Quake_Add), with a zoom, for some ticks.
+    console->AddCommand("zmp_quake",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 3 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             s16 idx = Quake_Add(GET_ACTIVE_CAM(gPlayState), 3);
+                             Quake_SetSpeed(idx, 20000);
+                             Quake_SetQuakeValues(idx, 2, 0, (s16)std::stoi(args[1]), 0);
+                             Quake_SetCountdown(idx, (s16)std::stoi(args[2]));
+                             return 0;
+                         },
+                          "ZMP: start a quake with a zoom (tests)",
+                          { { "zoom", Ship::ArgumentType::TEXT }, { "ticks", Ship::ArgumentType::TEXT } } });
     console->AddCommand("zmp_cutscene",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 3 || gPlayState == nullptr) {

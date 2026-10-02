@@ -268,6 +268,12 @@ void VisitZmp(Visitor& v) {
     v.Bytes("shared_base", gZmpSim.sharedBase, gZmpSim.sharedValid ? gZmpSim.sharedSize : 0);
     v.U("group_defeat", gZmpSim.groupDefeat);
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
+    {
+        // D-081: the quakes in progress (they shake the players' pictures, which decide what is "on screen")
+        s16 q[64];
+        s32 n = Zmp_QuakeHashData(q, 64);
+        v.Bytes("quakes", q, (size_t)n * sizeof(s16));
+    }
     v.S("last_magic_capacity", gZmpSim.lastMagicCapacity);
     v.Bytes("cam_scope", gZmpSim.camScope, sizeof(gZmpSim.camScope));
     v.Bytes("cam_creator", gZmpSim.camCreator, sizeof(gZmpSim.camCreator));
@@ -352,8 +358,25 @@ void VisitZmp(Visitor& v) {
     }
 }
 
+// Dump only: the quakes in progress. They shake the cameras (eye, look-at and field of view of the picture each
+// player sees), and those pictures decide what is "on screen".
+void QuakeInfo(Visitor& v) {
+    v.Info("~quake.count", (float)Zmp_QuakeCount());
+    for (int i = 0; i < 4; i++) {
+        s32 cb = 0, countdown = 0, zoom = 0, owner = 0;
+        if (Zmp_QuakeInfo(i, &cb, &countdown, &zoom, &owner)) {
+            std::string k = "~quake." + std::to_string(i);
+            v.Info((k + ".callback").c_str(), (float)cb);
+            v.Info((k + ".countdown").c_str(), (float)countdown);
+            v.Info((k + ".zoom").c_str(), (float)zoom);
+            v.Info((k + ".owner").c_str(), (float)owner);
+        }
+    }
+}
+
 void VisitAll(Visitor& v, uint32_t tick) {
     v.Section("tick");
+    QuakeInfo(v);
     v.prefix = "";
     v.U("tick", tick);
     u32 randFloat = 0;

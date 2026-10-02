@@ -1,5 +1,6 @@
 #include "global.h"
-#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h"               // ZMP
+#include "soh/Enhancements/savestate_serialize.h" // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -157,6 +158,71 @@ s16 Quake_GetFreeIndex(void) {
 static s32 sZmpQuakeOwner[4] = { -1, -1, -1, -1 };
 static u32 sZmpQuakeFrame[4];
 static ShakeInfo sZmpQuakeShake[4];
+
+// ZMP: the quakes in progress are simulation state kept outside the heap: they shake the picture of the players
+// (eye, look-at, field of view), those pictures decide which actors are "on screen" (phase 5b), and a quake takes a
+// number from the shared random generator when it starts. A player who enters a group, or reloads its state, must
+// get the group's quakes with it (D-081: before, it kept its own, or none, and desynchronized).
+// clang-format off (its layout of this list is different on every run)
+#define QUAKE_SHIP_SAVESTATE_FIELDS(F) \
+    F(sQuakeRequest)                   \
+    F(D_80126250)                      \
+    F(sQuakeRequestCount)              \
+    F(sZmpQuakeOwner)                  \
+    F(sZmpQuakeFrame)                  \
+    F(sZmpQuakeShake)
+// clang-format on
+SHIP_SAVESTATE_DEFINE(Quake, QUAKE_SHIP_SAVESTATE_FIELDS)
+
+// ZMP: the values of the quakes in progress for the state hash of a group (no pointers). Returns how many s16 it
+// wrote (at most `max`).
+s32 Zmp_QuakeHashData(s16* out, s32 max) {
+    s32 n = 0;
+    s32 i;
+
+    if (max < 1) {
+        return 0;
+    }
+    out[n++] = sQuakeRequestCount;
+    for (i = 0; i < ARRAY_COUNT(sQuakeRequest); i++) {
+        QuakeRequest* r = &sQuakeRequest[i];
+
+        if (r->callbackIdx == 0 || n + 14 > max) {
+            continue;
+        }
+        out[n++] = (s16)i;
+        out[n++] = (s16)r->callbackIdx;
+        out[n++] = r->randIdx;
+        out[n++] = r->countdownMax;
+        out[n++] = r->countdown;
+        out[n++] = r->speed;
+        out[n++] = r->y;
+        out[n++] = r->x;
+        out[n++] = r->zoom;
+        out[n++] = r->rotZ;
+        out[n++] = r->unk_1C;
+        out[n++] = r->camPtrIdx;
+        out[n++] = r->unk_14.unk_00;
+        out[n++] = (s16)sZmpQuakeOwner[i];
+    }
+    return n;
+}
+
+// ZMP (diagnostics, state dumps): the quake in slot idx. Returns 0 if that slot is free.
+s32 Zmp_QuakeInfo(s32 idx, s32* callback, s32* countdown, s32* zoom, s32* owner) {
+    if (idx < 0 || idx >= ARRAY_COUNT(sQuakeRequest) || sQuakeRequest[idx].callbackIdx == 0) {
+        return 0;
+    }
+    *callback = (s32)sQuakeRequest[idx].callbackIdx;
+    *countdown = sQuakeRequest[idx].countdown;
+    *zoom = sQuakeRequest[idx].zoom;
+    *owner = sZmpQuakeOwner[idx];
+    return 1;
+}
+
+s32 Zmp_QuakeCount(void) {
+    return sQuakeRequestCount;
+}
 
 QuakeRequest* Quake_AddImpl(Camera* cam, u32 callbackIdx) {
     s16 idx = Quake_GetFreeIndex();

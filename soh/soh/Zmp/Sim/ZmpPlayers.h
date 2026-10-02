@@ -379,6 +379,11 @@ void Zmp_RecordCameraInterface(s32 slot, s16 flags);
 void Zmp_OnFinishingBlow(void);
 // Quakes: the player whose update requested it (-1: the world). Whether it shakes the camera being updated.
 s32 Zmp_QuakeOwner(void);
+// Diagnostics (state dumps): the quakes in progress (z_quake.c keeps them in statics of its own).
+s32 Zmp_QuakeInfo(s32 idx, s32* callback, s32* countdown, s32* zoom, s32* owner);
+s32 Zmp_QuakeCount(void);
+// The quakes in progress as plain values for the state hash of a group (no pointers); returns how many it wrote.
+s32 Zmp_QuakeHashData(s16* out, s32 max);
 // Interface_SetDoAction: the A button label is the local player's (called in its context).
 s32 Zmp_DoActionIsLocal(void);
 s32 Zmp_QuakeShakesCamera(s32 owner, Camera* camera);
