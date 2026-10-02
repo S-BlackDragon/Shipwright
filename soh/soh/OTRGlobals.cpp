@@ -1835,7 +1835,19 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
         std::unordered_map<Mtx*, MtxF> mtx_replacements =
             (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
         intp->mInterpolationT = (float)time / denom;
-        wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
+        bool zmpDrop = false;
+#ifdef ZMP_HARNESS
+        // ZMP (tests): gZmp.Test.DropFrames makes every frame a dropped frame, as the window backend does when it
+        // has no time to show it (DrawAndRunGraphicsCommands returns before running the display list). The count
+        // goes to gZmp.Test.DroppedFrames. Presentation only: the simulation must not notice.
+        zmpDrop = CVarGetInteger("gZmp.Test.DropFrames", 0) != 0;
+        if (zmpDrop) {
+            CVarSetInteger("gZmp.Test.DroppedFrames", CVarGetInteger("gZmp.Test.DroppedFrames", 0) + 1);
+        }
+#endif
+        if (!zmpDrop) {
+            wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
+        }
         intp->mInterpolationIndex++;
     }
     ImGui::PopStyleColor();

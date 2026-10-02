@@ -24,6 +24,8 @@
 //                          ends by itself
 //   escena_al_mas_cercano  during a cutscene everybody watches, actors act on the nearest player and not on the
 //                          player of the scene (D-084): that player stays frozen after Gohma's death
+//   menu_sin_dibujo        the pause menu does not run its draw in the frames that capture the pause background
+//                          again (D-085): with no frame rendered since START the game closes when the menu opens
 
 #ifdef __cplusplus
 extern "C" {

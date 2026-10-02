@@ -1319,12 +1319,28 @@ skip:
                        play->state.gfxCtx);
 }
 
+// ZMP: this frame draws the world again to capture the pause background (set by Play_Draw)
+static u8 sZmpPauseRecapture = false;
+
 void Play_DrawOverlayElements(PlayState* play) {
     Zmp_OverlayBegin(play); // ZMP: HUD and menus show the local player
 
     if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
+        // ZMP: in a frame that captures the pause background again the menu still runs its draw (see
+        // KaleidoScopeCall_Draw) and its display list is dropped: the capture is taken after everything in the
+        // opaque list and must hold the world alone, as it did when that frame skipped the menu.
+        GraphicsContext* gfxCtx = play->state.gfxCtx;
+        Gfx* opa = gfxCtx->polyOpa.p;
+        Gfx* xlu = gfxCtx->polyXlu.p;
+        Gfx* ovl = gfxCtx->overlay.p;
+
         Zmp_EnterOwner(play, 1); // ZMP: the menu draws (and updates part of its state) for its owner
         KaleidoScopeCall_Draw(play);
+        if (sZmpPauseRecapture) {
+            gfxCtx->polyOpa.p = opa;
+            gfxCtx->polyXlu.p = xlu;
+            gfxCtx->overlay.p = ovl;
+        }
         Zmp_OverlayBegin(play);
     }
     Zmp_PauseLocalDraw(play); // ZMP: this client's pause menu
@@ -1372,6 +1388,7 @@ void Play_Draw(PlayState* play) {
         R_PAUSE_MENU_MODE = 1;
         recapturePauseBuffer = true;
     }
+    sZmpPauseRecapture = recapturePauseBuffer; // ZMP: Play_DrawOverlayElements drops the menu's picture this frame
     // #endregion
 
     OPEN_DISPS(gfxCtx);

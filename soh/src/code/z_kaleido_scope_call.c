@@ -1,6 +1,7 @@
 #include "global.h"
 #include "vt.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Test/Mutants.h" // ZMP
 
 void (*sKaleidoScopeUpdateFunc)(PlayState* play);
 void (*sKaleidoScopeDrawFunc)(PlayState* play);
@@ -129,6 +130,22 @@ void KaleidoScopeCall_Draw(PlayState* play) {
     if (R_PAUSE_MENU_MODE >= 3) {
         if (((play->pauseCtx.state >= 4) && (play->pauseCtx.state <= 7)) ||
             ((play->pauseCtx.state >= 11) && (play->pauseCtx.state <= 18))) {
+            // ZMP: the menu's draw is part of the menu, not only its picture: it allocates the vertex buffers the
+            // menu's update writes on the next tick (KaleidoScope_InitVertices) and it applies equipment changes.
+            // It has to run on every tick the menu is open, whatever reached the screen. A frame that draws the
+            // world again to capture the pause background (Play_Draw, when the frame with the capture was never
+            // rendered) draws Link, and Link's draw puts the player overlay back in the Kaleido area
+            // (KaleidoScopeCall_LoadPlayer): the check below then skipped the menu's draw. With no frame rendered
+            // between START and the open menu, its update wrote through a null cursorVtx and the game closed
+            // (D-085). Same swap as KaleidoScopeCall_Update does.
+            if ((gKaleidoMgrCurOvl != kaleidoScopeOvl) &&
+                !Zmp_TestMutant("menu_sin_dibujo")) { // (mutation test: the menu's draw is skipped, as before D-085)
+                if (gKaleidoMgrCurOvl != NULL) {
+                    KaleidoManager_ClearOvl(gKaleidoMgrCurOvl);
+                }
+                KaleidoManager_LoadOvl(kaleidoScopeOvl);
+            }
+
             if (gKaleidoMgrCurOvl == kaleidoScopeOvl) {
                 sKaleidoScopeDrawFunc(play);
             }
