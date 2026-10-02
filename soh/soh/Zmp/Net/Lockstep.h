@@ -70,7 +70,9 @@ struct Status {
     uint32_t nextInputTick = 0;
     uint32_t nextServerTick = 0;
     bool localInputBlocked = false;
-    bool inputsHeld = false; // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
+    uint64_t ticksPlayed = 0; // ticks this machine has played in groups since it started (the tests' game clock)
+    uint32_t tickCostUs = 0;  // what one tick of the simulation takes on this machine now (moving average)
+    bool inputsHeld = false;  // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
     // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
     // pointers moved / left alone (unaligned look-alikes) in the last one.
     uint32_t relocatedLoads = 0;

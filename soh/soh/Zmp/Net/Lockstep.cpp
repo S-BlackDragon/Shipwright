@@ -167,6 +167,9 @@ int sLastJoinMs = -1;
 // Phase 5b: from leaving the scene (or asking to enter) until this player's Link is in the group.
 std::chrono::steady_clock::time_point sInputAt;             // when the next input is due (one per 50 ms)
 std::chrono::steady_clock::time_point sTestHoldInputsUntil; // (test builds) no input is sent before this moment
+std::chrono::steady_clock::time_point sTickStartedAt;       // when the tick being played started
+double sTickCostUs = 0;                                     // what a tick takes on this machine (moving average)
+uint64_t sTicksPlayed = 0;                                  // ticks played in groups since the process started
 uint32_t sNextServerTick = 0; // the tick after the newest one received from the server (0: none yet)
 int sLastSpawnMs = -1;
 int sRegroupPending = -1; // REGROUP received before this player arrived in the group's new scene (that scene)
@@ -774,7 +777,15 @@ void SendPendingInputs() {
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
         sLastSentButtons = sLastLocal.buttons;
         sNextInputTick++;
-        sInputAt += std::chrono::microseconds(50000 / TimeScale());
+        // Accelerated tests (the clock of the lockstep N times faster): never faster than half of what this machine
+        // can play. The pace of a group is its inputs' clock, and at N = 16 that clock asked for as many ticks per
+        // second as a busy PC can play at all: whoever came into the group could not catch up with it, ever (D-083).
+        // In real time (N = 1, the only speed outside the tests) a tick takes a tiny part of its 50 ms.
+        long long period = 50000 / TimeScale();
+        if (TimeScale() > 1) {
+            period = std::max(period, (long long)(2.0 * sTickCostUs));
+        }
+        sInputAt += std::chrono::microseconds(period);
     }
 }
 
@@ -1392,6 +1403,7 @@ bool ShouldRunTick() {
         sMaxStallMs = std::max(sMaxStallMs, ms);
         sGateWaitMax = std::max(sGateWaitMax, ms);
     }
+    sTickStartedAt = now;
     return true;
 }
 
@@ -1560,6 +1572,13 @@ void ReportSharedAndClock(uint32_t tick) {
 void OnTickEnd(uint32_t tick, uint64_t hash) {
     if (sPhase != Phase::Running) {
         return;
+    }
+    sTicksPlayed++;
+    {
+        double us = std::chrono::duration<double, std::micro>(Clock::now() - sTickStartedAt).count();
+        if (us > 0 && us < 1e6) {
+            sTickCostUs = sTickCostUs <= 0 ? us : sTickCostUs * 0.95 + us * 0.05;
+        }
     }
     if (Zmp_TestMutant("sabotaje_actor") && !sLeader && tick % 400 == 120 && Players::IsPresent(sSlot) &&
         gZmpSim.slots[sSlot].player != nullptr) {
@@ -1801,6 +1820,8 @@ Status GetStatus() {
     s.nextServerTick = sNextServerTick;
     s.localInputBlocked = sLocalInputBlocked;
     s.inputsHeld = Clock::now() < sTestHoldInputsUntil;
+    s.tickCostUs = (uint32_t)sTickCostUs;
+    s.ticksPlayed = sTicksPlayed;
     s.relocatedLoads = sRelocatedLoads;
     s.lastRelocated = sLastRelocated;
     s.lastRelocatedOdd = sLastRelocatedOdd;

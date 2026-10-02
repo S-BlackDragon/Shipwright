@@ -219,6 +219,14 @@ bool ScriptBySend() {
     return CVarGetInteger(CVAR_ZMP("Test.ScriptBySend"), 1) != 0;
 }
 
+// In a group the script's pad is this player's input to the group, except while its own pause menu is open: the menu
+// reads the pad itself, tick by tick, and a step used up by an input sent (several can go out between two ticks when
+// the PC is busy) would never be seen by it (a button press of two steps was lost: the fast suite, D-083).
+bool ScriptGoesToTheGroup() {
+    auto st = Zmp::Lockstep::GetStatus();
+    return st.phase == Zmp::Lockstep::Phase::Running && !st.localInputBlocked;
+}
+
 void AdvanceScript() {
     const PadStep& step = sScript.front();
     sInjectedFrames++;
@@ -249,7 +257,7 @@ void ApplyScriptInput(OSContPad* pads) {
     pads[0].gyro_x = 0;
     pads[0].gyro_y = 0;
     pads[0].err_no = 0;
-    if (ScriptBySend() && Zmp::Lockstep::GetStatus().phase == Zmp::Lockstep::Phase::Running) {
+    if (ScriptBySend() && ScriptGoesToTheGroup()) {
         return; // in a group the script advances with each input sent (ScriptPadForSend)
     }
     sInjectedFrames++;
@@ -348,6 +356,8 @@ json PlayerJson(Player* player, int slot = 0) {
         { "active_cam", multi ? Zmp::Players::SlotActiveCam(slot) : gPlayState->activeCamera },
         // (diagnosis: the buttons the simulation applied to this slot in its last tick)
         { "sim_buttons", multi ? (uint32_t)gZmpSim.slots[slot].input.cur.button : 0u },
+        { "sim_stick", json::array({ multi ? (int)gZmpSim.slots[slot].input.cur.stick_x : 0,
+                                     multi ? (int)gZmpSim.slots[slot].input.cur.stick_y : 0 }) },
         { "cs_action", player->csAction },
         { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
         { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
@@ -462,6 +472,8 @@ json LockstepJson() {
              { "next_server_tick", ls.nextServerTick },
              { "local_input_blocked", ls.localInputBlocked },
              { "inputs_held", ls.inputsHeld },
+             { "tick_cost_us", ls.tickCostUs },
+             { "ticks_played", ls.ticksPlayed },
              // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the
              // group it runs in (an event sent for it now acts on it), and the scene the game is in.
              { "own_present", ls.phase == Zmp::Lockstep::Phase::Running && Zmp_MultiActive() && ls.slot >= 0 &&
@@ -1362,7 +1374,7 @@ void ApplyInput(void* padsV) {
 }
 
 bool ScriptPadForSend(uint32_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* rStickX, int8_t* rStickY) {
-    if (!sScriptActive || !ScriptBySend()) {
+    if (!sScriptActive || !ScriptBySend() || !ScriptGoesToTheGroup()) {
         return false;
     }
     const PadStep& step = sScript.front();
