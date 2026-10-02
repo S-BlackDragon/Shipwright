@@ -21,7 +21,8 @@ somebody else's repository still being there, and its fixes to this library live
 
 ## Changes made here (newest last)
 
-1. **Resource table written and read without its lock** (finding T of the ZMP suite; `docs/DECISIONES.md` D-096).
+1. **Resource table written and read without its lock** (finding T of the ZMP suite; `docs/DECISIONES.md` D-096;
+   commit `fefc6df83`).
    - `src/ship/resource/ResourceManager.cpp`, `LoadResourceProcess`: the write of "not found" into the resource
      cache takes the lock that guards every other access.
    - `src/ship/resource/ResourceManager.cpp`, `UnloadResource`: the lookup is made under the lock, and the entry is
@@ -33,7 +34,7 @@ somebody else's repository still being there, and its fixes to this library live
      accesses back one by one, for the mutation test (`tabla_sin_cerrojo`, `descarga_sin_cerrojo`,
      `archivo_fantasma`). Nothing sets it outside a test build.
    - Test: `test_f0_first_loads_from_several_threads_write_nothing_unguarded` (ZMP harness).
-2. **`Fast3dGui::mImpl` value-initialized** (finding R; D-096). `include/fast/Fast3dGui.h`. The window procedure read
+2. **`Fast3dGui::mImpl` value-initialized** (finding R; D-096; commit `fefc6df83`). `include/fast/Fast3dGui.h`. The window procedure read
    `mImpl.Backend` before anybody had set it. Test: `test_f0_start_does_not_depend_on_what_memory_held`, mutant
    `gui_sin_iniciar`.
 

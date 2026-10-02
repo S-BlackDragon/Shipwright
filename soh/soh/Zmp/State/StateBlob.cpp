@@ -407,7 +407,8 @@ std::vector<std::pair<uint32_t, uint64_t>> HeapPointerStatics() {
     return out;
 }
 
-std::string SymbolName(uint64_t address) {
+// (what SymbolName did before finding X; kept for the mutation test only)
+static std::string SymbolNameWithLibrary(uint64_t address) {
 #ifdef _WIN32
     static bool sInit = false;
     static bool sOk = false;
@@ -440,6 +441,36 @@ std::string SymbolName(uint64_t address) {
     return t;
 }
 
+// A static of the executable, as "exe+0x<offset>": the name comes afterwards from the .pdb
+// (python tools/harness/suite/simbolos.py soh.exe <folder of soh.pdb> <offsets>). It used to be named here with the
+// system's symbol library, on the game thread, in the middle of loading a group's state: that library loads the
+// whole .pdb (180 MB in a test build) the first time, serializes its callers, and the hang watchdog used it too
+// (finding X: a player entering a group hung there for good).
+std::string SymbolName(uint64_t address) {
+    if (Zmp_TestMutant("vigilante_con_simbolos")) { // (mutation test: named with the symbol library, as before)
+        return SymbolNameWithLibrary(address);
+    }
+    char t[40];
+    snprintf(t, sizeof(t), "exe+0x%llX", (unsigned long long)(address - ImageBase()));
+    return t;
+}
+
+} // namespace
+
+// Test (finding X): the game thread spends `ms` naming statics, which is what it was doing when a player entering a
+// group hung for good. Returns how many it named.
+int TestNamingStall(int ms) {
+    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    int named = 0;
+    uint64_t base = ImageBase();
+    while (std::chrono::steady_clock::now() < until) {
+        std::string name = SymbolName(base + 0x1000 + (uint64_t)(named % 65536) * 16);
+        named += name.empty() ? 0 : 1;
+    }
+    return named;
+}
+
+namespace {
 void AppendNote(BlobInfo* info, const std::string& s) {
     if (info != nullptr) {
         if (!info->notes.empty()) {

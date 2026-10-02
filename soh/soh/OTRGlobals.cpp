@@ -319,17 +319,15 @@ OTRGlobals::OTRGlobals() {
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
     // ZMP: finding R. The window object keeps a "which backend" field that nobody sets until the graphics device
     // exists, and the window procedure reads it for every message Windows sends while the window is being created.
-    // It holds whatever was in that memory: when that happens to be the number of an SDL backend, the DirectX window
-    // hands a window handle to SDL as if it were an event and the game closes while starting (exit code 0xC000041D,
-    // about 2 starts in 1000). It starts as "none" here.
+    // It used to hold whatever was in that memory: when that happened to be the number of an SDL backend, the DirectX
+    // window handed a window handle to SDL as if it were an event and the game closed while starting (exit code
+    // 0xC000041D, about 2 starts in 1000). The library now starts it at zero (libultraship/VENDORED.md); the boot
+    // log says what it holds here.
     if (auto zmpGui = std::dynamic_pointer_cast<Fast::Fast3dGui>(sohFast3dWindow->GetGui())) {
-        if (Zmp_TestDirtyWindowField()) { // (test build, on request: the value of the starts that died)
+        if (Zmp_TestMutant("gui_sin_iniciar")) { // (mutation test: the value it held in the starts that died)
             ZmpGuiAccess::Impl(*zmpGui).Backend = Fast::FAST3D_SDL_OPENGL;
         }
         Zmp_BootGuiBackendField((int)ZmpGuiAccess::Impl(*zmpGui).Backend);
-        if (!Zmp_TestMutant("gui_sin_iniciar")) { // (mutation test: the field keeps what was in memory)
-            ZmpGuiAccess::Impl(*zmpGui) = {};
-        }
     }
     Zmp_BootMark("boot: window and graphics device next"); // ZMP: finding R
     context->InitWindow(sohFast3dWindow);
@@ -869,7 +867,7 @@ void OTRGlobals::Initialize() {
     // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
     prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 1);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
-    Zmp_WarmResourceCache(); // ZMP: finding T, while this is still the only thread
+    Zmp_ResourceTestSetup(); // ZMP: finding T (test builds: the mutants of the library's fixes)
 
     context->InitCrashHandler();
 

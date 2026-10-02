@@ -60,7 +60,45 @@ static HANDLE sGameThread = nullptr;
 static std::thread sWatchdog;
 static std::atomic<bool> sWatchdogStop{ false };
 
-static void LogGameThreadStack() {
+static int BootLogFrame(char* out, size_t size, DWORD64 address);
+static void BootLogWrite(const char* text);
+
+// The return addresses of a thread that is stopped. While the thread is suspended NOTHING here may take a lock that
+// thread could be holding: no memory allocation, no C runtime file call, no symbol library (finding X: the watchdog
+// used the system's symbol library with the game thread suspended; when the game thread was inside that same
+// library, which serializes its callers, the watchdog waited for a thread it had itself stopped and the game never
+// moved again). Only the unwind tables are read, into an array on this thread's stack.
+static int CaptureSuspendedStack(HANDLE thread, DWORD64* frames, int max) {
+    if (SuspendThread(thread) == (DWORD)-1) {
+        return -1;
+    }
+    int n = 0;
+    __try {
+        CONTEXT ctx;
+        ctx.ContextFlags = CONTEXT_FULL;
+        if (GetThreadContext(thread, &ctx)) {
+            while (n < max && ctx.Rip != 0) {
+                frames[n++] = ctx.Rip;
+                DWORD64 imageBase = 0;
+                PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr);
+                if (fn == nullptr) {
+                    ctx.Rip = *(DWORD64*)ctx.Rsp;
+                    ctx.Rsp += 8;
+                } else {
+                    void* handlerData = nullptr;
+                    DWORD64 establisher = 0;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fn, &ctx, &handlerData, &establisher,
+                                     nullptr);
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    ResumeThread(thread);
+    return n;
+}
+
+// (the watchdog before finding X; kept for the mutation test only)
+static void LogGameThreadStackWithLibrary() {
     if (sGameThread == nullptr) {
         return;
     }
@@ -117,6 +155,31 @@ static void LogGameThreadStack() {
     }
     ResumeThread(sGameThread);
     Zmp::Log(out);
+}
+
+// The stack is written as module+offset, first to the boot log (plain system calls) and then to logs/zmp.log; the
+// names come afterwards from the .pdb: python tools/harness/suite/simbolos.py soh.exe <folder of soh.pdb> <offsets>.
+static void LogGameThreadStack() {
+    if (sGameThread == nullptr) {
+        return;
+    }
+    if (Zmp_TestMutant("vigilante_con_simbolos")) { // (mutation test: the symbol library, with the thread stopped)
+        LogGameThreadStackWithLibrary();
+        return;
+    }
+    static DWORD64 frames[48];
+    static char text[48 * (MAX_PATH + 32) + 128];
+    int count = CaptureSuspendedStack(sGameThread, frames, 48);
+    if (count < 0) {
+        return;
+    }
+    // (the game thread runs again from here on)
+    int n = snprintf(text, sizeof(text), "zmp: WATCHDOG game thread stuck, stack (module+offset):\n");
+    for (int i = 0; i < count && n < (int)sizeof(text) - (MAX_PATH + 32); i++) {
+        n += BootLogFrame(text + n, sizeof(text) - n, frames[i]);
+    }
+    BootLogWrite(text);
+    Zmp::Log(text);
 }
 
 static void WatchdogLoop() {
@@ -434,13 +497,12 @@ static LRESULT CALLBACK NoActivateCbtProc(int code, WPARAM wParam, LPARAM lParam
 #endif
 
 // Resource cache (finding T). libultraship's resource manager keeps what it has loaded in a table guarded by a lock,
-// but it writes "this file does not exist" into that table WITHOUT the lock. With alternative assets enabled (the
-// default) the first load of every resource looks for "alt/<path>" first, does not find it, and makes that unlocked
-// write, on whichever thread is loading: the game's, the audio thread's or the loader pool's. Two threads loading
-// new resources at the same moment (a scene load while the audio thread loads its samples) can then break the table
-// under the thread that is reading it, and the game closes inside the table's search. The library is not ours to
-// change, so the game makes those writes itself, once, while it is still the only thread: after this, looking for
-// "alt/<path>" of any file of the archives finds the answer in the table and writes nothing.
+// but it wrote "this file does not exist" into that table WITHOUT the lock. With alternative assets enabled (the
+// default) the first load of every resource looks for "alt/<path>" first, does not find it, and made that unlocked
+// write, on whichever thread was loading: the game's, the audio thread's or the loader pool's. Two threads loading
+// new resources at the same moment (a scene load while the audio thread loads its samples) could then break the table
+// under the thread that was reading it, and the game closed or hung inside the table's search. The lock is now in the
+// library itself (libultraship/VENDORED.md). What is left here is the test of it.
 namespace {
 struct ResourceCacheAccess : Ship::ResourceManager {
     // (the table's lookup is protected and its "not found" value is a private type: neither is named here)
@@ -455,6 +517,12 @@ struct ResourceCacheAccess : Ship::ResourceManager {
         const int kNotFound = 2; // ResourceLoadError { None, NotCached, NotFound }
         return line.index() == 0 && static_cast<int>(std::get<0>(line)) == kNotFound;
     }
+    // true: the table has no entry for this path
+    static bool SaysNotCached(Ship::ResourceManager& rm, const std::string& path) {
+        auto line = Look(rm, &ResourceCacheAccess::CheckCache, path);
+        const int kNotCached = 1;
+        return line.index() == 0 && static_cast<int>(std::get<0>(line)) == kNotCached;
+    }
 };
 
 // The "alt/" paths that do not exist, for every file of the archives.
@@ -468,8 +536,6 @@ std::vector<std::string> MissingAltPaths() {
             continue;
         }
         std::string alt = prefix + file;
-        // (not HasFile: the library adds an empty entry to its file table for every file it is asked to load and
-        // does not have, also without a lock, and HasFile answers yes from then on; the warming makes those too)
         if (rm->GetArchiveManager()->GetFilePriority(alt) < 0 &&
             rm->GetArchiveManager()->GetFilePriority(alt + ".meta") < 0) {
             out.push_back(std::move(alt));
@@ -479,47 +545,141 @@ std::vector<std::string> MissingAltPaths() {
 }
 } // namespace
 
-extern "C" void Zmp_WarmResourceCache(void) {
-    if (Zmp_TestMutant("cache_sin_calentar")) { // (mutation test: the table starts empty, as it did)
-        return;
-    }
-    auto started = std::chrono::steady_clock::now();
-    auto rm = Ship::Context::GetRawInstance()->GetResourceManager();
-    std::vector<std::string> paths = MissingAltPaths();
-    for (const std::string& path : paths) {
-        rm->LoadResourceProcess(path);
-    }
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
-    char line[160];
-    snprintf(line, sizeof(line), "boot: resource cache knows %zu alternative paths that do not exist (%lld ms)",
-             paths.size(), (long long)ms.count());
-    Zmp_BootMark(line);
+// Mutation test of the fixes made in the library's own code (libultraship/VENDORED.md): each mutant brings back one of
+// the unguarded accesses (test builds only; in the demo Zmp_TestMutant is the constant 0).
+static void ApplyResourceFaultMutants() {
+    int faults = 0;
+    faults |= Zmp_TestMutant("tabla_sin_cerrojo") ? 1 : 0;
+    faults |= Zmp_TestMutant("descarga_sin_cerrojo") ? 2 : 0;
+    faults |= Zmp_TestMutant("archivo_fantasma") ? 4 : 0;
+    Ship::gZmpTestResourceFaults.store(faults);
 }
 
-// Test: several threads ask for alternative paths at the same time, like the game thread and the audio thread do when
-// they load resources for the first time. Returns how many of those loads had to write into the table (0 when it was
-// warmed); with an empty table the writes are the library's unlocked ones and the game may close here.
-int Zmp_TestResourceRace(int threads, int* loads) {
+extern "C" void Zmp_ResourceTestSetup(void) {
+    ApplyResourceFaultMutants();
+}
+
+namespace {
+// A resource that says, when it is destroyed, whether the resource table's lock was held at that moment: another
+// thread asks the table a question and must get its answer at once.
+struct LockProbe : Ship::IResource {
+    Ship::ResourceManager* rm;
+    std::atomic<int>* held;
+    std::thread* asker;
+    LockProbe(Ship::ResourceManager* rm, std::atomic<int>* held, std::thread* asker)
+        : Ship::IResource(nullptr), rm(rm), held(held), asker(asker) {
+    }
+    void* GetRawPointer() override {
+        return nullptr;
+    }
+    size_t GetPointerSize() override {
+        return 0;
+    }
+    ~LockProbe() override {
+        auto answered = std::make_shared<std::atomic<bool>>(false);
+        Ship::ResourceManager* manager = rm;
+        *asker = std::thread([manager, answered]() {
+            manager->GetCachedResource(std::string("zmp_test/no_such_file_0"), true);
+            answered->store(true);
+        });
+        for (int i = 0; i < 100 && !answered->load(); i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        held->store(answered->load() ? 0 : 1);
+    }
+};
+} // namespace
+
+// Test (finding T): several threads use the resource table at the same time, like the game thread and the audio thread
+// do when they load resources for the first time.
+//   1. Every thread loads its share of the alternative path of every file of the archives, and of `made` paths that
+//      exist in no version (neither the file nor its alternative): each of those loads writes "not found" into the
+//      table. Afterwards every made-up path, and its alternative, must be in the table as "not found" (`lost` counts
+//      the ones that are not: a write that another thread's write destroyed), and the file table must not have
+//      learned any of them (`phantom`).
+//   2. Half of the threads unload those made-up paths while the other half loads a second batch of them (the table
+//      grows and moves under the unloads). Afterwards none of the first batch may be left (`left`).
+//   3. A resource is put into the table and unloaded: it must be destroyed, and not while the table's lock is held
+//      (`held`: a resource that loads or drops other resources when it dies would wait for itself).
+// With the lock missing in the library, the game may also close or hang in here: that is the failure, too.
+void Zmp_TestResourceRace(int threads, int made, ZmpResourceRace* r) {
     auto rm = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto am = rm->GetArchiveManager();
+    const std::string& prefix = Ship::IResource::gAltAssetPrefix;
     std::vector<std::string> paths = MissingAltPaths();
+    std::vector<std::string> first, second;
+    for (int i = 0; i < made; i++) {
+        first.push_back("zmp_test/no_such_file_" + std::to_string(i));
+        second.push_back("zmp_test/no_such_file_b_" + std::to_string(i));
+    }
     std::atomic<int> wrote{ 0 };
     std::vector<std::thread> pool;
-    threads = threads < 1 ? 1 : (threads > 16 ? 16 : threads);
+    threads = threads < 2 ? 2 : (threads > 16 ? 16 : threads);
     for (int t = 0; t < threads; t++) {
         pool.emplace_back([&, t]() {
-            for (size_t i = t; i < paths.size(); i += threads) {
-                if (!ResourceCacheAccess::SaysNotFound(*rm, paths[i])) {
-                    wrote++;
+            for (size_t i = t; i < paths.size() || i < first.size(); i += threads) {
+                if (i < first.size()) {
+                    rm->LoadResourceProcess(first[i]);
                 }
-                rm->LoadResourceProcess(paths[i]);
+                if (i < paths.size()) {
+                    if (!ResourceCacheAccess::SaysNotFound(*rm, paths[i])) {
+                        wrote++;
+                    }
+                    rm->LoadResourceProcess(paths[i]);
+                }
             }
         });
     }
     for (std::thread& th : pool) {
         th.join();
     }
-    *loads = (int)paths.size();
-    return wrote.load();
+    pool.clear();
+    r->loads = (int)paths.size();
+    r->wrote = wrote.load();
+    r->made = made;
+    r->lost = 0;
+    r->phantom = 0;
+    for (const std::string& path : first) {
+        r->lost += ResourceCacheAccess::SaysNotFound(*rm, path) ? 0 : 1;
+        r->lost += ResourceCacheAccess::SaysNotFound(*rm, prefix + path) ? 0 : 1;
+        r->phantom += am->HasFile(path) ? 1 : 0;
+        r->phantom += am->HasFile(prefix + path) ? 1 : 0;
+    }
+    for (int t = 0; t < threads; t++) {
+        pool.emplace_back([&, t]() {
+            int half = threads / 2;
+            if (t < half) {
+                for (size_t i = t; i < first.size(); i += half) {
+                    rm->UnloadResource(first[i]);
+                    rm->UnloadResource(prefix + first[i]);
+                }
+            } else {
+                for (size_t i = t - half; i < second.size(); i += threads - half) {
+                    rm->LoadResourceProcess(second[i]);
+                }
+            }
+        });
+    }
+    for (std::thread& th : pool) {
+        th.join();
+    }
+    r->left = 0;
+    for (const std::string& path : first) {
+        r->left += ResourceCacheAccess::SaysNotCached(*rm, path) ? 0 : 1;
+        r->left += ResourceCacheAccess::SaysNotCached(*rm, prefix + path) ? 0 : 1;
+    }
+    for (const std::string& path : second) { // (the table ends as it started)
+        rm->UnloadResource(path);
+        rm->UnloadResource(prefix + path);
+    }
+    std::atomic<int> held{ -1 };
+    std::thread asker;
+    rm->CacheExternalResource("zmp_test/lock_probe", std::make_shared<LockProbe>(rm.get(), &held, &asker));
+    rm->UnloadResource(std::string("zmp_test/lock_probe"));
+    if (asker.joinable()) {
+        asker.join();
+    }
+    r->held = held.load(); // (-1: the resource was not destroyed)
 }
 
 // Boot log (finding R): a file of its own, written with plain Win32 calls from the first line of main(), before the
@@ -679,15 +839,6 @@ extern "C" void Zmp_BootGuiBackendField(int value) {
     char line[96];
     snprintf(line, sizeof(line), "boot: gui backend field before anybody sets it = %d", value);
     Zmp_BootMark(line);
-}
-
-extern "C" int Zmp_TestDirtyWindowField(void) {
-#if defined(ZMP_HARNESS) && defined(_WIN32)
-    char value[8] = {};
-    return GetEnvironmentVariableA("ZMP_TEST_DIRTY_WINDOW_FIELD", value, sizeof(value)) != 0 && value[0] == '1';
-#else
-    return 0;
-#endif
 }
 
 extern "C" void Zmp_InstallBootLog(void) {

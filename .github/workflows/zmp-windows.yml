@@ -31,10 +31,9 @@ jobs:
         run: |
           choco install ninja -y
           Remove-Item -Path "C:\ProgramData\Chocolatey\bin\ccache.exe" -Force -ErrorAction SilentlyContinue
+      # (no submodules: libultraship and torch are plain folders of this repository, see their VENDORED.md)
       - name: Git Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: true
       - name: Configure ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:

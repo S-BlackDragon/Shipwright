@@ -28,10 +28,16 @@
 //                          again (D-085): with no frame rendered since START the game closes when the menu opens
 //   puerta_al_mas_cercano  a door attends only the nearest player (D-086): a fighter standing at the bars of a
 //                          combat room from inside keeps its companions out
-//   cache_sin_calentar     the resource table starts empty (finding T): the first load of every resource writes into
-//                          it without the lock, and two threads loading at once can close the game
-//   gui_sin_iniciar        the window object's "which backend" field keeps what was in memory until the graphics
-//                          device exists (finding R): about 2 starts in 1000 the game closes while starting
+//   tabla_sin_cerrojo      the library writes "this file does not exist" into its resource table without the lock
+//                          (finding T): two threads loading at once break the table and the game closes or hangs
+//   descarga_sin_cerrojo   the library unloads a resource as it did: it looks into the table without the lock and
+//                          destroys the entry with the lock held (finding T)
+//   archivo_fantasma       the library adds an entry to its file table, with no lock, for every file it is asked for
+//                          and does not have (finding T)
+//   gui_sin_iniciar        the window object's "which backend" field holds the value it had in the starts that died
+//                          (finding R; the library starts it at zero now): the game closes while starting
+//   vigilante_con_simbolos the hang watchdog and the state load use the system's symbol library (finding X): a game
+//                          thread that takes more than 5 s inside it hangs for good, and nothing is written
 //   entrada_sin_adelanto   a player entering a group sends its inputs no earlier when they arrive late (D-094): over
 //                          a connection with latency its Link can take many seconds to appear
 

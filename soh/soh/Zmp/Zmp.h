@@ -14,12 +14,8 @@ void Zmp_InstallBootLog(void);       // finding R: a log of the start, written b
 void Zmp_BootMark(const char* what); // one line in that log
 // Finding R: what the window object's "which backend" field held before anybody set it (a line in the boot log).
 void Zmp_BootGuiBackendField(int value);
-// Finding R, test build only: 1 when the test asks (ZMP_TEST_DIRTY_WINDOW_FIELD=1) for that field to start with
-// the value the memory happened to hold in the starts that died (heap contents cannot be forced from outside: filling
-// freed blocks reached the object in only half of the starts).
-int Zmp_TestDirtyWindowField(void);
-// Finding T: called once while the game is still the only thread, after the archives are known (see Zmp.cpp).
-void Zmp_WarmResourceCache(void);
+// Finding T, test builds: the mutants of the fixes made in the library (see Zmp.cpp).
+void Zmp_ResourceTestSetup(void);
 // Called at the start of DeinitOTR.
 void Zmp_Deinit(void);
 // Called once per game frame right after the physical controllers are read into `pads`
@@ -34,8 +30,17 @@ uint32_t Zmp_GetFrameCount(void);
 }
 // Audio thread: true while the instance's audio must be silent (window without focus and
 // gZmp.Audio.MuteWhenUnfocused set). Presentation only.
-// Test (finding T): several threads load alternative paths at once; returns how many loads wrote into the table.
-int Zmp_TestResourceRace(int threads, int* loads);
+// Test (finding T): several threads use the resource table at once (see Zmp.cpp).
+struct ZmpResourceRace {
+    int loads;   // alternative paths of the archives' files loaded
+    int wrote;   // how many of those loads had to write into the table
+    int made;    // made-up paths, in no archive, loaded for the first time
+    int lost;    // made-up paths that are not in the table afterwards
+    int phantom; // made-up paths the file table says it has afterwards
+    int left;    // made-up paths still in the table after being unloaded
+    int held;    // 1: a resource was destroyed with the table's lock held; -1: it was not destroyed
+};
+void Zmp_TestResourceRace(int threads, int made, ZmpResourceRace* result);
 bool Zmp_AudioMuted();
 // Audio thread: true while the speakers must be silent. Always the real window focus (a test focus override never
 // unmutes them, D-063).

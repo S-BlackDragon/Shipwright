@@ -34,6 +34,8 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info = n
 // Reads only the header.
 bool Peek(const std::vector<uint8_t>& blob, BlobInfo* info, std::string* err);
 
+// Test (finding X): the game thread names statics for `ms` milliseconds (see StateBlob.cpp).
+int TestNamingStall(int ms);
 bool ReadFile(const std::string& path, std::vector<uint8_t>& out, std::string* err);
 bool WriteFile(const std::string& path, const std::vector<uint8_t>& data, std::string* err);
 
