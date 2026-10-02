@@ -160,7 +160,11 @@ class Fast3dGui : public Ship::Gui {
     ImTextureID GetTextureById(int32_t id);
 
     std::weak_ptr<Interpreter> mInterpreter; ///< Weak reference to the Fast3D scripting interpreter.
-    GuiWindowInitData mImpl;                 ///< Backend-specific window/context handles passed to Init().
+    // ZMP: value-initialized. Nobody sets Backend until the graphics device exists, and the window procedure reads
+    // it for every message the system sends while the window is being created: it held whatever was in that memory,
+    // and when that was the number of an SDL backend the DirectX window handed a window handle to SDL as an event
+    // and the game closed while starting (finding R of the ZMP suite, about 2 starts in 1000).
+    GuiWindowInitData mImpl{}; ///< Backend-specific window/context handles passed to Init().
 
   private:
     /** @brief Applies any pending resolution or MSAA changes to the render target. */

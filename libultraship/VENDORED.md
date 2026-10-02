@@ -21,4 +21,21 @@ somebody else's repository still being there, and its fixes to this library live
 
 ## Changes made here (newest last)
 
-None yet: this commit is the unchanged copy.
+1. **Resource table written and read without its lock** (finding T of the ZMP suite; `docs/DECISIONES.md` D-096).
+   - `src/ship/resource/ResourceManager.cpp`, `LoadResourceProcess`: the write of "not found" into the resource
+     cache takes the lock that guards every other access.
+   - `src/ship/resource/ResourceManager.cpp`, `UnloadResource`: the lookup is made under the lock, and the entry is
+     taken out of the table under the lock and destroyed after it (the code's own comment asked for that).
+   - `src/ship/resource/archive/ArchiveManager.cpp`, `LoadFile` and `GetArchiveFromFile`: a lookup instead of
+     `operator[]`, which added an empty entry for every file asked for and not found, on any thread and with no lock
+     (after it `HasFile` said "yes" for a file that does not exist).
+   - `include/ship/resource/archive/ArchiveManager.h`: `gZmpTestResourceFaults`, three bits that bring those three
+     accesses back one by one, for the mutation test (`tabla_sin_cerrojo`, `descarga_sin_cerrojo`,
+     `archivo_fantasma`). Nothing sets it outside a test build.
+   - Test: `test_f0_first_loads_from_several_threads_write_nothing_unguarded` (ZMP harness).
+2. **`Fast3dGui::mImpl` value-initialized** (finding R; D-096). `include/fast/Fast3dGui.h`. The window procedure read
+   `mImpl.Backend` before anybody had set it. Test: `test_f0_start_does_not_depend_on_what_memory_held`, mutant
+   `gui_sin_iniciar`.
+
+Not changed, and known: `ArchiveManager::AddArchive`, `RemoveArchive` and `SetArchives` rewrite the file table with no
+lock while other threads may be reading it. They run at start and when the player changes mods from the menu.

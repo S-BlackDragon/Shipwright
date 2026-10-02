@@ -8,12 +8,21 @@
 #include <unordered_set>
 #include <stdint.h>
 #include <functional>
+#include <atomic> // ZMP
 #include "ship/resource/File.h"
 #ifdef ENABLE_SCRIPTING
 #include "ship/security/Keystore.h"
 #endif
 
 namespace Ship {
+
+// ZMP: test builds only (the mutation test of the ZMP suite, VENDORED.md). Bits that bring back, one by one, the
+// unguarded accesses this copy of the library fixed, so that the tests of those fixes can be seen to fail without
+// them. Nothing sets it outside a test: it is 0, and every bit is read as "off".
+//   1: ResourceManager::LoadResourceProcess writes "not found" into the resource cache without the lock
+//   2: ResourceManager::UnloadResource looks into the resource cache without the lock
+//   4: ArchiveManager adds an empty entry to its file table for every file it is asked for and does not have
+extern std::atomic<int> gZmpTestResourceFaults;
 struct File;
 class Archive;
 

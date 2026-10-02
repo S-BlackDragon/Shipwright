@@ -155,6 +155,14 @@ std::shared_ptr<IResource> ResourceManager::LoadResourceProcess(const ResourceId
     auto file = LoadFileProcess(identifier.Path);
     if (file == nullptr && !mArchiveManager->HasFile(identifier.Path + ".meta")) {
         SPDLOG_TRACE("Failed to load resource file at path {}", identifier.Path);
+        // ZMP: this write was made without the lock that guards every other access to the cache (finding T of the
+        // ZMP suite). With alternative assets enabled the first load of every resource comes through here for its
+        // "alt/" path, on whichever thread is loading: two threads loading new resources at once broke the table
+        // (the game closed or hung inside its search).
+        std::unique_lock<std::mutex> lock(mMutex, std::defer_lock);
+        if (!(gZmpTestResourceFaults.load(std::memory_order_relaxed) & 1)) {
+            lock.lock();
+        }
         mResourceCache[identifier] = ResourceLoadError::NotFound;
         return nullptr;
     }
@@ -416,10 +424,24 @@ size_t ResourceManager::UnloadResource(const ResourceIdentifier& identifier) {
     // the mutex.
     std::variant<ResourceLoadError, std::shared_ptr<IResource>> value = nullptr;
     size_t ret = 0;
-    // We can only erase the resource if we have any resources for that owner.
-    if (mResourceCache.contains(identifier)) {
+    // ZMP: the cache was looked into here without the lock (finding T of the ZMP suite: another thread writing at
+    // that moment could be moving the table under this search), and the entry was destroyed with the lock held, which
+    // is what the comment above says must not happen. The entry is taken out under the lock and dies after it.
+    if (gZmpTestResourceFaults.load(std::memory_order_relaxed) & 2) {
+        // (the code as it was)
+        if (mResourceCache.contains(identifier)) {
+            const std::lock_guard<std::mutex> lock(mMutex);
+            mResourceCache.erase(identifier);
+        }
+        return ret;
+    }
+    {
         const std::lock_guard<std::mutex> lock(mMutex);
-        mResourceCache.erase(identifier);
+        auto found = mResourceCache.find(identifier);
+        if (found != mResourceCache.end()) {
+            value = std::move(found->second);
+            mResourceCache.erase(found);
+        }
     }
 
     return ret;

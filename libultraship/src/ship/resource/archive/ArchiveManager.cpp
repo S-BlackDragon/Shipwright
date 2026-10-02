@@ -14,6 +14,8 @@
 #include "ship/utils/StrHash64.h"
 
 namespace Ship {
+
+std::atomic<int> gZmpTestResourceFaults{ 0 }; // ZMP: see ArchiveManager.h
 ArchiveManager::ArchiveManager() {
 }
 
@@ -48,12 +50,19 @@ std::shared_ptr<File> ArchiveManager::LoadFile(const std::string& filePath) {
 }
 
 std::shared_ptr<File> ArchiveManager::LoadFile(uint64_t hash) {
-    auto archive = mFileToArchive[hash];
-    if (archive == nullptr) {
+    // ZMP: operator[] added an empty entry to the table for every file asked for and not found, on whichever thread
+    // was loading and with no lock (finding T of the ZMP suite); after that HasFile answered "yes" for a file that
+    // does not exist. A lookup writes nothing: once the archives are loaded the table is only read.
+    if (gZmpTestResourceFaults.load(std::memory_order_relaxed) & 4) {
+        auto archive = mFileToArchive[hash]; // (the code as it was)
+        return archive == nullptr ? nullptr : archive->LoadFile(hash);
+    }
+    auto found = mFileToArchive.find(hash);
+    if (found == mFileToArchive.end() || found->second == nullptr) {
         return nullptr;
     }
 
-    return archive->LoadFile(hash);
+    return found->second->LoadFile(hash);
 }
 
 bool ArchiveManager::HasFile(const std::string& filePath) {
@@ -65,7 +74,9 @@ bool ArchiveManager::HasFile(uint64_t hash) {
 }
 
 std::shared_ptr<Archive> ArchiveManager::GetArchiveFromFile(const std::string& filePath) {
-    return mFileToArchive[CRC64(filePath.c_str())];
+    // ZMP: a lookup that does not write (see LoadFile above).
+    auto found = mFileToArchive.find(CRC64(filePath.c_str()));
+    return found == mFileToArchive.end() ? nullptr : found->second;
 }
 
 int32_t ArchiveManager::GetFilePriority(const std::string& filePath) {
