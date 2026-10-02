@@ -165,8 +165,9 @@ std::string sLastShared;
 uint32_t sGroupJoins = 0;
 int sLastJoinMs = -1;
 // Phase 5b: from leaving the scene (or asking to enter) until this player's Link is in the group.
-std::chrono::steady_clock::time_point sInputAt; // when the next input is due (one per 50 ms)
-uint32_t sNextServerTick = 0;                   // the tick after the newest one received from the server (0: none yet)
+std::chrono::steady_clock::time_point sInputAt;             // when the next input is due (one per 50 ms)
+std::chrono::steady_clock::time_point sTestHoldInputsUntil; // (test builds) no input is sent before this moment
+uint32_t sNextServerTick = 0; // the tick after the newest one received from the server (0: none yet)
 int sLastSpawnMs = -1;
 int sRegroupPending = -1; // REGROUP received before this player arrived in the group's new scene (that scene)
 uint32_t sRelocatedLoads = 0;
@@ -722,6 +723,11 @@ void SendPendingInputs() {
     if (sPhase != Phase::Running) {
         return;
     }
+#ifdef ZMP_HARNESS
+    if (Clock::now() < sTestHoldInputsUntil) {
+        return; // (a test makes this machine's input late on purpose)
+    }
+#endif
     uint32_t d = (uint32_t)std::max(1, sDelay);
     uint32_t next; // the tick after the newest one the server sent
     size_t queued;
@@ -1340,9 +1346,27 @@ bool ShouldRunTick() {
         return false;
     }
     bool have;
+    bool owesState = false;
     {
         std::lock_guard<std::mutex> lock(sMutex);
         have = sBundles.count(tick) != 0;
+        // The leader owes somebody the state of this tick: it is sent before the tick is played (OnFrameBegin). The
+        // request and the tick arrive one after the other, the tick by a shorter way (the ticks go straight to their
+        // queue, the rest waits for the game thread): the tick could be played before the request was seen, and the
+        // state sent was of a later tick than the one asked for (D-082).
+        for (const json& m : sControl) {
+            if (m.value("t", "") == "STATE_BLOB_REQUEST" && m.value("tick", 0u) <= tick) {
+                owesState = true;
+            }
+        }
+    }
+    for (const BlobRequest& r : sBlobRequests) {
+        if (r.tick <= tick && InPlay()) {
+            owesState = true; // (several ticks in one frame: the request is for one of them)
+        }
+    }
+    if (have && owesState) {
+        return false;
     }
     auto now = Clock::now();
     if (!have) {
@@ -1640,6 +1664,10 @@ void SaveGroupBlocks(int fileNum) {
     }
 }
 
+void TestHoldInputs(int ms) {
+    sTestHoldInputsUntil = Clock::now() + std::chrono::milliseconds(ms);
+}
+
 void SetLocalInputBlocked(bool blocked) {
     sLocalInputBlocked = blocked;
 }
@@ -1772,6 +1800,7 @@ Status GetStatus() {
     s.nextInputTick = sNextInputTick;
     s.nextServerTick = sNextServerTick;
     s.localInputBlocked = sLocalInputBlocked;
+    s.inputsHeld = Clock::now() < sTestHoldInputsUntil;
     s.relocatedLoads = sRelocatedLoads;
     s.lastRelocated = sLastRelocated;
     s.lastRelocatedOdd = sLastRelocatedOdd;

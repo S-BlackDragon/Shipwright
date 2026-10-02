@@ -70,6 +70,7 @@ struct Status {
     uint32_t nextInputTick = 0;
     uint32_t nextServerTick = 0;
     bool localInputBlocked = false;
+    bool inputsHeld = false; // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
     // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
     // pointers moved / left alone (unaligned look-alikes) in the last one.
     uint32_t relocatedLoads = 0;
@@ -111,6 +112,9 @@ void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd);
 void SaveGroupBlocks(int fileNum);
 // True while this client's pause menu is open: its input to the group is neutral (PLAN.md 2.7).
 void SetLocalInputBlocked(bool blocked);
+// Test builds: this machine sends no input for `ms` milliseconds (its game goes on with the ticks it has): a player
+// whose input is late, on purpose.
+void TestHoldInputs(int ms);
 // Phase 5: the local player walked out of the scene alone (Zmp_TransitionGate): leave the group, let the scene change
 // happen here and enter (or found) the group of the destination.
 // `solo`: the destination starts with a scripted cutscene of this player (blue warp): it plays it in a group of its

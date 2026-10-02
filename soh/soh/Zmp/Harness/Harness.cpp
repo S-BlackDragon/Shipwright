@@ -8,6 +8,7 @@
 #include "Screenshot.h"
 
 #include <chrono>
+#include <thread>
 #include <deque>
 #include <filesystem>
 #include <string>
@@ -460,6 +461,7 @@ json LockstepJson() {
              { "next_input_tick", ls.nextInputTick },
              { "next_server_tick", ls.nextServerTick },
              { "local_input_blocked", ls.localInputBlocked },
+             { "inputs_held", ls.inputsHeld },
              // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the
              // group it runs in (an event sent for it now acts on it), and the scene the game is in.
              { "own_present", ls.phase == Zmp::Lockstep::Phase::Running && Zmp_MultiActive() && ls.slot >= 0 &&
@@ -1100,6 +1102,12 @@ void Dispatch(const RequestPtr& req) {
         bool ok =
             Sim::DebugSetActorHealth(cmd.value("category", 5), cmd.value("index", 0), cmd.value("health", 0), &err);
         req->Reply({ { "ok", ok }, { "error", err } });
+    } else if (name == "debug.late_inputs") {
+        // A machine whose input is late on purpose: it sends none for hold_ms, and its game stands still for
+        // freeze_ms first (then it plays the ticks it already has, and reports their hashes, with no input sent yet).
+        Zmp::Lockstep::TestHoldInputs(cmd.value("hold_ms", 0));
+        std::this_thread::sleep_for(std::chrono::milliseconds(cmd.value("freeze_ms", 0)));
+        req->Reply({ { "ok", true } });
     } else if (name == "screenshot") {
         std::string path = cmd.value("path", std::string("screenshot.png"));
         path = std::filesystem::absolute(path).string();
