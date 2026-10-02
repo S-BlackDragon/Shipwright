@@ -272,6 +272,7 @@ json PlayerJson(Player* player, int slot = 0) {
     bool multi = Zmp_MultiActive() && slot >= 0;
     bool live = !multi || slot == gZmpSim.ctx;
     const Camera* cam = live ? &gPlayState->mainCamera : &gZmpSim.slots[slot].camera;
+    const TargetContext* target = live ? &gPlayState->actorCtx.targetCtx : &gZmpSim.slots[slot].target;
     int health = multi ? Zmp::Players::SlotHealth(slot) : gSaveContext.health;
     // Per-player block (phase 3): the slot's own values, live in the save context when it is the context.
     ZmpPlayerBlock blk{};
@@ -335,6 +336,8 @@ json PlayerJson(Player* player, int slot = 0) {
         { "camera",
           { { "eye", Vec3(cam->eye) }, { "at", Vec3(cam->at) }, { "setting", cam->setting }, { "mode", cam->mode } } },
         { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
+        // (what Navi points at for this player: a Z press locks on to it instead of starting the parallel camera)
+        { "navi_pointed", target->arrowPointedActor != nullptr ? json(target->arrowPointedActor->id) : json(nullptr) },
         { "action_offset", (uint64_t)((uintptr_t)player->actionFunc - (uintptr_t)&__ImageBase) },
         { "bg_flags", a->bgCheckFlags },
         { "floor_y", a->floorHeight },
