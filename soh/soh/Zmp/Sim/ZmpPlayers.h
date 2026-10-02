@@ -517,6 +517,9 @@ bool IsPresent(int slot);
 // Slot whose Player is "the player" of this actor in its update (read only, same rule as the update).
 int ActorTargetSlot(const Actor* actor);
 const View* LocalPicture(PlayState* play, int slot);
+// Diagnostics (state dumps): the view-projection matrix the last draw used for "what does slot k see" (16 floats),
+// or nullptr if it had none; slot -1: the canonical view.
+const float* SlotViewProjectionForDump(int slot);
 int CamScope(int camId);
 bool GlobalCutscene();
 int CutsceneTrigger();

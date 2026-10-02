@@ -41,11 +41,11 @@ const std::string& Current() {
 } // namespace
 
 extern "C" int Zmp_TestMutant(const char* name) {
-    static int sAge = 0;
+    static int sMutantAge = 0;
     static bool sLogged = false;
-    if (Current().empty() && !sRead && ++sAge >= 60) {
+    if (Current().empty() && !sRead && ++sMutantAge >= 60) {
         // (no environment variable: the CVar, looked up now and then)
-        sAge = 0;
+        sMutantAge = 0;
         const char* cv = CVarGetString(ZMP_CVAR_TEST_MUTANT, "");
         if (cv != nullptr && cv[0] != '\0') {
             sMutant = cv;

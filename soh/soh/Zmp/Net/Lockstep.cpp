@@ -1,5 +1,8 @@
 #include "Lockstep.h"
 #include "soh/Zmp/Test/Mutants.h"
+#ifdef ZMP_HARNESS
+#include "soh/Zmp/Harness/Harness.h"
+#endif
 
 #include <chrono>
 #include <cinttypes>
@@ -748,6 +751,19 @@ void SendPendingInputs() {
     }
     uint32_t cap = next + d + 3; // (while the server waits for somebody else, a few inputs ahead are enough)
     while (sNextInputTick <= cap && now >= sInputAt) {
+#ifdef ZMP_HARNESS
+        {
+            // Test builds: a scripted input gives one of its steps to each input sent (Harness.h).
+            Sim::PadRecord scripted;
+            if (Harness::ScriptPadForSend(&scripted.buttons, &scripted.stickX, &scripted.stickY, &scripted.rStickX,
+                                          &scripted.rStickY)) {
+                if (sLocalInputBlocked || (Zmp_MultiActive() && !Players::IsPresent(sSlot))) {
+                    scripted = Sim::PadRecord{}; // (the same rules as the pad read: menu open, not in the group yet)
+                }
+                sLastLocal = scripted;
+            }
+        }
+#endif
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
         sNextInputTick++;
         sInputAt += std::chrono::microseconds(50000 / TimeScale());

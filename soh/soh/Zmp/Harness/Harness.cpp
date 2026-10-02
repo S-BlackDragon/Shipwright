@@ -212,6 +212,22 @@ void StartScript(std::deque<PadStep> steps, RequestPtr req) {
     }
 }
 
+void AdvanceScript() {
+    const PadStep& step = sScript.front();
+    sInjectedFrames++;
+    if (step.frames <= 0) {
+        return; // hold
+    }
+    if (--sStepLeft <= 0) {
+        sScript.pop_front();
+        if (sScript.empty()) {
+            EndScript(true);
+        } else {
+            sStepLeft = sScript.front().frames;
+        }
+    }
+}
+
 // Called once per frame with the physical pads already read.
 void ApplyScriptInput(OSContPad* pads) {
     if (!sScriptActive) {
@@ -226,6 +242,9 @@ void ApplyScriptInput(OSContPad* pads) {
     pads[0].gyro_x = 0;
     pads[0].gyro_y = 0;
     pads[0].err_no = 0;
+    if (Zmp::Lockstep::GetStatus().phase == Zmp::Lockstep::Phase::Running) {
+        return; // in a group the script advances with each input sent (ScriptPadForSend)
+    }
     sInjectedFrames++;
     if (step.frames <= 0) {
         return; // hold
@@ -1303,6 +1322,20 @@ void OnFrameBegin(uint32_t tick) {
 
 void ApplyInput(void* padsV) {
     ApplyScriptInput((OSContPad*)padsV);
+}
+
+bool ScriptPadForSend(uint32_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* rStickX, int8_t* rStickY) {
+    if (!sScriptActive) {
+        return false;
+    }
+    const PadStep& step = sScript.front();
+    *buttons = step.buttons;
+    *stickX = step.stickX;
+    *stickY = step.stickY;
+    *rStickX = step.rStickX;
+    *rStickY = step.rStickY;
+    AdvanceScript();
+    return true;
 }
 
 } // namespace Zmp::Harness

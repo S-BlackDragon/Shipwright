@@ -1787,6 +1787,13 @@ extern "C" MtxF* Zmp_ActorViewProjection(PlayState* play, Actor* actor) {
     return &sSlotVP[best];
 }
 
+const float* Zmp::Players::SlotViewProjectionForDump(int slot) {
+    if (slot < 0) {
+        return sDrawBegun ? &sSimVP.mf[0][0] : nullptr;
+    }
+    return (slot < ZMP_MAX_PLAYERS && sSlotVPValid[slot]) ? &sSlotVP[slot].mf[0][0] : nullptr;
+}
+
 // An actor waits to be looked at (Gohma on the ceiling): true when it is inside that box of the picture of any player.
 extern "C" s32 Zmp_AnyViewBox(PlayState* play, Actor* actor, f32 maxX, f32 maxY, f32 minZ, f32 maxZ) {
     if (!Zmp_MultiActive()) {

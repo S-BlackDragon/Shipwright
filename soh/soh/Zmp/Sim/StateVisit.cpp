@@ -86,6 +86,9 @@ class Visitor {
     }
     virtual void ActorHeader(const std::string& prefix, const Actor* a) {
     }
+    // Dump only (never hashed): what explains a value that is in the hash.
+    virtual void Info(const char* key, float v) {
+    }
     std::string prefix;
 };
 
@@ -121,6 +124,11 @@ void VisitActor(Visitor& v, const Actor* a) {
     v.S("health", a->colChkInfo.health);
     v.U("freeze_timer", a->freezeTimer);
     v.U("flags", a->flags);
+    // (the culling flag comes from this projection, made while drawing with a view of the simulation)
+    v.Info("~proj.x", a->projectedPos.x);
+    v.Info("~proj.y", a->projectedPos.y);
+    v.Info("~proj.z", a->projectedPos.z);
+    v.Info("~proj.w", a->projectedW);
     v.S("room", a->room);
     Vec(v, "velocity", a->velocity);
     v.F("speed_xz", a->speedXZ);
@@ -321,6 +329,12 @@ void VisitZmp(Visitor& v) {
         v.S("invite_hold", s.inviteHold);
         v.S("room2", s.room2);
         v.U("warp_pending", s.warpPending);
+        // (dump only: the view the last draw used for this player's screen, which decides the actors' culling flag)
+        if (const float* vp = Zmp::Players::SlotViewProjectionForDump(k)) {
+            for (int i = 0; i < 16; i++) {
+                v.Info(("~vp" + std::to_string(i)).c_str(), vp[i]);
+            }
+        }
     }
 }
 
@@ -390,6 +404,9 @@ class DumpVisitor : public Visitor {
     }
     void S(const char* key, int64_t x) override {
         Line(key, "%" PRId64, x);
+    }
+    void Info(const char* key, float x) override {
+        F(key, x);
     }
     void F(const char* key, float x) override {
         uint32_t bits;

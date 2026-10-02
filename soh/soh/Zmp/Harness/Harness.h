@@ -22,6 +22,11 @@ void OnFrameBegin(uint32_t tick);
 // Called once per logic tick right after the physical pads were read: replaces the port 0 pad when
 // a script or an input.set override is active. `pads` is an OSContPad array.
 void ApplyInput(void* pads);
+// A scripted input (input.script) in a lockstep group: one step of the script is one tick of the GROUP. The lockstep
+// asks for the pad of the next input it sends and the script advances then, not when this machine simulates a tick:
+// a machine that is behind for a moment (a hiccup of a PC running many test instances) still gives each step of the
+// script to exactly as many ticks as the test wrote. False when no script is running (the pad read is used).
+bool ScriptPadForSend(uint32_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* rStickX, int8_t* rStickY);
 
 } // namespace Zmp::Harness
 
