@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -425,6 +426,195 @@ static LRESULT CALLBACK NoActivateCbtProc(int code, WPARAM wParam, LPARAM lParam
     return CallNextHookEx(sNoActivateHook, code, wParam, lParam);
 }
 #endif
+
+// Boot log (finding R): a file of its own, written with plain Win32 calls from the first line of main(), before the
+// game's logger, its crash handler or its window exist. It records the steps of the start and every error-class
+// exception the moment it is raised (first chance: also the ones somebody handles later, and the ones raised inside
+// a window procedure or a hook, which Windows turns into exit code 0xC000041D without calling anybody). Each entry
+// has the module and offset of every frame, so soh.pdb names them afterwards. Test instances also get a minidump of
+// the first two. Presentation only: nothing here is read by the simulation.
+#ifdef _WIN32
+static char sBootLogPath[MAX_PATH] = "";
+static char sBootDumpDir[MAX_PATH] = "";
+static volatile LONG sBootLogEntries = 0;
+static volatile LONG sBootDumps = 0;
+static bool sBootIsTestInstance = false;
+static SRWLOCK sBootLogLock = SRWLOCK_INIT;
+static char sBootLogBuf[8192];
+
+static void BootLogWrite(const char* text) {
+    if (sBootLogPath[0] == 0) {
+        return;
+    }
+    HANDLE h = CreateFileA(sBootLogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(h, text, (DWORD)strlen(text), &written, nullptr);
+        CloseHandle(h);
+    }
+}
+
+static int BootLogStamp(char* out, size_t size) {
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    return snprintf(out, size, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] pid=%lu tid=%lu ", t.wYear, t.wMonth, t.wDay,
+                    t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, (unsigned long)GetCurrentProcessId(),
+                    (unsigned long)GetCurrentThreadId());
+}
+
+static int BootLogFrame(char* out, size_t size, DWORD64 address) {
+    HMODULE module = nullptr;
+    char path[MAX_PATH] = "";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)address, &module) &&
+        module != nullptr && GetModuleFileNameA(module, path, sizeof(path)) != 0) {
+        const char* name = strrchr(path, '\\');
+        return snprintf(out, size, "    %s+0x%llx\n", name != nullptr ? name + 1 : path,
+                        (unsigned long long)(address - (DWORD64)module));
+    }
+    return snprintf(out, size, "    ?+0x%llx\n", (unsigned long long)address);
+}
+
+// (the layout of what the Visual C++ runtime passes with a C++ exception, to name its type)
+static int BootLogCppException(char* out, size_t size, const EXCEPTION_RECORD* rec) {
+    int n = 0;
+    __try {
+        if (rec->NumberParameters < 4 || rec->ExceptionInformation[2] == 0) {
+            return 0;
+        }
+        const char* base = (const char*)rec->ExceptionInformation[3];
+        const int* throwInfo = (const int*)rec->ExceptionInformation[2];
+        const int* types = (const int*)(base + throwInfo[3]);
+        for (int i = 0; i < types[0] && i < 6 && n < (int)size - 300; i++) {
+            const int* catchable = (const int*)(base + types[1 + i]);
+            const char* name = base + catchable[1] + 2 * sizeof(void*);
+            n += snprintf(out + n, size - n, "    c++ type %.200s\n", name);
+            if (strcmp(name, ".?AVexception@std@@") == 0) {
+                auto e = (const std::exception*)((const char*)rec->ExceptionInformation[1] + catchable[2]);
+                n += snprintf(out + n, size - n, "    what: %.250s\n", e->what());
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        n += snprintf(out + n, size - n, "    (c++ exception data unreadable)\n");
+    }
+    return n;
+}
+
+static int BootLogStack(char* out, size_t size, const CONTEXT* from) {
+    int n = 0;
+    __try {
+        CONTEXT ctx = *from;
+        for (int i = 0; i < 64 && ctx.Rip != 0 && n < (int)size - 400; i++) {
+            n += BootLogFrame(out + n, size - n, ctx.Rip);
+            DWORD64 imageBase = 0;
+            PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr);
+            if (fn == nullptr) {
+                ctx.Rip = *(DWORD64*)ctx.Rsp;
+                ctx.Rsp += 8;
+            } else {
+                void* handlerData = nullptr;
+                DWORD64 establisher = 0;
+                RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fn, &ctx, &handlerData, &establisher, nullptr);
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { n += snprintf(out + n, size - n, "    (stack unreadable from here)\n"); }
+    return n;
+}
+
+static void BootLogDump(PEXCEPTION_POINTERS ex) {
+    char path[MAX_PATH + 64];
+    snprintf(path, sizeof(path), "%s\\zmp_boot_%lu_%ld.dmp", sBootDumpDir, (unsigned long)GetCurrentProcessId(),
+             (long)sBootDumps);
+    HANDLE h = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    MINIDUMP_EXCEPTION_INFORMATION info = { GetCurrentThreadId(), ex, FALSE };
+    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h,
+                      (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithIndirectlyReferencedMemory), &info, nullptr,
+                      nullptr);
+    CloseHandle(h);
+}
+
+static LONG CALLBACK BootExceptionLog(PEXCEPTION_POINTERS ex) {
+    const EXCEPTION_RECORD* rec = ex->ExceptionRecord;
+    DWORD code = rec->ExceptionCode;
+    bool cpp = code == 0xE06D7363;
+    if ((code < 0xC0000000 && !cpp) || InterlockedIncrement(&sBootLogEntries) > 40) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    AcquireSRWLockExclusive(&sBootLogLock);
+    char* out = sBootLogBuf;
+    size_t size = sizeof(sBootLogBuf);
+    int n = BootLogStamp(out, size);
+    n += snprintf(out + n, size - n, "EXCEPTION 0x%08lx flags 0x%lx at %p", (unsigned long)code,
+                  (unsigned long)rec->ExceptionFlags, rec->ExceptionAddress);
+    for (DWORD i = 0; i < rec->NumberParameters && i < 4; i++) {
+        n += snprintf(out + n, size - n, " p%lu=0x%llx", (unsigned long)i,
+                      (unsigned long long)rec->ExceptionInformation[i]);
+    }
+    n += snprintf(out + n, size - n, "\n");
+    if (cpp) {
+        n += BootLogCppException(out + n, size - n, rec);
+    }
+    n += BootLogStack(out + n, size - n, ex->ContextRecord);
+    BootLogWrite(out);
+    if (!cpp && sBootIsTestInstance && InterlockedIncrement(&sBootDumps) <= 2) {
+        BootLogDump(ex);
+        BootLogWrite("    (minidump written next to this file)\n");
+    }
+    ReleaseSRWLockExclusive(&sBootLogLock);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
+
+extern "C" void Zmp_BootMark(const char* what) {
+#ifdef _WIN32
+    char line[320];
+    int n = BootLogStamp(line, sizeof(line));
+    snprintf(line + n, sizeof(line) - n, "%.200s\n", what);
+    BootLogWrite(line);
+#else
+    (void)what;
+#endif
+}
+
+extern "C" void Zmp_BootGuiBackendField(int value) {
+    char line[96];
+    snprintf(line, sizeof(line), "boot: gui backend field before anybody sets it = %d", value);
+    Zmp_BootMark(line);
+}
+
+extern "C" int Zmp_TestDirtyWindowField(void) {
+#if defined(ZMP_HARNESS) && defined(_WIN32)
+    char value[8] = {};
+    return GetEnvironmentVariableA("ZMP_TEST_DIRTY_WINDOW_FIELD", value, sizeof(value)) != 0 && value[0] == '1';
+#else
+    return 0;
+#endif
+}
+
+extern "C" void Zmp_InstallBootLog(void) {
+#ifdef _WIN32
+    char dir[MAX_PATH] = "";
+    if (sBootLogPath[0] != 0 || GetCurrentDirectoryA(sizeof(dir) - 32, dir) == 0) {
+        return;
+    }
+    snprintf(sBootDumpDir, sizeof(sBootDumpDir), "%s\\logs", dir);
+    CreateDirectoryA(sBootDumpDir, nullptr);
+    snprintf(sBootLogPath, sizeof(sBootLogPath), "%s\\zmp_boot.log", sBootDumpDir);
+    WIN32_FILE_ATTRIBUTE_DATA attr;
+    if (GetFileAttributesExA(sBootLogPath, GetFileExInfoStandard, &attr) &&
+        (attr.nFileSizeHigh != 0 || attr.nFileSizeLow > 2 * 1024 * 1024)) {
+        DeleteFileA(sBootLogPath); // (it only grows by a few lines per start: start again past 2 MB)
+    }
+    char value[8] = {};
+    sBootIsTestInstance = GetEnvironmentVariableA("ZMP_NO_ACTIVATE", value, sizeof(value)) != 0 && value[0] == '1';
+    AddVectoredExceptionHandler(1, BootExceptionLog);
+    Zmp_BootMark(sBootIsTestInstance ? "boot: main (test instance)" : "boot: main");
+#endif
+}
 
 extern "C" int Zmp_InstallNoActivateHook(void) {
 #ifdef _WIN32

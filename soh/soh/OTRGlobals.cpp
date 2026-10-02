@@ -84,6 +84,7 @@
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
 #include "soh/Zmp/Zmp.h"                 // ZMP
+#include "soh/Zmp/Test/Mutants.h"        // ZMP
 #include "soh/Zmp/Sim/ZmpSim.h"          // ZMP
 #include "soh/Zmp/State/ResourceSlots.h" // ZMP
 #include "Enhancements/game-interactor/GameInteractor.h"
@@ -276,6 +277,13 @@ static bool VerifyArchiveVersion(OTRVersion version);
 std::string portArchivePath = "";
 static bool sohArchiveVersionMatch = false;
 
+// ZMP: finding R (the field is protected: a derived class may name it)
+struct ZmpGuiAccess : Fast::Fast3dGui {
+    static auto& Impl(Fast::Fast3dGui& gui) {
+        return gui.*(&ZmpGuiAccess::mImpl);
+    }
+};
+
 OTRGlobals::OTRGlobals() {
     context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "shipofharkinian.json");
 
@@ -302,13 +310,30 @@ OTRGlobals::OTRGlobals() {
     }));
     context->InitControlDeck(controlDeck);
     context->InitResourceManager({ portArchivePath }, {}, 3, true);
+    Zmp_BootMark("boot: archive ready"); // ZMP: finding R
     context->InitConsole();
 
     auto sohInputEditorWindow =
         std::make_shared<SohInputEditorWindow>(CVAR_WINDOW("ControllerConfiguration"), "Configure Controller");
     sohFast3dWindow =
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
+    // ZMP: finding R. The window object keeps a "which backend" field that nobody sets until the graphics device
+    // exists, and the window procedure reads it for every message Windows sends while the window is being created.
+    // It holds whatever was in that memory: when that happens to be the number of an SDL backend, the DirectX window
+    // hands a window handle to SDL as if it were an event and the game closes while starting (exit code 0xC000041D,
+    // about 2 starts in 1000). It starts as "none" here.
+    if (auto zmpGui = std::dynamic_pointer_cast<Fast::Fast3dGui>(sohFast3dWindow->GetGui())) {
+        if (Zmp_TestDirtyWindowField()) { // (test build, on request: the value of the starts that died)
+            ZmpGuiAccess::Impl(*zmpGui).Backend = Fast::FAST3D_SDL_OPENGL;
+        }
+        Zmp_BootGuiBackendField((int)ZmpGuiAccess::Impl(*zmpGui).Backend);
+        if (!Zmp_TestMutant("gui_sin_iniciar")) { // (mutation test: the field keeps what was in memory)
+            ZmpGuiAccess::Impl(*zmpGui) = {};
+        }
+    }
+    Zmp_BootMark("boot: window and graphics device next"); // ZMP: finding R
     context->InitWindow(sohFast3dWindow);
+    Zmp_BootMark("boot: window and graphics device ready"); // ZMP: finding R
 
     SohGui::SetupMenu();
 

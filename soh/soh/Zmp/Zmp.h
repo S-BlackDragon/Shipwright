@@ -10,6 +10,14 @@ extern "C" {
 
 // Called once at the end of InitOTR, after the GUI and console exist.
 void Zmp_Init(void);
+void Zmp_InstallBootLog(void);       // finding R: a log of the start, written before anything else exists
+void Zmp_BootMark(const char* what); // one line in that log
+// Finding R: what the window object's "which backend" field held before anybody set it (a line in the boot log).
+void Zmp_BootGuiBackendField(int value);
+// Finding R, test build only: 1 when the test asks (ZMP_TEST_DIRTY_WINDOW_FIELD=1) for that field to start with
+// the value the memory happened to hold in the starts that died (heap contents cannot be forced from outside: filling
+// freed blocks reached the object in only half of the starts).
+int Zmp_TestDirtyWindowField(void);
 // Called at the start of DeinitOTR.
 void Zmp_Deinit(void);
 // Called once per game frame right after the physical controllers are read into `pads`

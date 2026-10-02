@@ -28,6 +28,8 @@
 //                          again (D-085): with no frame rendered since START the game closes when the menu opens
 //   puerta_al_mas_cercano  a door attends only the nearest player (D-086): a fighter standing at the bars of a
 //                          combat room from inside keeps its companions out
+//   gui_sin_iniciar        the window object's "which backend" field keeps what was in memory until the graphics
+//                          device exists (finding R): about 2 starts in 1000 the game closes while starting
 
 #ifdef __cplusplus
 extern "C" {
