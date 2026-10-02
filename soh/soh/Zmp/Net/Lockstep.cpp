@@ -122,6 +122,7 @@ uint32_t sDumpTicks[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
 uint32_t sTickDumpTicks[64] = {};
 Sim::PadRecord sLastLocal; // last pad read from the local controller (or the harness)
 bool sLocalInputBlocked = false;
+uint32_t sLastSentButtons = 0; // (diagnosis) buttons of the last INPUT sent
 std::string sLastError;
 std::map<int, Player*> sTagged;
 // Per-player blocks saved with the leader's game (name -> zmp_block payload after the slot), loaded when this
@@ -765,6 +766,7 @@ void SendPendingInputs() {
         }
 #endif
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
+        sLastSentButtons = sLastLocal.buttons;
         sNextInputTick++;
         sInputAt += std::chrono::microseconds(50000 / TimeScale());
     }
@@ -1766,6 +1768,10 @@ Status GetStatus() {
     s.nameTags = (int)sTagged.size();
     s.lastJoinMs = sLastJoinMs;
     s.lastSpawnMs = sLastSpawnMs;
+    s.lastSentButtons = sLastSentButtons;
+    s.nextInputTick = sNextInputTick;
+    s.nextServerTick = sNextServerTick;
+    s.localInputBlocked = sLocalInputBlocked;
     s.relocatedLoads = sRelocatedLoads;
     s.lastRelocated = sLastRelocated;
     s.lastRelocatedOdd = sLastRelocatedOdd;

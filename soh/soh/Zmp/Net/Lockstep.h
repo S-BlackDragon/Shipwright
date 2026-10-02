@@ -64,6 +64,12 @@ struct Status {
     uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
     int lastSpawnMs = -1;    // phase 5b: until this player's Link appeared in the group it entered
     int nameTags = 0;        // name tags over the Links shown on this screen
+    // Diagnosis (harness): the buttons of the last input this machine sent, the tick the next one is for, the tick
+    // after the newest one the server sent, and whether the local pad is blocked (own pause menu).
+    uint32_t lastSentButtons = 0;
+    uint32_t nextInputTick = 0;
+    uint32_t nextServerTick = 0;
+    bool localInputBlocked = false;
     // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
     // pointers moved / left alone (unaligned look-alikes) in the last one.
     uint32_t relocatedLoads = 0;
