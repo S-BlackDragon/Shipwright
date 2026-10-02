@@ -335,6 +335,20 @@ void VisitZmp(Visitor& v) {
                 v.Info(("~vp" + std::to_string(i)).c_str(), vp[i]);
             }
         }
+        // (and what that matrix is made from: the slot's own view when it has one, else the canonical one)
+        const View* pv = InPlay() ? Zmp::Players::LocalPicture(gPlayState, k) : nullptr;
+        if (pv == nullptr && InPlay()) {
+            pv = &gPlayState->view;
+        }
+        if (pv != nullptr) {
+            v.Info("~view.fovy", pv->fovy);
+            v.Info("~view.scale", pv->scale);
+            v.Info("~view.near", pv->zNear);
+            v.Info("~view.vp_top", (float)pv->viewport.topY);
+            v.Info("~view.vp_bottom", (float)pv->viewport.bottomY);
+            v.Info("~view.vp_left", (float)pv->viewport.leftX);
+            v.Info("~view.vp_right", (float)pv->viewport.rightX);
+        }
     }
 }
 

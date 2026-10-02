@@ -873,6 +873,18 @@ void LoadPendingBlob() {
         }
     }
     Players::SetLocalSlot(sSlot);
+    {
+        // (diagnosis: which Links the loaded state has, and whether this player's slot is one of them already)
+        std::string present;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (Players::IsPresent(k)) {
+                present += (present.empty() ? "" : ",") + std::to_string(k);
+            }
+        }
+        Log("net: state of tick " + std::to_string(info.tick) + " loaded: Links present in slots [" + present +
+            "], this player is slot " + std::to_string(sSlot) +
+            (Players::IsPresent(sSlot) ? " (ALREADY PRESENT in the loaded state)" : " (not present yet)"));
+    }
     if (joining) {
         sNextInputTick = sJoinTick;
         StartRunning(info.tick);

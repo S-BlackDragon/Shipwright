@@ -444,6 +444,13 @@ json LockstepJson() {
              { "last_relocated", ls.lastRelocated },
              { "last_relocated_odd", ls.lastRelocatedOdd },
              { "catching_up", ls.catchingUp },
+             // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the
+             // group it runs in (an event sent for it now acts on it), and the scene the game is in.
+             { "own_present", ls.phase == Zmp::Lockstep::Phase::Running && Zmp_MultiActive() && ls.slot >= 0 &&
+                                  Zmp::Players::IsPresent(ls.slot) },
+             { "game_scene", (gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr)
+                                 ? (int)gPlayState->sceneNum
+                                 : -1 },
              { "invite_by", Zmp::Players::Invite().by },
              { "invite_scene", Zmp::Players::Invite().scene },
              { "invite_hold", Zmp::Players::Invite().hold },
