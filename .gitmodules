@@ -1,4 +1,0 @@
-[submodule "torch"]
-	path = torch
-	url = https://github.com/HarbourMasters/Torch.git
-	branch = main
