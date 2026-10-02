@@ -63,6 +63,7 @@ struct Status {
     std::string lastShared;  // description of the last patch received
     uint32_t groupJoins = 0; // phase 5: groups founded or joined in this connection
     int lastSpawnMs = -1;    // phase 5b: until this player's Link appeared in the group it entered
+    int lastEntryLead = 0;   // D-094: how many of its inputs arrived late in that entry (one tick of lead each)
     int nameTags = 0;        // name tags over the Links shown on this screen
     // Diagnosis (harness): the buttons of the last input this machine sent, the tick the next one is for, the tick
     // after the newest one the server sent, and whether the local pad is blocked (own pause menu).
@@ -117,6 +118,9 @@ void SetLocalInputBlocked(bool blocked);
 // Test builds: this machine sends no input for `ms` milliseconds (its game goes on with the ticks it has): a player
 // whose input is late, on purpose.
 void TestHoldInputs(int ms);
+// Test builds: this machine decides its inputs as if the group's ticks reached it `ticks` ticks late (a connection
+// with that much latency, without any clock involved).
+void TestTickViewLag(int ticks);
 // Phase 5: the local player walked out of the scene alone (Zmp_TransitionGate): leave the group, let the scene change
 // happen here and enter (or found) the group of the destination.
 // `solo`: the destination starts with a scripted cutscene of this player (blue warp): it plays it in a group of its

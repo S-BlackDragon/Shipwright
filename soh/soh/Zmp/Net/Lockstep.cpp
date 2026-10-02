@@ -178,6 +178,14 @@ uint32_t sLastRelocated = 0;
 uint32_t sLastRelocatedOdd = 0;
 std::chrono::steady_clock::time_point sJoinStart;
 bool sJoinStartValid = false;
+// Entering a group that keeps playing (D-094): this player's Link appears at the tick of the first of its inputs that
+// reaches the server before the group plays that tick. How far ahead of the newest tick received the inputs are sent
+// while entering grows by one every time a tick comes back without this player although its input for it was sent.
+int sEntryLead = 0;          // ticks of lead added in this entry
+bool sEntryWatchSet = false; // sEntryWatchTick is a tick whose input was sent with the present lead
+uint32_t sEntryWatchTick = 0;
+int sLastEntryLead = 0;   // the lead added in the last entry that ended (diagnosis)
+int sTestTickViewLag = 0; // (test builds) the inputs are decided as if the group's ticks reached this machine this late
 
 bool InPlay() {
     return gGameState != nullptr && gGameState->main == Play_Main && gPlayState != nullptr;
@@ -599,6 +607,8 @@ void HandleControl(json& msg) {
         sJoinIsRejoin = msg.value("rejoin", false);
         sJoinStart = sPhase == Phase::Detached ? sDetachAt : Clock::now();
         sJoinStartValid = true;
+        sEntryLead = 0;
+        sEntryWatchSet = false;
         if (sPhase == Phase::Running) {
             // Rejoin after a reconnection: the local simulation is replaced by the leader's.
             // (the ticks already received are the new group's: it plays on while this client enters, phase 5b)
@@ -749,6 +759,10 @@ void SendPendingInputs() {
         // No input until it has caught up: its Link stands still and the group goes on.
         return;
     }
+#ifdef ZMP_HARNESS
+    // (a test: this machine learns of the group's ticks later, as over a slow connection, without any clock involved)
+    next -= std::min(next, (uint32_t)std::max(0, sTestTickViewLag));
+#endif
     auto now = Clock::now();
     if (sNextInputTick < next) {
         // The group played ticks without this client's input (it is entering, or its input was late and the server
@@ -756,11 +770,7 @@ void SendPendingInputs() {
         sNextInputTick = next + d - 1;
         sInputAt = now;
     }
-    if (now - sInputAt > std::chrono::seconds(1)) {
-        sInputAt = now;
-    }
-    uint32_t cap = next + d + 3; // (while the server waits for somebody else, a few inputs ahead are enough)
-    while (sNextInputTick <= cap && now >= sInputAt) {
+    auto sendOne = [next]() {
 #ifdef ZMP_HARNESS
         {
             // Test builds: a scripted input gives one of its steps to each input sent (Harness.h).
@@ -785,6 +795,61 @@ void SendPendingInputs() {
 #endif
         sLastSentButtons = sLastLocal.buttons;
         sNextInputTick++;
+    };
+    if (Zmp_MultiActive() && !Players::IsPresent(sSlot) && sJoinStartValid && !Zmp_TestMutant("entrada_sin_adelanto")) {
+        // Entering (D-094). Nobody waits for this player's input until its Link is in the group, so an input that
+        // arrives after the group played its tick is dropped, and nothing made the next one any earlier: the inputs
+        // went out one per 50 ms, exactly as fast as the group plays, each one as late as the one before, and the
+        // Link did not appear until the two clocks happened to drift apart (10.9 s seen once, over a connection with
+        // 30 ms of latency each way). Two rules, with no clock in them:
+        // - every tick up to `lead` ahead of the newest one received is sent at once, never later;
+        // - a tick sent with that lead that comes back without this player was late: one more tick of lead.
+        // The ticks are sent one after another, none skipped: once one of them is in time the server waits for the
+        // input of every tick after it.
+        if (sEntryWatchSet && sEntryWatchTick < next) {
+            bool counted = false;
+            bool played = true;
+            {
+                std::lock_guard<std::mutex> lock(sMutex);
+                auto it = sBundles.find(sEntryWatchTick);
+                if (it != sBundles.end()) {
+                    played = false;
+                    for (auto& pad : it->second.pads) {
+                        counted = counted || pad.first == sSlot;
+                    }
+                    for (auto& e : it->second.events) {
+                        counted = counted || (e.kind == "SPAWN" && e.slot == sSlot);
+                    }
+                }
+            }
+            // (a tick this machine already played, and its Link is still not there: it did not count either)
+            if (!counted && (!played || Sim::CurrentTick() > sEntryWatchTick)) {
+                sEntryWatchSet = false;
+                if (sEntryLead < 40) {
+                    sEntryLead++;
+                }
+                Log("net: entering: the input sent for tick " + std::to_string(sEntryWatchTick) +
+                    " arrived after the group played it; inputs go " + std::to_string(d - 1 + sEntryLead) +
+                    " ticks ahead from now on");
+            }
+        }
+        uint32_t lead = d - 1 + (uint32_t)sEntryLead;
+        while (sNextInputTick <= next + lead) {
+            sendOne();
+            sInputAt = now + std::chrono::microseconds(50000 / TimeScale());
+        }
+        if (!sEntryWatchSet && sNextInputTick > next + lead) {
+            sEntryWatchSet = true;
+            sEntryWatchTick = next + lead;
+        }
+    }
+    if (now - sInputAt > std::chrono::seconds(1)) {
+        sInputAt = now;
+    }
+    // (while the server waits for somebody else, a few inputs ahead are enough)
+    uint32_t cap = next + d + 3 + (uint32_t)sEntryLead;
+    while (sNextInputTick <= cap && now >= sInputAt) {
+        sendOne();
         // Accelerated tests (the clock of the lockstep N times faster): never faster than half of what this machine
         // can play. The pace of a group is its inputs' clock, and at N = 16 that clock asked for as many ticks per
         // second as a busy PC can play at all: whoever came into the group could not catch up with it, ever (D-083).
@@ -1493,8 +1558,12 @@ void OnPadRead(void* padsV) {
                 sJoinStartValid = false;
                 sLastSpawnMs =
                     (int)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sJoinStart).count();
+                sLastEntryLead = sEntryLead;
+                sEntryLead = 0;
+                sEntryWatchSet = false;
                 Log("net: this player's Link appears in the group at tick " + std::to_string(tick) + ", " +
-                    std::to_string(sLastSpawnMs) + " ms after asking to enter");
+                    std::to_string(sLastSpawnMs) + " ms after asking to enter (" + std::to_string(sLastEntryLead) +
+                    " of its inputs arrived late)");
             }
             if (sLeader && e.slot != sSlot) {
                 // A player of a resumed session: its block, health, place and room (D-054).
@@ -1706,6 +1775,10 @@ void TestHoldInputs(int ms) {
     sTestHoldInputsUntil = Clock::now() + std::chrono::milliseconds(ms);
 }
 
+void TestTickViewLag(int ticks) {
+    sTestTickViewLag = ticks;
+}
+
 void SetLocalInputBlocked(bool blocked) {
     sLocalInputBlocked = blocked;
 }
@@ -1834,6 +1907,7 @@ Status GetStatus() {
     s.nameTags = (int)sTagged.size();
     s.lastJoinMs = sLastJoinMs;
     s.lastSpawnMs = sLastSpawnMs;
+    s.lastEntryLead = sLastEntryLead;
     s.lastSentButtons = sLastSentButtons;
     s.nextInputTick = sNextInputTick;
     s.nextServerTick = sNextServerTick;

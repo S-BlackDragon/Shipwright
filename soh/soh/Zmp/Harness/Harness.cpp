@@ -479,6 +479,7 @@ json LockstepJson() {
              { "present", Zmp::Players::PresentCount() },
              { "anchor", gZmpSim.anchor },
              { "last_spawn_ms", ls.lastSpawnMs },
+             { "last_entry_lead", ls.lastEntryLead },
              { "relocated_loads", ls.relocatedLoads },
              { "last_relocated", ls.lastRelocated },
              { "last_relocated_odd", ls.lastRelocatedOdd },
@@ -1148,6 +1149,10 @@ void Dispatch(const RequestPtr& req) {
         // freeze_ms first (then it plays the ticks it already has, and reports their hashes, with no input sent yet).
         Zmp::Lockstep::TestHoldInputs(cmd.value("hold_ms", 0));
         std::this_thread::sleep_for(std::chrono::milliseconds(cmd.value("freeze_ms", 0)));
+        req->Reply({ { "ok", true } });
+    } else if (name == "debug.tick_view_lag") {
+        // This machine decides its inputs as if the group's ticks reached it `ticks` ticks late (D-094).
+        Zmp::Lockstep::TestTickViewLag(cmd.value("ticks", 0));
         req->Reply({ { "ok", true } });
     } else if (name == "screenshot") {
         std::string path = cmd.value("path", std::string("screenshot.png"));

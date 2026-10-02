@@ -32,6 +32,8 @@
 //                          it without the lock, and two threads loading at once can close the game
 //   gui_sin_iniciar        the window object's "which backend" field keeps what was in memory until the graphics
 //                          device exists (finding R): about 2 starts in 1000 the game closes while starting
+//   entrada_sin_adelanto   a player entering a group sends its inputs no earlier when they arrive late (D-094): over
+//                          a connection with latency its Link can take many seconds to appear
 
 #ifdef __cplusplus
 extern "C" {
