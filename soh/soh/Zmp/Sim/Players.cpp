@@ -411,6 +411,26 @@ int ContextSlot(const Actor* actor) {
         }
     }
     k = NearestSlot(actor->world.pos);
+    // A cutscene everybody watches is about one player (csTrigger): what runs during it acts on that player from
+    // its first tick to its last, whoever stands nearer. The game's code gives "the player" an order when a scene
+    // starts and another when it ends (Gohma's death: wait, then go on); with the nearest player the second order
+    // could reach somebody else and the player of the scene waited for ever (finding K, D-084).
+#ifdef ZMP_HARNESS
+    // (diagnosis: how often the nearest player to a boss is not the player of the scene; once per scene and player)
+    static int sNearestLogged = -1;
+    if (!gZmpSim.globalCs) {
+        sNearestLogged = -1;
+    } else if (actor->category == ACTORCAT_BOSS && k >= 0 && k != gZmpSim.csTrigger && k != sNearestLogged) {
+        sNearestLogged = k;
+        Zmp::Log("zmp: K: the scene is about slot " + std::to_string(gZmpSim.csTrigger) +
+                 " and the nearest player to boss actor " + std::to_string(actor->id) + " is slot " +
+                 std::to_string(k));
+    }
+#endif
+    if (gZmpSim.globalCs && Present(gZmpSim.csTrigger) && !Slot(gZmpSim.csTrigger).downed &&
+        !Zmp_TestMutant("escena_al_mas_cercano")) { // (mutation test: the nearest player, as before D-084)
+        return gZmpSim.csTrigger;
+    }
     return k >= 0 ? k : gZmpSim.anchor;
 }
 

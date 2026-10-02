@@ -22,6 +22,8 @@
 //                          reads past a camera table in rooms with a fixed background
 //   cuadro_crash           a test instance that crashes keeps the game's "Crash" dialog on the screen and never
 //                          ends by itself
+//   escena_al_mas_cercano  during a cutscene everybody watches, actors act on the nearest player and not on the
+//                          player of the scene (D-084): that player stays frozen after Gohma's death
 
 #ifdef __cplusplus
 extern "C" {
