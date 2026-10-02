@@ -884,6 +884,13 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     if (mutantQuake) {
         keep(Quake_SaveState, keepQuake);
     }
+    // ("agua_compartida": the statics of the environment keep this process's values, as before finding Y; among them,
+    // what the scene's lights go back to when a camera comes out of the water)
+    bool mutantWater = Zmp_TestMutant("agua_compartida") != 0;
+    std::vector<uint8_t> keepEnv;
+    if (mutantWater) {
+        keep(Environment_SaveState, keepEnv);
+    }
     if (!LoadStatics(statics)) {
         *err = "static data layout differs (different build?) - state partially loaded";
         return false;
@@ -894,6 +901,9 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     }
     if (mutantQuake) {
         put(Quake_SaveState, keepQuake);
+    }
+    if (mutantWater) {
+        put(Environment_SaveState, keepEnv);
     }
     {
         const int16_t* ids = (const int16_t*)sections[SEC_TRANSITION_IDS].first;

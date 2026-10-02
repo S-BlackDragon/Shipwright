@@ -61,7 +61,15 @@ u8 gSkyboxBlendingEnabled = false;
 
 u16 gTimeSpeed = 0;
 
-#define ENVIRONMENT_SHIP_SAVESTATE_FIELDS(F) F(gTimeSpeed)
+// ZMP (finding Y): the statics above are simulation too and did not travel with a state: who received a state kept
+// its own. D_8011FB34 is what the lights go back to when the camera comes out of the water (in a session the water's
+// lights no longer touch the scene's, Zmp_OnUnderwaterLights; a state loaded outside a session needs it).
+#define ENVIRONMENT_SHIP_SAVESTATE_FIELDS(F) \
+    F(gTimeSpeed)                            \
+    F(gWeatherMode)                          \
+    F(D_8011FB34)                            \
+    F(D_8011FB38)                            \
+    F(gSkyboxBlendingEnabled)
 SHIP_SAVESTATE_DEFINE(Environment, ENVIRONMENT_SHIP_SAVESTATE_FIELDS)
 
 u16 D_8011FB44 = 0xFFFC;
@@ -822,6 +830,54 @@ void Environment_DisableUnderwaterLights(PlayState* play) {
         play->envCtx.unk_BF = 0xFF;
         play->envCtx.unk_D8 = 1.0f;
     }
+}
+
+// ZMP: the light settings a camera under water is drawn with (water light setting `index`), as the original gets
+// them after Environment_EnableUnderwaterLights: outdoors, light configuration `index` at this time of day (the sun
+// and the moon keep their directions); indoors, light setting `index` of the scene as it is. Nothing of the
+// simulation is changed: the result goes to `out`. Returns 0 if the scene has no such setting.
+s32 Environment_ZmpWaterLights(PlayState* play, s32 index, EnvLightSettings* out) {
+    EnvironmentContext* envCtx = &play->envCtx;
+    EnvLightSettings* list = envCtx->lightSettingsList;
+    u16 i;
+    u16 j;
+
+    if (list == NULL || index < 0) {
+        return 0;
+    }
+    *out = envCtx->lightSettings;
+    if (envCtx->indoors) {
+        if (index >= 0x20) {
+            return 0;
+        }
+        *out = list[index];
+        out->fogNear = list[index].fogNear & 0x3FF;
+        return 1;
+    }
+    if (index >= ARRAY_COUNT(D_8011FB48)) {
+        return 0;
+    }
+    for (i = 0; i < ARRAY_COUNT(D_8011FB48[index]); i++) {
+        struct_8011FB48* entry = &D_8011FB48[index][i];
+
+        if ((gSaveContext.skyboxTime >= entry->startTime) &&
+            ((gSaveContext.skyboxTime < entry->endTime) || entry->endTime == 0xFFFF)) {
+            f32 weight = Environment_LerpWeight(entry->endTime, entry->startTime, ((void)0, gSaveContext.skyboxTime));
+            EnvLightSettings* a = &list[entry->unk_04];
+            EnvLightSettings* b = &list[entry->unk_05];
+
+            for (j = 0; j < 3; j++) {
+                out->ambientColor[j] = LERP(a->ambientColor[j], b->ambientColor[j], weight);
+                out->light1Color[j] = LERP(a->light1Color[j], b->light1Color[j], weight);
+                out->light2Color[j] = LERP(a->light2Color[j], b->light2Color[j], weight);
+                out->fogColor[j] = LERP(a->fogColor[j], b->fogColor[j], weight);
+            }
+            out->fogNear = LERP16((a->fogNear & 0x3FF), (b->fogNear & 0x3FF), weight);
+            out->fogFar = LERP16(a->fogFar, b->fogFar, weight);
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void Environment_PrintDebugInfo(PlayState* play, Gfx** gfx) {

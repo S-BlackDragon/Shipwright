@@ -92,6 +92,10 @@ typedef struct {
     // through the passage); -1 none.
     s16 room2;
     s16 room2Fresh; // ticks left before room2 is dropped if the passage does not ask for it again
+    // Finding Y: the light setting of the water this player's camera is under (valid while its main camera has the
+    // "eye under water" flag). Each player's own picture is drawn with it; the scene's lights are not touched.
+    s16 waterLight;
+    s16 pad8;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -241,6 +245,18 @@ s32 Zmp_AgeSwapAll(PlayState* play);
 // starts) and z_actor.c (TitleCard_Draw).
 // z_kankyo.c, Environment_AdjustLights: whose effect it is (see adjOwner).
 void Zmp_OnLightAdjust(PlayState* play);
+// z_camera.c, Camera_UpdateWater, instead of Environment_EnableUnderwaterLights / Environment_DisableUnderwaterLights
+// (finding Y). The original has one camera: when its eye goes under water the scene's lights change to the water's,
+// and when it comes out they go back to what a file static remembered. In multiplayer every player has a camera and
+// they all ran that code on the one set of lights: everybody saw the water's lights when anybody's camera dipped, two
+// cameras under at once left them on for good, and the static (outside the state that travels) made who had just come
+// in differ from the rest. In a session the lights of the water are each player's own picture (Rooms.cpp,
+// Zmp_DrawLightBegin): this records the setting for the player in context (-1: its eye came out) and returns 1, and the
+// scene's lights are not touched. Returns 0 outside a session (the original code runs).
+s32 Zmp_OnUnderwaterLights(PlayState* play, s32 waterLightsIndex);
+// z_camera.c, Camera_UpdateWater: the muffled sound of a camera under water is heard on the PC of the player whose
+// camera it is (before, on every PC, and it was the camera of the first player of the scene that decided).
+s32 Zmp_HearsCameraWater(Camera* camera);
 // z_play.c: while a player revives with a fairy (the game over context is busy with it) the text boxes of the other
 // players go on. Returns 0 outside a session.
 s32 Zmp_MessageUpdateDuringRevive(PlayState* play);
@@ -519,6 +535,12 @@ void ArrangeRooms(PlayState* play, int slot);
 std::vector<int> LoadedRooms(PlayState* play);
 // Local ambience (presentation): light setting the local picture uses (-1: the simulation's).
 int LocalLightSetting();
+// The light setting of the water this PC's picture was last drawn with (its player's camera is under water), or -1.
+int LocalWaterLight();
+// The colours this PC's last picture was drawn with: fog (3 bytes) and ambient light (3 bytes).
+const u8* LocalDrawnLight();
+// The light setting of the water the camera of this PC's picture is under now (-1: it is not under water).
+int PictureWaterLight(PlayState* play);
 // Present.cpp: local screen state (presentation).
 void PresentReset();
 int LocalLetterbox();

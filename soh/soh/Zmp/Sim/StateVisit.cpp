@@ -327,6 +327,10 @@ void VisitZmp(Visitor& v) {
         v.U("player_actor", s.player != nullptr ? (uint64_t)s.player->actor.id : 0xFFFF);
         v.S("active_cam", live ? gPlayState->activeCamera : s.activeCam);
         v.S("cam.status", cam->status);
+        // (finding Y: the camera's flags, among them "eye under water", and the water's light setting. Not hashed:
+        // they explain a difference, and the phase 1 recordings keep their hashes)
+        v.Info("~cam.flags", (float)(u16)cam->unk_14C);
+        v.Info("~cam.water_light", (float)s.waterLight);
         v.S("room", s.room);
         v.S("heat_state", s.heatState);
         v.S("heat_seconds", s.heatSeconds);

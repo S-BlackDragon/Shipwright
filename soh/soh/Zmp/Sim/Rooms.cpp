@@ -480,6 +480,8 @@ struct SavedLight {
 };
 SavedLight sSaved;
 bool sHideAdj = false;  // this frame's picture ignores another player's own light effect (tests read it)
+int sDrawnWater = -1;   // the water light setting this frame's picture was drawn with (-1: none; tests read it)
+u8 sDrawnLight[6];      // the fog and ambient colours this frame's picture was drawn with (tests read them)
 bool sDrawnAdj = false; // the lights were darkened by somebody's effect when this frame's picture was drawn
 
 u8 Clamp8(s16 v) {
@@ -541,6 +543,7 @@ extern "C" s32 Zmp_IsLocalAudioPlayer(Player* player) {
 
 extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     sSaved.active = false;
+    sDrawnWater = -1;
     if (!Zmp_MultiActive()) {
         sLocal.valid = false;
         return;
@@ -559,13 +562,45 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
                    Zmp::Players::LocalSlot() >= 0;
     sHideAdj = hideAdj;
     sDrawnAdj = adjusted;
+    // Finding Y: the camera of this picture is under water: this picture, and only this one, has the water's lights.
+    EnvLightSettings water;
+    int waterIndex = Zmp::Players::PictureWaterLight(play);
+    bool ownWater = waterIndex >= 0 && Environment_ZmpWaterLights(play, waterIndex, &water) != 0;
+    sDrawnWater = ownWater ? waterIndex : -1;
     // Only the indoor light settings (picked by the floor) change per room; outdoor lighting follows the time of day.
-    bool ownRoom = sLocal.valid && env->indoors && env->unk_BF == 0xFF &&
+    bool ownRoom = !ownWater && sLocal.valid && env->indoors && env->unk_BF == 0xFF &&
                    !(sLocal.index == env->unk_BD && sLocal.prev == env->unk_BE && sLocal.blend == env->unk_D8);
-    if (!ownRoom && !hideAdj) {
+    if (!ownRoom && !ownWater && !hideAdj) {
         return;
     }
     sSaved.active = true;
+    if (ownWater) {
+        // (as Environment_Update applies the scene's settings, with the water's instead)
+        s16 on = hideAdj ? 0 : 1;
+        memcpy(sSaved.ambient, lc->ambientColor, 3);
+        memcpy(sSaved.fog, lc->fogColor, 3);
+        sSaved.fogNear = lc->fogNear;
+        sSaved.fogFar = lc->fogFar;
+        sSaved.dir1 = env->dirLight1;
+        sSaved.dir2 = env->dirLight2;
+        for (int i = 0; i < 3; i++) {
+            lc->ambientColor[i] = Clamp8((s16)(water.ambientColor[i] + on * env->adjAmbientColor[i]));
+            env->dirLight1.params.dir.color[i] = Clamp8((s16)(water.light1Color[i] + on * env->adjLight1Color[i]));
+            env->dirLight2.params.dir.color[i] = Clamp8((s16)(water.light2Color[i] + on * env->adjLight1Color[i]));
+            lc->fogColor[i] = Clamp8((s16)(water.fogColor[i] + on * env->adjFogColor[i]));
+        }
+        env->dirLight1.params.dir.x = water.light1Dir[0];
+        env->dirLight1.params.dir.y = water.light1Dir[1];
+        env->dirLight1.params.dir.z = water.light1Dir[2];
+        env->dirLight2.params.dir.x = water.light2Dir[0];
+        env->dirLight2.params.dir.y = water.light2Dir[1];
+        env->dirLight2.params.dir.z = water.light2Dir[2];
+        s16 fogNear = (s16)(water.fogNear + on * env->adjFogNear);
+        s16 fogFar = (s16)(water.fogFar + on * env->adjFogFar);
+        lc->fogNear = fogNear <= 996 ? fogNear : 996;
+        lc->fogFar = fogFar <= 12800 ? fogFar : 12800;
+        return;
+    }
     if (!ownRoom) {
         // the scene's lights as the simulation has them, before the adjustment (z_kankyo.c, Environment_Update)
         memcpy(sSaved.ambient, lc->ambientColor, 3);
@@ -616,6 +651,8 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
 }
 
 extern "C" void Zmp_DrawLightEnd(PlayState* play) {
+    memcpy(sDrawnLight, play->lightCtx.fogColor, 3);
+    memcpy(sDrawnLight + 3, play->lightCtx.ambientColor, 3);
     if (!sSaved.active) {
         return;
     }
@@ -645,6 +682,14 @@ bool LightEffectDrawn() {
 
 int LocalLightSetting() {
     return sLocal.valid ? sLocal.index : -1;
+}
+
+int LocalWaterLight() {
+    return sDrawnWater;
+}
+
+const u8* LocalDrawnLight() {
+    return sDrawnLight;
 }
 
 void ArrangeRooms(PlayState* play, int slot) {

@@ -38,6 +38,10 @@
 //                          (finding R; the library starts it at zero now): the game closes while starting
 //   vigilante_con_simbolos the hang watchdog and the state load use the system's symbol library (finding X): a game
 //                          thread that takes more than 5 s inside it hangs for good, and nothing is written
+//   agua_compartida        every player's camera changes the scene's lights and the sound when its eye goes under
+//                          water or comes out, and a Link that appears copies the water flags of the camera that was
+//                          there (finding Y): everybody sees and hears the water of one, the lights can stay on for
+//                          good, and who enters the group meanwhile differs from the rest (resynchronization)
 //   entrada_sin_adelanto   a player entering a group sends its inputs no earlier when they arrive late (D-094): over
 //                          a connection with latency its Link can take many seconds to appear
 

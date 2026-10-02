@@ -22,6 +22,7 @@
 #include <string>
 
 #include "soh/Zmp/ZmpLog.h"
+#include "soh/Zmp/Test/Mutants.h"
 
 extern "C" {
 #include "variables.h"
@@ -490,6 +491,29 @@ extern "C" void Zmp_FinishCameras(PlayState* play) {
     Zmp::Players::SwitchContext(play, anchor);
 }
 
+extern "C" s32 Zmp_OnUnderwaterLights(PlayState* play, s32 waterLightsIndex) {
+    (void)play;
+    // (mutation test, "agua_compartida": every camera changes the scene's lights and the sound, as before finding Y)
+    if (!Zmp_MultiActive() || Zmp_TestMutant("agua_compartida")) {
+        return 0;
+    }
+    // (coming out records nothing: the camera's own "eye under water" flag says whether the setting is in use)
+    if (waterLightsIndex >= 0) {
+        // (0x1F: the water has no setting of its own; the original uses the first one)
+        gZmpSim.slots[Ctx()].waterLight = (s16)(waterLightsIndex == 0x1F ? 0 : waterLightsIndex);
+    }
+    return 1;
+}
+
+extern "C" s32 Zmp_HearsCameraWater(Camera* camera) {
+    (void)camera;
+    if (!Zmp_MultiActive() || Zmp_TestMutant("agua_compartida")) {
+        return 1;
+    }
+    // (a camera updates in the context of the player it belongs to)
+    return Ctx() == Zmp::Players::LocalSlot() ? 1 : 0;
+}
+
 extern "C" void Zmp_OnCutsceneStart(void) {
     if (gZmpSim.enabled && gZmpSim.inPlay) {
         gZmpSim.csStarter = gZmpSim.ctx;
@@ -632,6 +656,29 @@ bool LocalTextHidden() {
         }
     }
     return false;
+}
+
+int PictureWaterLight(PlayState* play) {
+    int local = LocalSlot();
+    if (!Zmp_MultiActive() || play == nullptr || !ValidSlot(local) || !Present(local) ||
+        Zmp_TestMutant("agua_compartida")) {
+        return -1;
+    }
+    // The camera this PC's picture comes from: its player's main camera, or the sub camera it is watching (whose
+    // water was recorded for the player in whose context that camera updates).
+    int active = ActiveOf(play, local);
+    int owner = local;
+    const Camera* cam = nullptr;
+    if (active == CAM_ID_MAIN) {
+        cam = MainOf(play, local);
+    } else if (IsSub(active) && play->cameraPtrs[active] != nullptr) {
+        cam = play->cameraPtrs[active];
+        owner = CamContext(active);
+    }
+    if (cam == nullptr || !(cam->unk_14C & 0x100)) { // (0x100: its eye is under water, Camera_UpdateWater)
+        return -1;
+    }
+    return gZmpSim.slots[owner].waterLight;
 }
 
 const View* LocalPicture(PlayState* play, int slot) {

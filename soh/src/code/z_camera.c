@@ -7372,11 +7372,16 @@ s32 Camera_UpdateWater(Camera* camera) {
         if (!(camera->unk_14C & 0x100)) {
             camera->unk_14C |= 0x100;
             osSyncPrintf("kankyo changed water, sound on\n");
-            Environment_EnableUnderwaterLights(camera->play, waterLightsIndex);
+            // ZMP: in a session the water's lights are this player's own picture; the scene's stay as they are
+            if (!Zmp_OnUnderwaterLights(camera->play, waterLightsIndex)) {
+                Environment_EnableUnderwaterLights(camera->play, waterLightsIndex);
+            }
             camera->waterDistortionTimer = 80;
         }
 
-        Audio_SetExtraFilter(0x20);
+        if (Zmp_HearsCameraWater(camera)) { // ZMP: heard by the player whose camera it is
+            Audio_SetExtraFilter(0x20);
+        }
 
         if (PREG(81)) {
             Quake_RemoveFromIdx(*quakeId);
@@ -7404,14 +7409,18 @@ s32 Camera_UpdateWater(Camera* camera) {
         if (camera->unk_14C & 0x100) {
             camera->unk_14C &= ~0x100;
             osSyncPrintf("kankyo changed water off, sound off\n");
-            Environment_DisableUnderwaterLights(camera->play);
+            if (!Zmp_OnUnderwaterLights(camera->play, -1)) { // ZMP: see above
+                Environment_DisableUnderwaterLights(camera->play);
+            }
             if (*quakeId != 0) {
                 Quake_RemoveFromIdx(*quakeId);
             }
             camera->waterDistortionTimer = 0;
             camera->distortionFlags = 0;
         }
-        Audio_SetExtraFilter(0);
+        if (Zmp_HearsCameraWater(camera)) { // ZMP: heard by the player whose camera it is
+            Audio_SetExtraFilter(0);
+        }
     }
     //! @bug: doesn't always return a value, but sometimes does.
 }

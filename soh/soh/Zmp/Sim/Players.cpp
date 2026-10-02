@@ -492,6 +492,16 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
         s.camera.mode = CAM_MODE_NORMAL;
         s.camera.animState = 0;
     }
+    // Finding Y: nor is the water the anchor's camera may be under. With the anchor's flags, this camera's first
+    // update "came out of the water": it took away the anchor's underwater quake (the copied identifier is the
+    // anchor's) and, before, put the scene's lights back.
+    if (!Zmp_TestMutant("agua_compartida")) {
+        s.camera.unk_14C &= ~(0x100 | 0x200 | 0x8000);
+        s.camera.waterQuakeId = 0;
+        s.camera.waterDistortionTimer = 0;
+        s.camera.distortionFlags = 0;
+        s.waterLight = 0;
+    }
     // Its own main camera, not queued behind the anchor's cutscenes (Cameras.cpp keeps the global ones).
     s.camera.status = CAM_STAT_ACTIVE;
     s.camera.childCamIdx = SUBCAM_FREE;

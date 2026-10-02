@@ -51,6 +51,7 @@ extern "C" {
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
+extern u8 sAudioExtraFilter;
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
 void Opening_Main(GameState* thisx);
@@ -756,6 +757,16 @@ void Dispatch(const RequestPtr& req) {
             resp["title_hidden"] = Zmp_TitleCardHidden() != 0;
             resp["local_light"] = Zmp::Players::LocalLightSetting();
             resp["sim_light"] = gPlayState->envCtx.unk_BD;
+            // Finding Y: the water's lights and muffled sound are each player's own picture and sound
+            resp["water_light"] = Zmp::Players::LocalWaterLight();
+            resp["sim_outdoor_light"] = gPlayState->envCtx.unk_1F;
+            resp["sim_water_light"] = gPlayState->envCtx.unk_BF;
+            resp["water_sound"] = sAudioExtraFilter;
+            {
+                const u8* drawn = Zmp::Players::LocalDrawnLight();
+                resp["drawn_fog"] = { drawn[0], drawn[1], drawn[2] };
+                resp["drawn_ambient"] = { drawn[3], drawn[4], drawn[5] };
+            }
             resp["env_indoors"] = gPlayState->envCtx.indoors;
             resp["local_letterbox"] = Zmp::Players::LocalLetterbox();
             resp["autosave_count"] = Zmp::Autosave::SavedCount();
