@@ -28,6 +28,8 @@
 //                          again (D-085): with no frame rendered since START the game closes when the menu opens
 //   puerta_al_mas_cercano  a door attends only the nearest player (D-086): a fighter standing at the bars of a
 //                          combat room from inside keeps its companions out
+//   cache_sin_calentar     the resource table starts empty (finding T): the first load of every resource writes into
+//                          it without the lock, and two threads loading at once can close the game
 //   gui_sin_iniciar        the window object's "which backend" field keeps what was in memory until the graphics
 //                          device exists (finding R): about 2 starts in 1000 the game closes while starting
 

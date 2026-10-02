@@ -1138,6 +1138,11 @@ void Dispatch(const RequestPtr& req) {
         req->Reply({ { "ok", true } });
         volatile int* nowhere = nullptr;
         *nowhere = 1;
+    } else if (name == "debug.resource_race") {
+        // Several threads load resources for the first time at once (finding T).
+        int loads = 0;
+        int wrote = Zmp_TestResourceRace(cmd.value("threads", 4), &loads);
+        req->Reply({ { "ok", true }, { "loads", loads }, { "wrote", wrote } });
     } else if (name == "debug.late_inputs") {
         // A machine whose input is late on purpose: it sends none for hold_ms, and its game stands still for
         // freeze_ms first (then it plays the ticks it already has, and reports their hashes, with no input sent yet).

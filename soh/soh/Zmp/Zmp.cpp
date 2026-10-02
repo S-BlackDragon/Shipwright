@@ -11,6 +11,10 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <variant>
+#include <vector>
+#include <chrono>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -20,6 +24,8 @@
 #include <ship/Context.h>
 #include <ship/debug/CrashHandler.h>
 #include <ship/window/Window.h>
+#include <ship/resource/ResourceManager.h>
+#include <ship/resource/archive/ArchiveManager.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "ZmpCVars.h"
@@ -426,6 +432,95 @@ static LRESULT CALLBACK NoActivateCbtProc(int code, WPARAM wParam, LPARAM lParam
     return CallNextHookEx(sNoActivateHook, code, wParam, lParam);
 }
 #endif
+
+// Resource cache (finding T). libultraship's resource manager keeps what it has loaded in a table guarded by a lock,
+// but it writes "this file does not exist" into that table WITHOUT the lock. With alternative assets enabled (the
+// default) the first load of every resource looks for "alt/<path>" first, does not find it, and makes that unlocked
+// write, on whichever thread is loading: the game's, the audio thread's or the loader pool's. Two threads loading
+// new resources at the same moment (a scene load while the audio thread loads its samples) can then break the table
+// under the thread that is reading it, and the game closes inside the table's search. The library is not ours to
+// change, so the game makes those writes itself, once, while it is still the only thread: after this, looking for
+// "alt/<path>" of any file of the archives finds the answer in the table and writes nothing.
+namespace {
+struct ResourceCacheAccess : Ship::ResourceManager {
+    // (the table's lookup is protected and its "not found" value is a private type: neither is named here)
+    template <class Line>
+    static Line Look(Ship::ResourceManager& rm, Line (Ship::ResourceManager::*check)(const std::string&, bool),
+                     const std::string& path) {
+        return (rm.*check)(path, true);
+    }
+    // true: the table already says "not found" for this path (the load will write nothing)
+    static bool SaysNotFound(Ship::ResourceManager& rm, const std::string& path) {
+        auto line = Look(rm, &ResourceCacheAccess::CheckCache, path);
+        const int kNotFound = 2; // ResourceLoadError { None, NotCached, NotFound }
+        return line.index() == 0 && static_cast<int>(std::get<0>(line)) == kNotFound;
+    }
+};
+
+// The "alt/" paths that do not exist, for every file of the archives.
+std::vector<std::string> MissingAltPaths() {
+    auto rm = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto files = rm->GetArchiveManager()->ListFiles();
+    std::vector<std::string> out;
+    const std::string& prefix = Ship::IResource::gAltAssetPrefix;
+    for (const std::string& file : *files) {
+        if (file.starts_with(prefix)) {
+            continue;
+        }
+        std::string alt = prefix + file;
+        // (not HasFile: the library adds an empty entry to its file table for every file it is asked to load and
+        // does not have, also without a lock, and HasFile answers yes from then on; the warming makes those too)
+        if (rm->GetArchiveManager()->GetFilePriority(alt) < 0 &&
+            rm->GetArchiveManager()->GetFilePriority(alt + ".meta") < 0) {
+            out.push_back(std::move(alt));
+        }
+    }
+    return out;
+}
+} // namespace
+
+extern "C" void Zmp_WarmResourceCache(void) {
+    if (Zmp_TestMutant("cache_sin_calentar")) { // (mutation test: the table starts empty, as it did)
+        return;
+    }
+    auto started = std::chrono::steady_clock::now();
+    auto rm = Ship::Context::GetRawInstance()->GetResourceManager();
+    std::vector<std::string> paths = MissingAltPaths();
+    for (const std::string& path : paths) {
+        rm->LoadResourceProcess(path);
+    }
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+    char line[160];
+    snprintf(line, sizeof(line), "boot: resource cache knows %zu alternative paths that do not exist (%lld ms)",
+             paths.size(), (long long)ms.count());
+    Zmp_BootMark(line);
+}
+
+// Test: several threads ask for alternative paths at the same time, like the game thread and the audio thread do when
+// they load resources for the first time. Returns how many of those loads had to write into the table (0 when it was
+// warmed); with an empty table the writes are the library's unlocked ones and the game may close here.
+int Zmp_TestResourceRace(int threads, int* loads) {
+    auto rm = Ship::Context::GetRawInstance()->GetResourceManager();
+    std::vector<std::string> paths = MissingAltPaths();
+    std::atomic<int> wrote{ 0 };
+    std::vector<std::thread> pool;
+    threads = threads < 1 ? 1 : (threads > 16 ? 16 : threads);
+    for (int t = 0; t < threads; t++) {
+        pool.emplace_back([&, t]() {
+            for (size_t i = t; i < paths.size(); i += threads) {
+                if (!ResourceCacheAccess::SaysNotFound(*rm, paths[i])) {
+                    wrote++;
+                }
+                rm->LoadResourceProcess(paths[i]);
+            }
+        });
+    }
+    for (std::thread& th : pool) {
+        th.join();
+    }
+    *loads = (int)paths.size();
+    return wrote.load();
+}
 
 // Boot log (finding R): a file of its own, written with plain Win32 calls from the first line of main(), before the
 // game's logger, its crash handler or its window exist. It records the steps of the start and every error-class

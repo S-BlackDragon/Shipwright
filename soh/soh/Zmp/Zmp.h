@@ -18,6 +18,8 @@ void Zmp_BootGuiBackendField(int value);
 // the value the memory happened to hold in the starts that died (heap contents cannot be forced from outside: filling
 // freed blocks reached the object in only half of the starts).
 int Zmp_TestDirtyWindowField(void);
+// Finding T: called once while the game is still the only thread, after the archives are known (see Zmp.cpp).
+void Zmp_WarmResourceCache(void);
 // Called at the start of DeinitOTR.
 void Zmp_Deinit(void);
 // Called once per game frame right after the physical controllers are read into `pads`
@@ -32,6 +34,8 @@ uint32_t Zmp_GetFrameCount(void);
 }
 // Audio thread: true while the instance's audio must be silent (window without focus and
 // gZmp.Audio.MuteWhenUnfocused set). Presentation only.
+// Test (finding T): several threads load alternative paths at once; returns how many loads wrote into the table.
+int Zmp_TestResourceRace(int threads, int* loads);
 bool Zmp_AudioMuted();
 // Audio thread: true while the speakers must be silent. Always the real window focus (a test focus override never
 // unmutes them, D-063).

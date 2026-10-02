@@ -869,6 +869,7 @@ void OTRGlobals::Initialize() {
     // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
     prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 1);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
+    Zmp_WarmResourceCache(); // ZMP: finding T, while this is still the only thread
 
     context->InitCrashHandler();
 
