@@ -297,6 +297,11 @@ s32 Zmp_WarpIsShared(void);
 // Phase 5b, barred doors (z_door_shutter.c): 1 when this player stands in another room than `room` (the room whose
 // fight closed the bars): the door lets it in.
 s32 Zmp_PlayerOutsideRoom(Player* player, s32 room);
+// Doors (z_door_shutter.c, z_en_door.c): a door offers itself to every player standing at it, not only to the nearest
+// one (D-086). Loop: `s32 it = -1; while (Zmp_DoorNextPlayer(play, door, &it)) { ... GET_PLAYER(play) ... }`. The
+// first pass is the door's own context (the only pass outside a ZMP session); the next ones are the other players
+// near the door, each as "the player"; when it returns 0 the door's own context is back. Never leave the loop early.
+s32 Zmp_DoorNextPlayer(PlayState* play, Actor* door, s32* it);
 // Phase 5b, warp songs (z_player.c): with other players in the scene the song takes only its player (no scripted warp
 // cutscene, which would freeze everybody) and invites the others. Returns 0 when the original warp must run.
 s32 Zmp_WarpSongStart(Player* player, PlayState* play);

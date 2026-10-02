@@ -12,6 +12,7 @@
 #include "objects/object_haka_door/object_haka_door.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -209,33 +210,50 @@ void EnDoor_Idle(EnDoor* this, PlayState* play) {
             Audio_PlayActorSound2(&this->actor, NA_SE_EV_CHAIN_KEY_UNLOCK);
             GameInteractor_ExecuteOnDungeonKeyUsedHooks(gSaveContext.mapIndex);
         }
-    } else if (!Player_InCsMode(play)) {
-        if (GameInteractor_Should(VB_EN_DOOR_OFFER_OPEN,
-                                  (fabsf(playerPosRelToDoor.y) < 20.0f && fabsf(playerPosRelToDoor.x) < 20.0f &&
-                                   fabsf(playerPosRelToDoor.z) < 50.0f),
-                                  &playerPosRelToDoor)) {
-            phi_v0 = player->actor.shape.rot.y - this->actor.shape.rot.y;
-            if (playerPosRelToDoor.z > 0.0f) {
-                phi_v0 = 0x8000 - phi_v0;
-            }
-            if (ABS(phi_v0) < 0x3000) {
-                if (this->lockTimer != 0) {
-                    if (GameInteractor_Should(VB_NOT_HAVE_SMALL_KEY,
-                                              gSaveContext.inventory.dungeonKeys[gSaveContext.mapIndex] <= 0, this)) {
-                        Player* player2 = GET_PLAYER(play);
+    } else {
+        // ZMP: the door looks at every player standing at it, not only at the nearest (D-086): the first pass is the
+        // original's (the nearest player), the next ones only offer the door to the other players near it. The
+        // `return` of the original is `continue` (the loop must run to its end).
+        s32 zmpIt = -1;
+        s32 zmpFirst = true;
 
-                        player2->naviTextId = -0x203;
-                        return;
-                    } else {
-                        player->doorTimer = 10;
-                    }
-                }
-                player->doorType = (doorType == DOOR_AJAR) ? PLAYER_DOORTYPE_AJAR : PLAYER_DOORTYPE_HANDLE;
-                player->doorDirection = (playerPosRelToDoor.z >= 0.0f) ? 1.0f : -1.0f;
-                player->doorActor = &this->actor;
+        while (Zmp_DoorNextPlayer(play, &this->actor, &zmpIt)) {
+            s32 first = zmpFirst;
+
+            zmpFirst = false;
+            player = GET_PLAYER(play);
+            Actor_WorldToActorCoords(&this->actor, &playerPosRelToDoor, &player->actor.world.pos);
+            if (Player_InCsMode(play)) {
+                continue;
             }
-        } else if (doorType == DOOR_AJAR && this->actor.xzDistToPlayer > DOOR_AJAR_OPEN_RANGE) {
-            this->actionFunc = EnDoor_AjarOpen;
+            if (GameInteractor_Should(VB_EN_DOOR_OFFER_OPEN,
+                                      (fabsf(playerPosRelToDoor.y) < 20.0f && fabsf(playerPosRelToDoor.x) < 20.0f &&
+                                       fabsf(playerPosRelToDoor.z) < 50.0f),
+                                      &playerPosRelToDoor)) {
+                phi_v0 = player->actor.shape.rot.y - this->actor.shape.rot.y;
+                if (playerPosRelToDoor.z > 0.0f) {
+                    phi_v0 = 0x8000 - phi_v0;
+                }
+                if (ABS(phi_v0) < 0x3000) {
+                    if (this->lockTimer != 0) {
+                        if (GameInteractor_Should(VB_NOT_HAVE_SMALL_KEY,
+                                                  gSaveContext.inventory.dungeonKeys[gSaveContext.mapIndex] <= 0,
+                                                  this)) {
+                            Player* player2 = GET_PLAYER(play);
+
+                            player2->naviTextId = -0x203;
+                            continue;
+                        } else {
+                            player->doorTimer = 10;
+                        }
+                    }
+                    player->doorType = (doorType == DOOR_AJAR) ? PLAYER_DOORTYPE_AJAR : PLAYER_DOORTYPE_HANDLE;
+                    player->doorDirection = (playerPosRelToDoor.z >= 0.0f) ? 1.0f : -1.0f;
+                    player->doorActor = &this->actor;
+                }
+            } else if (first && doorType == DOOR_AJAR && this->actor.xzDistToPlayer > DOOR_AJAR_OPEN_RANGE) {
+                this->actionFunc = EnDoor_AjarOpen;
+            }
         }
     }
 }

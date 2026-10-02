@@ -381,18 +381,24 @@ void DoorShutter_WaitClear(DoorShutter* this, PlayState* play) {
         DoorShutter_SetupAction(this, DoorShutter_Open);
         this->dyna.actor.velocity.y = 0.0f;
     } else {
-        s32 doorDirection = DoorShutter_GetPlayerSide(this, play);
+        // ZMP: the door looks at every player standing at it, not only at the nearest (a fighter at the bars from
+        // inside kept its companions out, D-086)
+        s32 zmpIt = -1;
 
-        if (doorDirection != 0) {
-            Player* player = GET_PLAYER(play);
+        while (Zmp_DoorNextPlayer(play, &this->dyna.actor, &zmpIt)) {
+            s32 doorDirection = DoorShutter_GetPlayerSide(this, play);
 
-            if (Zmp_PlayerOutsideRoom(player, this->dyna.actor.room)) {
-                // ZMP (phase 5b): the bars keep the players of the fight in, they never keep a companion out
-                player->doorType = PLAYER_DOORTYPE_SLIDING;
-                player->doorDirection = doorDirection;
-                player->doorActor = &this->dyna.actor;
-            } else {
-                player->naviTextId = -0x202;
+            if (doorDirection != 0) {
+                Player* player = GET_PLAYER(play);
+
+                if (Zmp_PlayerOutsideRoom(player, this->dyna.actor.room)) {
+                    // ZMP (phase 5b): the bars keep the players of the fight in, they never keep a companion out
+                    player->doorType = PLAYER_DOORTYPE_SLIDING;
+                    player->doorDirection = doorDirection;
+                    player->doorActor = &this->dyna.actor;
+                } else {
+                    player->naviTextId = -0x202;
+                }
             }
         }
     }
@@ -416,26 +422,32 @@ void DoorShutter_Idle(DoorShutter* this, PlayState* play) {
             }
         }
     } else {
-        s32 doorDirection = DoorShutter_GetPlayerSide(this, play);
+        // ZMP: the door looks at every player standing at it, not only at the nearest (D-086); the two `return` of
+        // the original are `continue` (the loop must run to its end)
+        s32 zmpIt = -1;
 
-        if (doorDirection != 0) {
-            Player* player = GET_PLAYER(play);
-            if (GameInteractor_Should(VB_JABU_PREVENT_RUTO_REENTER_BIGOCTO, true, player, &this->dyna.actor)) {
-                if (this->unlockTimer != 0) {
-                    if (this->doorType == SHUTTER_BOSS) {
-                        if (!CHECK_DUNGEON_ITEM(DUNGEON_KEY_BOSS, gSaveContext.mapIndex)) {
-                            player->naviTextId = -0x204;
-                            return;
+        while (Zmp_DoorNextPlayer(play, &this->dyna.actor, &zmpIt)) {
+            s32 doorDirection = DoorShutter_GetPlayerSide(this, play);
+
+            if (doorDirection != 0) {
+                Player* player = GET_PLAYER(play);
+                if (GameInteractor_Should(VB_JABU_PREVENT_RUTO_REENTER_BIGOCTO, true, player, &this->dyna.actor)) {
+                    if (this->unlockTimer != 0) {
+                        if (this->doorType == SHUTTER_BOSS) {
+                            if (!CHECK_DUNGEON_ITEM(DUNGEON_KEY_BOSS, gSaveContext.mapIndex)) {
+                                player->naviTextId = -0x204;
+                                continue;
+                            }
+                        } else if (gSaveContext.inventory.dungeonKeys[gSaveContext.mapIndex] <= 0) {
+                            player->naviTextId = -0x203;
+                            continue;
                         }
-                    } else if (gSaveContext.inventory.dungeonKeys[gSaveContext.mapIndex] <= 0) {
-                        player->naviTextId = -0x203;
-                        return;
+                        player->doorTimer = 10;
                     }
-                    player->doorTimer = 10;
+                    player->doorType = PLAYER_DOORTYPE_SLIDING;
+                    player->doorDirection = doorDirection;
+                    player->doorActor = &this->dyna.actor;
                 }
-                player->doorType = PLAYER_DOORTYPE_SLIDING;
-                player->doorDirection = doorDirection;
-                player->doorActor = &this->dyna.actor;
             }
         }
     }

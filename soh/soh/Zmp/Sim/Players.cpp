@@ -410,6 +410,29 @@ int ContextSlot(const Actor* actor) {
             return who;
         }
     }
+    // A door that a player is going through runs with that player until it is through, whoever stands nearer (the
+    // door moves that player's camera and closes when that player is on the other side): D-086.
+    if (actor->id == ACTOR_EN_DOOR || actor->id == ACTOR_DOOR_SHUTTER) {
+        int who = -1;
+        f32 best = 0.0f;
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (!Present(j) || Slot(j).player->doorActor != actor ||
+                !(Slot(j).player->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE)) {
+                continue;
+            }
+            const Vec3f& a = actor->world.pos;
+            const Vec3f& b = Slot(j).player->actor.world.pos;
+            f32 dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+            f32 d = dx * dx + dy * dy + dz * dz;
+            if (who < 0 || d < best) {
+                best = d;
+                who = j;
+            }
+        }
+        if (who >= 0 && !Zmp_TestMutant("puerta_al_mas_cercano")) {
+            return who;
+        }
+    }
     k = NearestSlot(actor->world.pos);
     // A cutscene everybody watches is about one player (csTrigger): what runs during it acts on that player from
     // its first tick to its last, whoever stands nearer. The game's code gives "the player" an order when a scene
@@ -1555,6 +1578,47 @@ extern "C" s32 Zmp_PlayerOutsideRoom(Player* player, s32 room) {
     }
     int k = Zmp::Players::SlotOf(&player->actor);
     return Present(k) && Slot(k).room >= 0 && Slot(k).room != room ? 1 : 0;
+}
+
+// A door asks "is the player standing in front of me?" once per tick, and "the player" of an actor is the nearest
+// one: a player standing next to a door kept every other player from using it while it stood nearer (a fighter
+// leaning on the bars of a combat room from inside kept its companions out: D-086). The door asks about each player
+// near it instead. `it`: -1 before the first pass, then (the door's own context << 8 | next slot to look at).
+extern "C" s32 Zmp_DoorNextPlayer(PlayState* play, Actor* door, s32* it) {
+    const s32 kDone = 0x7FFFFFFF;
+    const f32 kNear = 300.0f; // (a door looks at a player within 50 units; this only skips who is far away)
+    if (*it == kDone) {
+        return 0;
+    }
+    if (*it < 0) {
+        // (mutation test: only the door's own context, the nearest player, as before D-086)
+        if (!Zmp_MultiActive() || !Present(gZmpSim.ctx) || gZmpSim.globalCs ||
+            Zmp_TestMutant("puerta_al_mas_cercano")) {
+            *it = kDone;
+        } else {
+            *it = (s32)gZmpSim.ctx << 8;
+        }
+        return 1;
+    }
+    int own = *it >> 8;
+    for (int k = *it & 0xFF; k < ZMP_MAX_PLAYERS; k++) {
+        if (k == own || !Present(k) || Slot(k).downed) {
+            continue;
+        }
+        const Vec3f& p = Slot(k).player->actor.world.pos;
+        f32 dx = door->world.pos.x - p.x, dy = door->world.pos.y - p.y, dz = door->world.pos.z - p.z;
+        if (dx * dx + dy * dy + dz * dz > kNear * kNear) {
+            continue;
+        }
+        SwitchTo(play, k);
+        *it = (own << 8) | (k + 1);
+        return 1;
+    }
+    if (Present(own)) {
+        SwitchTo(play, own);
+    }
+    *it = kDone;
+    return 0;
 }
 
 extern "C" s32 Zmp_ExitsLocked(void) {
