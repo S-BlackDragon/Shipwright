@@ -103,6 +103,8 @@ struct Wait {
 uint32_t sFrame = 0;
 std::deque<PadStep> sScript;
 int32_t sStepLeft = 0;
+bool sStepRead = false; // the local menu logic has read the pad with the current step (AdvanceScript)
+int sWaitedForRead = 0; // inputs sent while the current step waited for that read
 bool sScriptActive = false;
 RequestPtr sScriptReq; // answered when the script ends (null for input.set)
 uint32_t sInjectedFrames = 0;
@@ -208,6 +210,8 @@ void StartScript(std::deque<PadStep> steps, RequestPtr req) {
     sInjectedFrames = 0;
     sScriptActive = !sScript.empty();
     sStepLeft = sScriptActive ? sScript.front().frames : 0;
+    sStepRead = false;
+    sWaitedForRead = 0;
     if (!sScriptActive && sScriptReq) {
         EndScript(true);
     }
@@ -227,13 +231,24 @@ bool ScriptGoesToTheGroup() {
     return st.phase == Zmp::Lockstep::Phase::Running && !st.localInputBlocked;
 }
 
+// A step of the script is not over until this player's own menu logic has read the pad with it. The pause menu opens
+// and is driven by the local pad, read once per tick; the steps advance with the inputs sent, and when the PC is busy
+// two inputs go out between two ticks: a press of two steps was over before any tick had seen it, and the menu did not
+// open (the fast suite, D-083). A step waits for that read for at most a second of inputs (a game that is not playing
+// ticks reads nothing).
 void AdvanceScript() {
     const PadStep& step = sScript.front();
     sInjectedFrames++;
     if (step.frames <= 0) {
         return; // hold
     }
+    if (sStepLeft <= 1 && !sStepRead && ScriptBySend() && ScriptGoesToTheGroup() && sWaitedForRead < 20) {
+        sWaitedForRead++;
+        return;
+    }
     if (--sStepLeft <= 0) {
+        sStepRead = false;
+        sWaitedForRead = 0;
         sScript.pop_front();
         if (sScript.empty()) {
             EndScript(true);
@@ -265,6 +280,8 @@ void ApplyScriptInput(OSContPad* pads) {
         return; // hold
     }
     if (--sStepLeft <= 0) {
+        sStepRead = false;
+        sWaitedForRead = 0;
         sScript.pop_front();
         if (sScript.empty()) {
             // The pad of this frame is the last one; the game update that follows uses it.
@@ -730,6 +747,8 @@ void Dispatch(const RequestPtr& req) {
             resp["picture_at"] = Vec3(Zmp::Players::PictureAt());
             resp["do_action"] = gPlayState->interfaceCtx.unk_1F0;
             resp["light_effect_hidden"] = Zmp::Players::LightEffectHidden();
+            // (of the same picture as the line above: the simulation's value below may be a tick newer)
+            resp["light_adj_drawn"] = Zmp::Players::LightEffectDrawn();
             resp["light_adj"] = gPlayState->envCtx.adjAmbientColor[0];
             resp["light_ambient"] = gPlayState->lightCtx.ambientColor[0];
             resp["title_alpha"] = gPlayState->actorCtx.titleCtx.alpha;
@@ -1371,6 +1390,12 @@ void OnFrameBegin(uint32_t tick) {
 
 void ApplyInput(void* padsV) {
     ApplyScriptInput((OSContPad*)padsV);
+}
+
+void ScriptStepRead() {
+    if (sScriptActive) {
+        sStepRead = true;
+    }
 }
 
 bool ScriptPadForSend(uint32_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* rStickX, int8_t* rStickY) {

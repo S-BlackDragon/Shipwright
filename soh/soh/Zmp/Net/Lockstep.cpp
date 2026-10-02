@@ -775,6 +775,14 @@ void SendPendingInputs() {
         }
 #endif
         Send({ { "t", "INPUT" }, { "tick", sNextInputTick }, { "pad", json::binary(PadToBytes(sLastLocal)) } });
+#ifdef ZMP_HARNESS
+        if (sLastLocal.buttons != sLastSentButtons) {
+            char t[96];
+            snprintf(t, sizeof(t), "net: buttons 0x%X sent from the input of tick %u (group tick %u)",
+                     sLastLocal.buttons, sNextInputTick, next);
+            Log(t);
+        }
+#endif
         sLastSentButtons = sLastLocal.buttons;
         sNextInputTick++;
         // Accelerated tests (the clock of the lockstep N times faster): never faster than half of what this machine
@@ -1521,6 +1529,17 @@ void OnPadRead(void* padsV) {
     Sim::PadRecord anchorPad;
     for (auto& [slot, pad] : b.pads) {
         if (slot >= 0 && slot < ZMP_MAX_PLAYERS) {
+#ifdef ZMP_HARNESS
+            // (diagnosis: the ticks at which the buttons of this machine's player change in the simulation, next to
+            // the ticks they were sent for: an input that was sent and never played is seen at once)
+            static uint32_t sAppliedButtons = 0;
+            if (slot == sSlot && pad.buttons != sAppliedButtons) {
+                sAppliedButtons = pad.buttons;
+                char t[96];
+                snprintf(t, sizeof(t), "net: own buttons in the simulation 0x%X from tick %u", pad.buttons, tick);
+                Log(t);
+            }
+#endif
             Players::StepInput(slot, ToPad(pad));
             seen[slot] = true;
             if (slot == gZmpSim.anchor) {

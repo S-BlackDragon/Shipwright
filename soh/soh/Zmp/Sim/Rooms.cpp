@@ -479,7 +479,8 @@ struct SavedLight {
     LightInfo dir2;
 };
 SavedLight sSaved;
-bool sHideAdj = false; // this frame's picture ignores another player's own light effect (tests read it)
+bool sHideAdj = false;  // this frame's picture ignores another player's own light effect (tests read it)
+bool sDrawnAdj = false; // the lights were darkened by somebody's effect when this frame's picture was drawn
 
 u8 Clamp8(s16 v) {
     return (u8)(v > 255 ? 255 : (v < 0 ? 0 : v));
@@ -557,6 +558,7 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     bool hideAdj = adjusted && owner >= 0 && owner < ZMP_MAX_PLAYERS && owner != Zmp::Players::LocalSlot() &&
                    Zmp::Players::LocalSlot() >= 0;
     sHideAdj = hideAdj;
+    sDrawnAdj = adjusted;
     // Only the indoor light settings (picked by the floor) change per room; outdoor lighting follows the time of day.
     bool ownRoom = sLocal.valid && env->indoors && env->unk_BF == 0xFF &&
                    !(sLocal.index == env->unk_BD && sLocal.prev == env->unk_BE && sLocal.blend == env->unk_D8);
@@ -635,6 +637,10 @@ namespace Zmp::Players {
 
 bool LightEffectHidden() {
     return sHideAdj;
+}
+
+bool LightEffectDrawn() {
+    return sDrawnAdj;
 }
 
 int LocalLightSetting() {

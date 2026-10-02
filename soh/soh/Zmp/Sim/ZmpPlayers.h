@@ -544,6 +544,7 @@ bool LocalTextHidden();
 int SlotMsgMode(int slot);
 // Phase 5b: the last picture ignored the light effect of another player (its fairy, its spin attack charge).
 bool LightEffectHidden();
+bool LightEffectDrawn();
 int LocalBgImage();
 Vec3f PictureEye();
 Vec3f PictureAt();

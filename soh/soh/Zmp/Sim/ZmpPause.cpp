@@ -22,6 +22,7 @@
 
 #include "soh/Zmp/ZmpLog.h"
 #include "soh/Zmp/Net/Lockstep.h"
+#include "soh/Zmp/Harness/Harness.h"
 
 extern "C" {
 #include "variables.h"
@@ -67,6 +68,9 @@ bool SameEquips(const ItemEquips& a, const ItemEquips& b) {
 }
 
 void StepMenuInput() {
+#ifdef ZMP_HARNESS
+    Zmp::Harness::ScriptStepRead();
+#endif
     Input* in = &sMenuInput;
     in->prev = in->cur;
     in->cur = sLocalPad;

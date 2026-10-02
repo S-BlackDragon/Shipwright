@@ -27,6 +27,8 @@ void ApplyInput(void* pads);
 // a machine that is behind for a moment (a hiccup of a PC running many test instances) still gives each step of the
 // script to exactly as many ticks as the test wrote. False when no script is running (the pad read is used).
 bool ScriptPadForSend(uint32_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* rStickX, int8_t* rStickY);
+// The local menu logic read the pad this tick (a step of the script is not over before that).
+void ScriptStepRead();
 
 } // namespace Zmp::Harness
 

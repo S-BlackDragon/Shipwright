@@ -761,7 +761,39 @@ extern "C" void Zmp_SetContext(PlayState* play, s32 slot) {
     SwitchTo(play, slot);
 }
 
+// Diagnosis (test builds): who puts a player "in cutscene" or takes it out. Checked at every step of the tick; a
+// change is logged with what ran since the previous check.
+#ifdef ZMP_HARNESS
+namespace {
+u32 sCsBitSeen[ZMP_MAX_PLAYERS];
+char sCsLastStep[64] = "start";
+} // namespace
+static void TraceCutsceneFlag(PlayState* play, const char* step, const Actor* actor) {
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        u32 bit =
+            (Present(k) && Slot(k).player != nullptr) ? (Slot(k).player->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE) : 0;
+        if (bit != sCsBitSeen[k]) {
+            sCsBitSeen[k] = bit;
+            Zmp::Log("zmp: slot " + std::to_string(k) + (bit ? " IN CUTSCENE" : " out of cutscene") + " at frame " +
+                     std::to_string(play->gameplayFrames) + ", during: " + sCsLastStep + " (context slot " +
+                     std::to_string(gZmpSim.ctx) + ", anchor " + std::to_string(gZmpSim.anchor) + ", cs action " +
+                     std::to_string(Present(k) && Slot(k).player != nullptr ? Slot(k).player->csAction : -1) + ")");
+        }
+    }
+    if (actor != nullptr) {
+        snprintf(sCsLastStep, sizeof(sCsLastStep), "update of actor id %d (slot %d)", actor->id,
+                 Zmp::Players::SlotOf(actor));
+    } else {
+        snprintf(sCsLastStep, sizeof(sCsLastStep), "%s", step);
+    }
+}
+#else
+static void TraceCutsceneFlag(PlayState*, const char*, const Actor*) {
+}
+#endif
+
 extern "C" void Zmp_RestoreAnchor(PlayState* play) {
+    TraceCutsceneFlag(play, "after the anchor was restored", nullptr);
     sTraceActor = nullptr;
     sTracePhase = '-';
     if (!Zmp_MultiActive()) {
@@ -784,6 +816,7 @@ extern "C" void Zmp_RandTraceHit(void* caller) {
 }
 
 extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
+    TraceCutsceneFlag(play, "", actor);
     sTraceActor = actor;
     sTracePhase = 'U';
     int k = ContextSlot(actor);
@@ -800,6 +833,7 @@ extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
 }
 
 extern "C" void Zmp_UpdateAttentionAll(PlayState* play) {
+    TraceCutsceneFlag(play, "the attention update", nullptr);
     sTraceActor = nullptr;
     sTracePhase = 'A';
     ActorContext* actorCtx = &play->actorCtx;
@@ -832,6 +866,7 @@ extern "C" void Zmp_UpdateAttentionAll(PlayState* play) {
 }
 
 extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
+    TraceCutsceneFlag(play, "the cameras update", nullptr);
     int anchor = gZmpSim.anchor;
     for (int pass = 0; pass < 2; pass++) {
         for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
@@ -1644,6 +1679,7 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
 }
 
 extern "C" void Zmp_DrawBeginView(PlayState* play) {
+    TraceCutsceneFlag(play, "the draw (and whatever ran before the next tick's actors)", nullptr);
     sDrawBegun = false;
     sSfxRemapValid = false;
     sProjSlot.clear();
