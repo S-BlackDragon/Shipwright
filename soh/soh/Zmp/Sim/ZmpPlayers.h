@@ -307,6 +307,10 @@ s32 Zmp_ExitsLocked(void);
 // player's active camera while it runs: boss and scripted cutscenes) or belongs to one player (one-point cutscenes:
 // chests, item get, crawlspaces...).
 void Zmp_OnSubCameraCreated(PlayState* play, s16 camId);
+// z_camera.c read its table of camera values with a mode the camera's setting does not have (a bug: see there).
+void Zmp_OnInvalidCameraMode(s16 setting, s16 mode);
+// How many times since the game started (diagnostics and tests; never part of the simulation).
+u32 Zmp_InvalidCameraModeCount(void);
 void Zmp_OnePointBegin(PlayState* play, s16 csId, Actor* actor);
 void Zmp_OnePointEnd(void);
 // End of OnePointCutscene_Init (every path after Zmp_OnePointBegin).

@@ -439,6 +439,13 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
     ZmpPlayerSlot& s = Slot(k);
     memcpy(&s.camera, &play->mainCamera, sizeof(Camera));
     memcpy(&s.target, &play->actorCtx.targetCtx, sizeof(TargetContext));
+    // The copy is for what a camera needs to exist in this scene (its place in the play state, its view, the scene's
+    // camera data); what the anchor's camera is DOING is not this player's. It starts in the normal mode, as the
+    // game's own camera does when a scene loads: Camera_InitPlayerSettings below reads the table of the setting the
+    // room gives it with this mode, and a room with a fixed background gives the one setting that has only the
+    // normal mode (with the mode of an anchor who was talking, the read went past that table: D-080).
+    s.camera.mode = CAM_MODE_NORMAL;
+    s.camera.animState = 0;
     // Its own main camera, not queued behind the anchor's cutscenes (Cameras.cpp keeps the global ones).
     s.camera.status = CAM_STAT_ACTIVE;
     s.camera.childCamIdx = SUBCAM_FREE;
@@ -463,6 +470,18 @@ Player* SpawnPlayerActor(PlayState* play, int k, Vec3f pos, s16 yaw, s16 params,
             SwitchTo(play, anchor);
         }
         return nullptr;
+    }
+    {
+        // (diagnosis of a crash inside Camera_InitPlayerSettings when a Link appears: the camera this slot starts
+        // with is a copy of the anchor's; its setting and mode at this point decide which table the game reads)
+        const Camera& c = play->mainCamera;
+        Zmp::Log("zmp: slot " + std::to_string(k) + " spawns with camera setting " + std::to_string(c.setting) +
+                 " mode " + std::to_string(c.mode) + " (prev setting " + std::to_string(c.prevSetting) +
+                 ", bg cam index " + std::to_string(c.camDataIdx) + ", room mesh type " +
+                 std::to_string(play->roomCtx.curRoom.meshHeader != nullptr
+                                    ? (int)play->roomCtx.curRoom.meshHeader->base.type
+                                    : -1) +
+                 ", anchor " + std::to_string(anchor) + ", scene " + std::to_string(play->sceneNum) + ")");
     }
     Camera_InitPlayerSettings(&play->mainCamera, player);
     Camera_RequestMode(&play->mainCamera, CAM_MODE_NORMAL);

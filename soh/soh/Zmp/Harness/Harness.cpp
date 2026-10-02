@@ -692,6 +692,7 @@ void Dispatch(const RequestPtr& req) {
             // Phase 5b: the title card with the scene's name (running in the simulation) and whether this screen shows
             // it
             resp["play_inits"] = Zmp::Players::PlayInitCount();
+            resp["invalid_camera_modes"] = Zmp_InvalidCameraModeCount();
             resp["rupee_debt"] = gZmpSim.rupeeDebt;
             resp["bg_image"] = Zmp::Players::LocalBgImage();
             resp["hud_health"] = Zmp::Players::HudHealth();

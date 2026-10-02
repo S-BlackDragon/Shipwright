@@ -317,6 +317,20 @@ extern "C" s32 Zmp_OnePointHidesHud(void) {
     return sOnePointHidesHud ? 1 : 0;
 }
 
+namespace {
+uint32_t sInvalidCameraModes = 0;
+}
+
+extern "C" void Zmp_OnInvalidCameraMode(s16 setting, s16 mode) {
+    sInvalidCameraModes++;
+    Zmp::Log("zmp: INVALID CAMERA MODE: setting " + std::to_string(setting) + " has no mode " + std::to_string(mode) +
+             " (the game reads past that setting's table), " + std::to_string(sInvalidCameraModes) + " so far");
+}
+
+extern "C" u32 Zmp_InvalidCameraModeCount(void) {
+    return sInvalidCameraModes;
+}
+
 extern "C" void Zmp_OnSubCameraCreated(PlayState* play, s16 camId) {
     if (!IsSub(camId)) {
         return;

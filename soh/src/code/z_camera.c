@@ -724,6 +724,13 @@ void Camera_CopyDataToRegs(Camera* camera, s16 mode) {
         osSyncPrintf("camera: res: stat (%d/%d/%d)\n", camera->thisIdx, camera->setting, mode);
     }
 
+    // ZMP: the original only gets here with a mode its setting has. A table read with a mode the setting does not
+    // have reads past the setting's list of modes (found when a Link appeared with the camera mode of the player
+    // who was already in a room with a fixed background). It is counted and logged; tests require zero.
+    if (camera->setting < 0 || camera->setting >= CAM_SET_MAX || mode < 0 || mode >= CAM_MODE_MAX ||
+        !(sCameraSettings[camera->setting].validModes & (1 << mode))) {
+        Zmp_OnInvalidCameraMode(camera->setting, mode);
+    }
     values = sCameraSettings[camera->setting].cameraModes[mode].values;
 
     for (i = 0; i < sCameraSettings[camera->setting].cameraModes[mode].valueCnt; i++) {
