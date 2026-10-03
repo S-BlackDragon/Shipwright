@@ -3544,6 +3544,7 @@ void func_80836448(PlayState* play, Player* this, LinkAnimationHeader* anim) {
 
         if (Inventory_ConsumeFairy(play)) {
             play->gameOverCtx.state = GAMEOVER_REVIVE_START;
+            Zmp_OnFairyRevive(play, this); // ZMP: the revive's darkening and bars are this player's screen's
             this->av1.actionVar1 = 1;
         } else {
             play->gameOverCtx.state = GAMEOVER_DEATH_START;

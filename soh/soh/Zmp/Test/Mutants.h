@@ -28,6 +28,8 @@
 //                          appear under another player, who leaves through it without stepping in
 //   portal_del_fundador    a group founded in place starts with the blue warp's player at slot 0 (D-099): in that
 //                          scene the warp acts only on slot 0 while it is there
+//   hada_de_todos          nothing records who is reviving with a fairy (finding AB): its darkening, its black bars
+//                          and its black fill are drawn on every screen once the group has a "nobody" owner
 //   menu_sin_dibujo        the pause menu does not run its draw in the frames that capture the pause background
 //                          again (D-085): with no frame rendered since START the game closes when the menu opens
 //   puerta_al_mas_cercano  a door attends only the nearest player (D-086): a fighter standing at the bars of a

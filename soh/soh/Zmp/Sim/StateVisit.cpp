@@ -252,6 +252,8 @@ void VisitZmp(Visitor& v) {
     v.U("age_pending", gZmpSim.agePending);
     v.S("title_for", gZmpSim.titleFor);
     v.S("adj_owner", gZmpSim.adjOwner);
+    // (finding AB; not hashed, so that the phase 1 recordings keep their hashes: it travels with the structure)
+    v.Info("~revive_by", (float)gZmpSim.reviveBy);
     v.U("refresh_pending", gZmpSim.refreshPending);
     v.S("rupee_debt", gZmpSim.rupeeDebt);
     v.S("pause_owner", gZmpSim.pauseOwner);

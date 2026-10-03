@@ -752,6 +752,12 @@ void Dispatch(const RequestPtr& req) {
             resp["light_effect_hidden"] = Zmp::Players::LightEffectHidden();
             // (of the same picture as the line above: the simulation's value below may be a tick newer)
             resp["light_adj_drawn"] = Zmp::Players::LightEffectDrawn();
+            // Finding AB: whose effect that picture took the darkening for, the simulation's owner now, who is
+            // reviving with a fairy, and the black bars that picture was cut with
+            resp["light_owner_drawn"] = Zmp::Players::LightEffectOwner();
+            resp["adj_owner"] = gZmpSim.adjOwner;
+            resp["fairy_reviver"] = Zmp::Players::FairyReviver(gPlayState);
+            resp["drawn_letterbox"] = Zmp::Players::DrawnLetterbox();
             resp["light_adj"] = gPlayState->envCtx.adjAmbientColor[0];
             resp["light_ambient"] = gPlayState->lightCtx.ambientColor[0];
             resp["title_alpha"] = gPlayState->actorCtx.titleCtx.alpha;

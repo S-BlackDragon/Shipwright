@@ -55,6 +55,7 @@ struct LocalScreen {
 LocalScreen sL;
 
 int sFlashOwner = -1;
+s32 sDrawnBars = 0; // the black bars the last picture was cut with (tests read it)
 
 bool sBarsSwapped = false;
 s32 sBarsKeep = 0;
@@ -98,8 +99,16 @@ void LocalHudMode(u16 mode) {
 
 // An event everybody watches with the shared letterbox and HUD: a global cutscene, the group's game over, a scene
 // change.
+// Another player is reviving with a fairy (finding AB): the game over context is busy with that player alone, and its
+// black bars, darkening and black fill are not this screen's.
+bool OtherRevives(PlayState* play) {
+    int k = Zmp::Players::FairyReviver(play);
+    return k >= 0 && k != Local() && Local() >= 0;
+}
+
 bool GroupEvent(PlayState* play) {
-    return gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE || play->gameOverCtx.state != GAMEOVER_INACTIVE ||
+    return gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE ||
+           (play->gameOverCtx.state != GAMEOVER_INACTIVE && !OtherRevives(play)) ||
            play->transitionMode != TRANS_MODE_OFF;
 }
 
@@ -247,13 +256,20 @@ extern "C" void Zmp_DrawPresentBegin(PlayState* play) {
     EnsureInit(play);
     StepLocal(play);
     s32 shared = (s32)ShrinkWindow_GetCurrentVal();
-    s32 want = std::max(shared, sL.lbCur);
+    // (finding AB: the bars another player's fairy revive asks for are its screen's)
+    bool otherRevives = OtherRevives(play) && !GroupEvent(play);
+    s32 want = otherRevives ? sL.lbCur : std::max(shared, sL.lbCur);
+    sDrawnBars = want;
     if (want != shared) {
         sBarsKeep = shared;
         ShrinkWindow_SetCurrentVal(want);
         sBarsSwapped = true;
     }
-    if (play->actorCtx.freezeFlashTimer > 0 && play->envCtx.fillScreen && sFlashOwner >= 0 && sFlashOwner != Local()) {
+    // The white flash of another player's finishing blow, and the black fill of the game over lights of another
+    // player's fairy revive in a room with a fixed camera (z_kankyo.c, Environment_FadeInGameOverLights), are not
+    // drawn here.
+    if (play->envCtx.fillScreen &&
+        ((play->actorCtx.freezeFlashTimer > 0 && sFlashOwner >= 0 && sFlashOwner != Local()) || otherRevives)) {
         sFlashKeep = play->envCtx.fillScreen;
         play->envCtx.fillScreen = false;
         sFlashSwapped = true;
@@ -317,6 +333,10 @@ void PresentReset() {
 
 int LocalLetterbox() {
     return sL.init ? sL.lbCur : 0;
+}
+
+int DrawnLetterbox() {
+    return sDrawnBars;
 }
 
 int LocalHudMode() {

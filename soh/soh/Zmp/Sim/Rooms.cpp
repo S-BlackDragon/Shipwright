@@ -483,6 +483,7 @@ bool sHideAdj = false;  // this frame's picture ignores another player's own lig
 int sDrawnWater = -1;   // the water light setting this frame's picture was drawn with (-1: none; tests read it)
 u8 sDrawnLight[6];      // the fog and ambient colours this frame's picture was drawn with (tests read them)
 bool sDrawnAdj = false; // the lights were darkened by somebody's effect when this frame's picture was drawn
+int sDrawnOwner = -1;   // whose effect this frame's picture took the darkening for (-1: the world's; tests read it)
 
 u8 Clamp8(s16 v) {
     return (u8)(v > 255 ? 255 : (v < 0 ? 0 : v));
@@ -552,8 +553,11 @@ extern "C" void Zmp_DrawLightBegin(PlayState* play) {
     EnvironmentContext* env = &play->envCtx;
     LightContext* lc = &play->lightCtx;
     // Phase 5b: the darkening of another player's own effect (the fairy that revives it, its spin attack) is not
-    // drawn here.
-    int owner = gZmpSim.adjOwner;
+    // drawn here. While a player revives with a fairy, the darkening is the game over lights' and it is that
+    // player's (finding AB): an effect of anybody else meanwhile cannot be told apart in the one set of adjustments.
+    int reviver = Zmp::Players::FairyReviver(play);
+    int owner = reviver >= 0 ? reviver : gZmpSim.adjOwner;
+    sDrawnOwner = owner;
     bool adjusted = env->adjFogNear != 0 || env->adjFogFar != 0;
     for (int i = 0; i < 3; i++) {
         adjusted = adjusted || env->adjAmbientColor[i] != 0 || env->adjLight1Color[i] != 0 || env->adjFogColor[i] != 0;
@@ -678,6 +682,10 @@ bool LightEffectHidden() {
 
 bool LightEffectDrawn() {
     return sDrawnAdj;
+}
+
+int LightEffectOwner() {
+    return sDrawnOwner;
 }
 
 int LocalLightSetting() {

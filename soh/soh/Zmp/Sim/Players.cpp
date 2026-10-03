@@ -1010,6 +1010,26 @@ extern "C" void Zmp_OnLightAdjust(PlayState* play) {
     gZmpSim.adjOwner = personal ? gZmpSim.ctx : (s8)-1;
 }
 
+extern "C" void Zmp_OnFairyRevive(PlayState* play, Player* player) {
+    (void)play;
+    // (mutation test, "hada_de_todos": nothing records whose revive it is, as before finding AB)
+    if (!Zmp_MultiActive() || Zmp_TestMutant("hada_de_todos")) {
+        return;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    gZmpSim.reviveBy = (u8)(Valid(k) ? k + 1 : 0);
+    if (Valid(k)) {
+        // (the lights are darkened by the game over lights, not by Environment_AdjustLights: the effect is this
+        // player's from now on, as a fairy's or a spin attack's)
+        gZmpSim.adjOwner = (s8)k;
+    }
+}
+
+extern "C" Player* Zmp_GameOverLightPlayer(PlayState* play) {
+    int k = Zmp::Players::FairyReviver(play);
+    return k >= 0 ? Slot(k).player : GET_PLAYER(play);
+}
+
 extern "C" s32 Zmp_MessageUpdateDuringRevive(PlayState* play) {
     if (!Zmp_MultiActive() || gZmpSim.groupDefeat) {
         return 0;
@@ -2679,6 +2699,18 @@ int SlotReviveProgress(int slot) {
 
 int SlotReviver(int slot) {
     return Valid(slot) ? Slot(slot).reviver : -1;
+}
+
+int FairyReviver(PlayState* play) {
+    if (!Zmp_MultiActive() || play == nullptr || gZmpSim.reviveBy == 0) {
+        return -1;
+    }
+    u16 st = play->gameOverCtx.state;
+    if (st < GAMEOVER_REVIVE_START || st > GAMEOVER_REVIVE_FADE_OUT) {
+        return -1; // (no game over, or the whole group's: everybody's)
+    }
+    int k = gZmpSim.reviveBy - 1;
+    return Present(k) ? k : -1;
 }
 
 void RunInContext(int slot, void (*fn)(void*), void* arg) {

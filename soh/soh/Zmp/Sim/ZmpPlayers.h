@@ -185,7 +185,12 @@ typedef struct {
     s8 adjOwner;
     // Phase 5b: this group's scene has to be loaded again in place (see SharedGame.cpp, kSceneFlags).
     u8 refreshPending;
-    u8 pad6[2];
+    // Finding AB: 1 + the player reviving with a fairy (0: nobody). The darkening of the game over lights, their black
+    // fill in a room with a fixed camera and the black bars are its screen's; the point lights follow its Link. Only
+    // read while the game over context is in a revive state. Stored as 1 + slot so that "nobody" is the zero every
+    // reset of this structure leaves (the trap of finding Z).
+    u8 reviveBy;
+    u8 pad6;
     // Phase 5b: rupees the room spent beyond what it had (two groups buying at the same moment); shown as zero
     // rupees and paid off by the next ones.
     s16 rupeeDebt;
@@ -245,6 +250,12 @@ s32 Zmp_AgeSwapAll(PlayState* play);
 // starts) and z_actor.c (TitleCard_Draw).
 // z_kankyo.c, Environment_AdjustLights: whose effect it is (see adjOwner).
 void Zmp_OnLightAdjust(PlayState* play);
+// z_player.c: `player` dies with a fairy in a bottle and the game over context starts its revive (finding AB). The
+// original darkens the scene's lights with the game over lights (z_kankyo.c, Environment_FadeInGameOverLights), not
+// with Environment_AdjustLights, so nothing said whose it was: everybody saw it once the group had changed scene.
+void Zmp_OnFairyRevive(PlayState* play, Player* player);
+// z_kankyo.c, the game over lights: the Link they light (the one reviving with a fairy; else GET_PLAYER).
+Player* Zmp_GameOverLightPlayer(PlayState* play);
 // z_camera.c, Camera_UpdateWater, instead of Environment_EnableUnderwaterLights / Environment_DisableUnderwaterLights
 // (finding Y). The original has one camera: when its eye goes under water the scene's lights change to the water's,
 // and when it comes out they go back to what a file static remembered. In multiplayer every player has a camera and
@@ -575,6 +586,12 @@ int SlotMsgMode(int slot);
 // Phase 5b: the last picture ignored the light effect of another player (its fairy, its spin attack charge).
 bool LightEffectHidden();
 bool LightEffectDrawn();
+// The owner of the light effect the last picture was judged with (-1: the world's, everybody sees it).
+int LightEffectOwner();
+// The player reviving with a fairy now (finding AB), or -1 (nobody, or a game over of the whole group).
+int FairyReviver(PlayState* play);
+// The black bars the last picture was cut with.
+int DrawnLetterbox();
 int LocalBgImage();
 Vec3f PictureEye();
 Vec3f PictureAt();
