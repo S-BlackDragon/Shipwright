@@ -439,12 +439,13 @@ int ContextSlot(const Actor* actor) {
     // starts and another when it ends (Gohma's death: wait, then go on); with the nearest player the second order
     // could reach somebody else and the player of the scene waited for ever (finding K, D-084).
 #ifdef ZMP_HARNESS
-    // (diagnosis: how often the nearest player to a boss is not the player of the scene; once per scene and player)
-    static int sNearestLogged = -1;
+    // (diagnosis: how often the nearest player to a boss is not the player of the scene; once per scene and player:
+    // a mask of the slots already written, so that two players taking turns as the nearest do not fill the log)
+    static int sNearestLogged = 0;
     if (!gZmpSim.globalCs) {
-        sNearestLogged = -1;
-    } else if (actor->category == ACTORCAT_BOSS && k >= 0 && k != gZmpSim.csTrigger && k != sNearestLogged) {
-        sNearestLogged = k;
+        sNearestLogged = 0;
+    } else if (actor->category == ACTORCAT_BOSS && k >= 0 && k != gZmpSim.csTrigger && !(sNearestLogged & (1 << k))) {
+        sNearestLogged |= 1 << k;
         Zmp::Log("zmp: K: the scene is about slot " + std::to_string(gZmpSim.csTrigger) +
                  " and the nearest player to boss actor " + std::to_string(actor->id) + " is slot " +
                  std::to_string(k));
@@ -1631,6 +1632,31 @@ extern "C" s32 Zmp_DoorNextPlayer(PlayState* play, Actor* door, s32* it) {
     return 0;
 }
 
+// Gohma's blue warp appears at a random place of the arena, never within 100 units (along x and along z) of "the
+// player": in the original that keeps it from appearing under Link, who would be taken without stepping into it.
+// With several players it could appear right where another one stood, and that one left the scene through it
+// without having moved (finding Z, D-099). 1 when a present player other than `except` stands in that box.
+extern "C" s32 Zmp_OtherPlayerInBoxXZ(Player* except, f32 x, f32 z, f32 half) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("portal_sobre_companero")) { // (mutation test: as before D-099)
+        return 0;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Present(k) || Slot(k).player == except) {
+            continue;
+        }
+        const Vec3f& p = Slot(k).player->actor.world.pos;
+        if (fabsf(p.x - x) < half && fabsf(p.z - z) < half) {
+#ifdef ZMP_HARNESS
+            // (diagnosis: how often the natural game meets the situation; the original's rule had accepted this place)
+            Zmp::Log("zmp: Z: the blue warp would have appeared at (" + std::to_string((int)x) + ", " +
+                     std::to_string((int)z) + "), on slot " + std::to_string(k) + "; another place is chosen");
+#endif
+            return 1;
+        }
+    }
+    return 0;
+}
+
 extern "C" s32 Zmp_ExitsLocked(void) {
     return Zmp_MultiActive() && gZmpSim.exitsLocked;
 }
@@ -2248,6 +2274,14 @@ bool Found(int slot) {
     gZmpSim.loadingRoom = -1;
     gZmpSim.setupRoom = -1;
     gZmpSim.queuedRoomCount = 0;
+    // "Nobody" is -1, as Zmp_PlayInitBegin leaves them after every scene load. The memset above left them at 0 (slot
+    // 0) until the first scene change: in the scene the group was founded in, a blue warp acted only on slot 0 and
+    // nobody else could take it while slot 0 was there (finding Z, D-099).
+    gZmpSim.transitionBy = -1;
+    gZmpSim.warpOwner = Zmp_TestMutant("portal_del_fundador") ? 0 : -1; // (mutation test: as before D-099)
+    gZmpSim.inviteBy = -1;
+    gZmpSim.titleFor = -1;
+    gZmpSim.adjOwner = -1;
     gZmpCtxPlayer = player;
     Log("zmp: multiplayer simulation founded, slot " + std::to_string(slot));
     return true;

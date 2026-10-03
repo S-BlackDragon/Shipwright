@@ -310,6 +310,9 @@ void Zmp_NoteTransitionBy(Player* player);
 void Zmp_WarpBegin(Player* player);
 void Zmp_WarpTransition(Player* player);
 s32 Zmp_WarpIsShared(void);
+// Gohma's blue warp (z_boss_goma.c) is placed away from "the player"; this says whether another present player stands
+// within `half` of (x, z) along both axes, so that it does not appear under that one either (finding Z, D-099).
+s32 Zmp_OtherPlayerInBoxXZ(Player* except, f32 x, f32 z, f32 half);
 // Phase 5b, barred doors (z_door_shutter.c): 1 when this player stands in another room than `room` (the room whose
 // fight closed the bars): the door lets it in.
 s32 Zmp_PlayerOutsideRoom(Player* player, s32 room);

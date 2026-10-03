@@ -425,6 +425,7 @@ json ActorsJson(const json& cmd) {
                 const BossGoma* g = (const BossGoma*)a;
                 list.back()["goma_action"] = (uint64_t)((uintptr_t)g->actionFunc - (uintptr_t)&__ImageBase);
                 list.back()["goma_state"] = g->actionState;
+                list.back()["goma_timer"] = g->timer;
                 list.back()["goma_children"] = { g->childrenGohmaState[0], g->childrenGohmaState[1],
                                                  g->childrenGohmaState[2] };
             }

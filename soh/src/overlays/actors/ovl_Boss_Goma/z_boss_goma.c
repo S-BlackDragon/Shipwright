@@ -1151,7 +1151,10 @@ void BossGoma_Defeated(BossGoma* this, PlayState* play) {
                     if ((fabsf(childPos.x - player->actor.world.pos.x) < 100.0f &&
                          fabsf(childPos.z - player->actor.world.pos.z) < 100.0f) ||
                         (fabsf(childPos.x - this->actor.world.pos.x) < 150.0f &&
-                         fabsf(childPos.z - this->actor.world.pos.z) < 150.0f)) {
+                         fabsf(childPos.z - this->actor.world.pos.z) < 150.0f) ||
+                        // ZMP: nor where another player stands (the warp would take it without it stepping in:
+                        // finding Z, D-099). For the first half of the tries; then only the original's rule.
+                        (i < 5000 && Zmp_OtherPlayerInBoxXZ(player, childPos.x, childPos.z, 100.0f))) {
                         childPos.x = Rand_CenteredFloat(400.0f) + -150.0f;
                         childPos.z = Rand_CenteredFloat(400.0f) + -350.0f;
                     } else {

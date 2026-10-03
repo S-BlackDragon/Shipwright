@@ -431,6 +431,31 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: set the health of the first actor with that id (tests)",
                           { { "actor_id", Ship::ArgumentType::TEXT }, { "health", Ship::ArgumentType::TEXT } } });
+    // Tests (a lockstep event): put the first actor with that id at x y z (finding Z: Gohma's body away from the
+    // centre of her arena, so that where her blue warp appears is known).
+    console->AddCommand("zmp_actor_pos",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 5 || gPlayState == nullptr) {
+                                 return 1;
+                             }
+                             int id = std::stoi(args[1], nullptr, 0);
+                             Vec3f pos = { std::stof(args[2]), std::stof(args[3]), std::stof(args[4]) };
+                             for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
+                                 for (Actor* a = gPlayState->actorCtx.actorLists[cat].head; a != nullptr; a = a->next) {
+                                     if (a->id == id) {
+                                         a->world.pos = pos;
+                                         a->prevPos = pos;
+                                         return 0;
+                                     }
+                                 }
+                             }
+                             return 1;
+                         },
+                          "ZMP: put the first actor with that id at x y z (tests)",
+                          { { "actor_id", Ship::ArgumentType::TEXT },
+                            { "x", Ship::ArgumentType::TEXT },
+                            { "y", Ship::ArgumentType::TEXT },
+                            { "z", Ship::ArgumentType::TEXT } } });
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {
