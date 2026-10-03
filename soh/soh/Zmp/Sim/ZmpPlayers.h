@@ -269,11 +269,12 @@ s32 Zmp_OnUnderwaterLights(PlayState* play, s32 waterLightsIndex);
 // camera it is (before, on every PC, and it was the camera of the first player of the scene that decided).
 s32 Zmp_HearsCameraWater(Camera* camera);
 // z_play.c: while a player revives with a fairy (the game over context is busy with it) the text boxes of the other
-// players go on. Returns 0 outside a session.
-s32 Zmp_MessageUpdateDuringRevive(PlayState* play);
+// players go on. Returns 0 outside a session. actorsFrozen: the actors did not run in this tick (a hit's or a finishing
+// blow's freeze): the text boxes wait too (finding AG, D-104).
+s32 Zmp_MessageUpdateDuringRevive(PlayState* play, s32 actorsFrozen);
 void Zmp_OnTitleCard(void);
 s32 Zmp_TitleCardHidden(void);
-s32 Zmp_MessageUpdateAll(PlayState* play);
+s32 Zmp_MessageUpdateAll(PlayState* play, s32 actorsFrozen);
 s32 Zmp_MessageDrawAll(PlayState* play);
 // Phase 5b, one ocarina per player (code_800EC960.c): every player's ocarina is updated with its own input (returns
 // 0 outside a session), and whether the ocarina in context is the one this machine's audio plays.

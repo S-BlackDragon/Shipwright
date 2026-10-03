@@ -1030,9 +1030,33 @@ extern "C" Player* Zmp_GameOverLightPlayer(PlayState* play) {
     return k >= 0 ? Slot(k).player : GET_PLAYER(play);
 }
 
-extern "C" s32 Zmp_MessageUpdateDuringRevive(PlayState* play) {
+namespace {
+#ifdef ZMP_HARNESS
+int sHitOnClose = -1; // (tests: zmp_hit_on_close; a lockstep event, so the same on every machine)
+#endif
+
+// Finding AG (D-104): a hit or a finishing blow freezes the world for 1 to 4 ticks (play->actorCtx.freezeFlashTimer:
+// the actors do not run). The original kept updating its one text box meanwhile: its player could not be reading and
+// fighting at once. With a text box per player, a companion's sword hit could freeze the tick in which a reader's box
+// shows "closing" (one tick only, Message_GetState): that Link never saw it and stayed holding its item for ever, and
+// the enemies near it with it (Gohma, in the red of campana_ac). The text boxes now wait while the world is frozen.
+bool TextBoxesWaitForFrozenWorld(s32 actorsFrozen) {
+    return actorsFrozen && !Zmp_TestMutant("texto_sin_esperar"); // (mutation test: as before D-104)
+}
+} // namespace
+
+#ifdef ZMP_HARNESS
+extern "C" void Zmp_TestHitOnClose(s32 slot) {
+    sHitOnClose = slot;
+}
+#endif
+
+extern "C" s32 Zmp_MessageUpdateDuringRevive(PlayState* play, s32 actorsFrozen) {
     if (!Zmp_MultiActive() || gZmpSim.groupDefeat) {
         return 0;
+    }
+    if (TextBoxesWaitForFrozenWorld(actorsFrozen)) {
+        return 1;
     }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         if (Present(k) && !(Slot(k).player->stateFlags1 & PLAYER_STATE1_DEAD)) {
@@ -1097,14 +1121,58 @@ extern "C" s32 Zmp_OcarinaUpdateAll(void) {
     return 1;
 }
 
-extern "C" s32 Zmp_MessageUpdateAll(PlayState* play) {
+extern "C" s32 Zmp_MessageUpdateAll(PlayState* play, s32 actorsFrozen) {
     if (!Zmp_MultiActive()) {
         return 0;
+    }
+    if (TextBoxesWaitForFrozenWorld(actorsFrozen)) {
+#ifdef ZMP_HARNESS
+        // (diagnosis: how often a natural game meets finding AG; before D-104 this Link would have missed its text's
+        // end)
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            const MessageContext* m = Present(k) ? SlotMsg(k) : nullptr;
+            Player* pl = Present(k) ? Slot(k).player : nullptr;
+            if (m != nullptr && pl != nullptr && m->msgMode == MSGMODE_TEXT_CLOSING && m->stateTimer == 1 &&
+                (pl->stateFlags1 & PLAYER_STATE1_GETTING_ITEM)) {
+                Zmp::Log("zmp: AG: the world is frozen in the last tick of slot " + std::to_string(k) +
+                         "'s text box; the box waits (tick " + std::to_string(Zmp::Sim::CurrentTick()) + ")");
+            }
+        }
+#endif
+        return 1;
     }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         if (Present(k)) {
             SwitchTo(play, k);
+#ifdef ZMP_HARNESS
+            // (diagnosis, finding AG: a Link that got an item leaves its pose only in the one tick its text box shows
+            // "closing"; the actors of this tick have run: if the box shows it now and the Link still holds the item,
+            // the Link missed it and stays in the pose for ever)
+            Player* pl = Slot(k).player;
+            if (play->msgCtx.msgMode == MSGMODE_TEXT_CLOSING && play->msgCtx.stateTimer == 1 && pl != nullptr &&
+                (pl->stateFlags1 & PLAYER_STATE1_GETTING_ITEM) && pl->getItemId != GI_NONE) {
+                Zmp::Log("zmp: AG: slot " + std::to_string(k) +
+                         "'s text box closes and its Link did not see it (get "
+                         "item " +
+                         std::to_string(pl->getItemId) + ", anim frame " + std::to_string((int)pl->skelAnime.curFrame) +
+                         "/" + std::to_string((int)pl->skelAnime.endFrame) + ", tick " +
+                         std::to_string(Zmp::Sim::CurrentTick()) + ")");
+            }
+#endif
             Message_Update(play);
+#ifdef ZMP_HARNESS
+            // Test (zmp_hit_on_close): a sword hit somewhere in the world in the tick before this box's last one
+            // (the freeze of one tick a hit asks for, as func_80832630 does), so that the actors do not run in the
+            // tick this Link should see the box close (finding AG).
+            if (sHitOnClose == k && play->msgCtx.msgMode == MSGMODE_TEXT_CLOSING && play->msgCtx.stateTimer == 1) {
+                sHitOnClose = -1;
+                if (play->actorCtx.freezeFlashTimer == 0) {
+                    play->actorCtx.freezeFlashTimer = 1;
+                }
+                Zmp::Log("zmp: test: a hit freezes the world in the last tick of slot " + std::to_string(k) +
+                         "'s text box (tick " + std::to_string(Zmp::Sim::CurrentTick()) + ")");
+            }
+#endif
         }
     }
     SwitchTo(play, gZmpSim.anchor);
