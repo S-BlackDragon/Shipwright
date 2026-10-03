@@ -696,6 +696,7 @@ static uint64_t qpc_to_100ns(uint64_t qpc) {
 
 void GfxWindowBackendSDL2::SyncFramerateWithTime() const {
     uint64_t t = qpc_to_100ns(SDL_GetPerformanceCounter());
+    const uint64_t zmpWaitFrom = t; // ZMP: the limiter's wait is counted (Fast3dWindow.h)
 
     const int64_t next = previous_time + 10 * FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR;
     int64_t left = next - t;
@@ -728,6 +729,7 @@ void GfxWindowBackendSDL2::SyncFramerateWithTime() const {
         t = qpc_to_100ns(SDL_GetPerformanceCounter());
     }
 #endif
+    gZmpFramePacingWaitUs += t > zmpWaitFrom ? (t - zmpWaitFrom) / 10 : 0; // ZMP
     if (left > 0 && t - next < 10000) {
         // In case it takes some time for the application to wake up after sleep,
         // or inaccurate mTimer,

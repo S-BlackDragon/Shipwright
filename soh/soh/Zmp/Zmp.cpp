@@ -32,6 +32,7 @@
 #include "ZmpLog.h"
 #include "Harness/Harness.h"
 #include "Net/ZmpClient.h"
+#include "Net/Lockstep.h"
 #include "Sim/Session.h"
 #include "State/FixedHeap.h"
 #include "State/ResourceSlots.h"
@@ -1059,4 +1060,7 @@ extern "C" void Zmp_AfterRender(void) {
         memcpy(sMatrixStackBackup, sMatrixBackup, sizeof(sMatrixBackup));
         Matrix_ZmpSetPointers(sMatrixStackBackup, sMatrixCurrentBackup);
     }
+#ifdef ZMP_HARNESS
+    Zmp::Lockstep::BurnTestFrameCost(); // (D-101: a test can make every frame of this machine cost more)
+#endif
 }

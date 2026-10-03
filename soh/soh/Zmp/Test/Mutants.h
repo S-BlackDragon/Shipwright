@@ -50,6 +50,11 @@
 //                          good, and who enters the group meanwhile differs from the rest (resynchronization)
 //   entrada_sin_adelanto   a player entering a group sends its inputs no earlier when they arrive late (D-094): over
 //                          a connection with latency its Link can take many seconds to appear
+//   ritmo_sin_dibujo       the accelerated clock of the tests paces itself on the simulation of a tick alone, without
+//                          its frame (D-101): a PC busy drawing cannot follow the group, and whoever enters never
+//                          catches up (test builds only: the accelerated clock exists only there)
+//   captura_por_ventana    a screenshot asks the desktop for the game's window (finding AD, D-102): a window the
+//                          desktop does not show is "not found", or its capture is whatever the screen has there
 
 #ifdef __cplusplus
 extern "C" {

@@ -103,3 +103,10 @@ class Fast3dWindow : public Ship::Window {
     std::shared_ptr<GfxDebugger> mGfxDebugger;
 };
 } // namespace Fast
+
+// ZMP: (1) microseconds the window backend has spent in its frame-rate limiter since the process started (written and
+// read on the game thread); (2) called with the DXGI swap chain (IDXGISwapChain1*) right before every present, null
+// when nobody needs it. ZMP test builds use the first to know what a tick really costs on this machine and the second
+// to take screenshots from the frame itself, whatever the desktop is doing with the window.
+extern uint64_t gZmpFramePacingWaitUs;
+extern void (*gZmpBeforePresent)(void* dxgiSwapChain1);
