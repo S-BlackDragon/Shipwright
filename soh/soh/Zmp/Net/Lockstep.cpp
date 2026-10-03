@@ -2,6 +2,7 @@
 #include "soh/Zmp/Test/Mutants.h"
 #ifdef ZMP_HARNESS
 #include "soh/Zmp/Harness/Harness.h"
+#include "soh/Zmp/Harness/Scenario.h"
 #endif
 
 #include <chrono>
@@ -1073,6 +1074,13 @@ void ResumeHealthInContext(void* p) {
 }
 
 bool ApplyGameEvent(int slot, const std::string& cmd) {
+#ifdef ZMP_HARNESS
+    if (cmd.rfind("zmp_stage ", 0) == 0) {
+        // Phase 6 tests: a scenario (items, hearts, magic, flags, keys of a dungeon room) set up for the whole group.
+        Zmp::Harness::ApplyStageEvent(slot, cmd);
+        return true;
+    }
+#endif
     if (cmd.rfind("zmp_exit ", 0) == 0) {
         // Tests (phase 5): the sender's Link walks into an exit to that entrance (same effect as the collision exit:
         // the transition is its own).

@@ -4072,3 +4072,45 @@ void BossVa_Reset(void) {
         sBodyBari[i] = 0;
     }
 }
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls these). The fight's progress lives in the
+// statics of this file (they travel in the state, SHIP_SAVESTATE above): the harness reads them, and a scenario can
+// skip the first three phases (supports cut, every Bari dead) or set the hits left in the last one.
+void BossVa_ZmpDebug(s32* out) {
+    out[0] = sFightPhase;
+    out[1] = sCsState;
+    out[2] = sPhase4HP;
+    out[3] = sBodyState;
+    out[4] = sKillBari;
+    out[5] = sDoorState;
+}
+
+// what 0: every support, zapper and Bari goes away and the body goes on to its last phase (it gets there at the end of
+// its current animation, through the original phase changes; BossVa_SetupBodyPhase4 then sets 4 hits). what 1: the
+// body, already in its last phase, is in the last of its three rounds with `value` hits left (the next hits kill it).
+// Returns 0 when it does nothing (no battle running, or not in the last phase yet).
+s32 BossVa_ZmpStage(PlayState* play, s32 what, s32 value) {
+    s32 cat;
+    Actor* a;
+
+    if (sCsState != BOSSVA_BATTLE) {
+        return 0;
+    }
+    if (what == 0) {
+        for (cat = 0; cat < ACTORCAT_MAX; cat++) {
+            for (a = play->actorCtx.actorLists[cat].head; a != NULL; a = a->next) {
+                if (a->id == ACTOR_BOSS_VA && a->params >= BOSSVA_SUPPORT_1 && a->params <= BOSSVA_BARI_LOWER_5) {
+                    Actor_Kill(a);
+                }
+            }
+        }
+        sFightPhase = PHASE_4;
+        return 1;
+    }
+    if (what == 1 && sFightPhase >= PHASE_4 && sFightPhase < PHASE_DEATH && sBodyState != 0) {
+        sFightPhase = PHASE_DEATH - 1;
+        sPhase4HP = (s8)value;
+        return 1;
+    }
+    return 0;
+}

@@ -71,4 +71,8 @@ typedef enum {
     /* 19 */ BOSSVA_DOOR
 } BossVaParam;
 
+// ZMP: phase 6 scenario tests (z_boss_va.c, end of file).
+void BossVa_ZmpDebug(s32* out);
+s32 BossVa_ZmpStage(struct PlayState* play, s32 what, s32 value);
+
 #endif

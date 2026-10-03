@@ -48,6 +48,9 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
+#include "overlays/actors/ovl_Boss_Dodongo/z_boss_dodongo.h" // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Va/z_boss_va.h"           // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_En_Ru1/z_en_ru1.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
@@ -402,6 +405,7 @@ json ActorsJson(const json& cmd) {
                 { "params", a->params },
                 { "pos", Vec3(a->world.pos) },
                 { "rot", Rot3(a->world.rot) },
+                { "shape_rot", Rot3(a->shape.rot) }, // (phase 6: a skull's jaw, a turning platform)
                 { "health", a->colChkInfo.health },
                 { "room", a->room },
                 { "freeze_timer", a->freezeTimer },
@@ -428,6 +432,58 @@ json ActorsJson(const json& cmd) {
                 list.back()["goma_timer"] = g->timer;
                 list.back()["goma_children"] = { g->childrenGohmaState[0], g->childrenGohmaState[1],
                                                  g->childrenGohmaState[2] };
+            }
+            if (a->id == ACTOR_BOSS_DODONGO) {
+                // Phase 6 scenario tests (King Dodongo with five players): its own health counter, its cutscene state
+                // and its action (an offset in the executable: the same on every machine of one build).
+                const BossDodongo* d = (const BossDodongo*)a;
+                list.back()["kd_health"] = d->health;
+                list.back()["kd_cs_state"] = d->csState;
+                list.back()["kd_action"] = (uint64_t)((uintptr_t)d->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["kd_timer"] = d->unk_1DA;         // the death cutscene counts it 1000 down to 600
+                list.back()["kd_scene"] = d->unk_1BC;         // 0 fighting (colliders on), 1 or 2 in a cutscene
+                list.back()["kd_inhaling"] = d->unk_1E2;      // 1 while it breathes in (a bomb at its mouth is eaten)
+                list.back()["kd_down"] = d->unk_1BE;          // 10 while it lies stunned and the sword hurts it
+                list.back()["kd_camera"] = d->cutsceneCamera; // its own sub camera (0 none)
+                list.back()["kd_mouth"] = Vec3(d->mouthPos);
+            }
+            if (a->id == ACTOR_EN_RU1) {
+                // Phase 6 scenario tests (Ruto in Jabu-Jabu): her action and who carries her. The parent pointer is
+                // compared with the players' pointers and never followed (a carrier that left the group would leave a
+                // freed pointer here: finding J1 of reports/fase6/INVENTARIO.md).
+                const EnRu1* r = (const EnRu1*)a;
+                int carrier = -2; // -2 nobody, -1 something that is not a present player
+                if (a->parent != nullptr) {
+                    carrier = -1;
+                    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                        if (Zmp::Players::IsPresent(k) && (const Actor*)Zmp::Players::SlotPlayer(k) == a->parent) {
+                            carrier = k;
+                        }
+                    }
+                }
+                list.back()["ru1_action"] = r->action;
+                list.back()["ru1_carrier"] = carrier;
+                list.back()["ru1_room2"] = r->roomNum2;
+            }
+            if (a->id == ACTOR_BOSS_VA) {
+                // Phase 6 scenario tests (Barinade with five players): every part is a Boss_Va (params: body -1,
+                // supports 0-2, zappers 3-5, Bari 6-15, stumps 16-18, door 19).
+                const BossVa* v = (const BossVa*)a;
+                list.back()["va_dead"] = v->isDead;
+                list.back()["va_on_ceiling"] = v->onCeiling;
+                list.back()["va_timer"] = v->timer;
+                list.back()["va_invincible"] = v->invincibilityTimer;
+                list.back()["va_action"] = (uint64_t)((uintptr_t)v->actionFunc - (uintptr_t)&__ImageBase);
+                if (a->params == BOSSVA_BODY) {
+                    s32 st[6];
+                    BossVa_ZmpDebug(st); // the fight's progress: statics of the overlay
+                    list.back()["va_fight_phase"] = st[0];
+                    list.back()["va_cs_state"] = st[1];
+                    list.back()["va_phase4_hp"] = st[2];
+                    list.back()["va_body_state"] = st[3];
+                    list.back()["va_y_offset"] = v->actor.shape.yOffset;
+                    list.back()["home"] = Vec3(v->actor.home.pos);
+                }
             }
         }
     }
