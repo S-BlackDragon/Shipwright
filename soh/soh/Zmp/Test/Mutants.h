@@ -3,7 +3,13 @@
 // Mutation test of the test suite (docs/DECISIONES.md D-079): bugs this project already had, brought back on purpose,
 // one at a time, to check that the suite still catches them. A mutant exists only in the test build (ZMP_HARNESS):
 // in the demo Zmp_TestMutant() is the constant 0 and the mutated branches are dead code. It is chosen with the
-// environment variable ZMP_MUTANT (the suite's --mutante) or the CVar gZmp.Test.Mutant.
+// environment variable ZMP_MUTANT (the suite's --mutante) or the CVar gZmp.Test.Mutant. Several at once with "+"
+// ("barras_entrar+camara_heredada"): to bring back a past bug that needed two old behaviours together.
+//
+// Known not to reproduce their bug any more (2026-10-04, reports/suite_rapida/HALLAZGOS.md, AH):
+// barras_entrar (every active camera asks for its letterbox and HUD each frame, so the joiner's own camera asks for
+// the normal screen when the cutscene ends) and cierre_casa (the state is loaded in the middle of leaving the house,
+// as before D-064, and the game goes on). They are kept as the record of that.
 //
 //   estado_texto           a cutscene's text statics do not travel in the group state (D-065): desync on entering
 //                          during a cutscene's text

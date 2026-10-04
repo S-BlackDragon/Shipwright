@@ -52,7 +52,16 @@ extern "C" int Zmp_TestMutant(const char* name) {
             sRead = true;
         }
     }
-    bool on = !sMutant.empty() && sMutant == name;
+    // Several at once, "a+b": a past bug that needed two old behaviours together (barras_entrar+camara_heredada).
+    bool on = false;
+    for (size_t at = 0; !sMutant.empty() && at <= sMutant.size() && !on;) {
+        size_t end = sMutant.find('+', at);
+        if (end == std::string::npos) {
+            end = sMutant.size();
+        }
+        on = sMutant.compare(at, end - at, name) == 0;
+        at = end + 1;
+    }
     if (on && !sLogged) {
         sLogged = true;
         Zmp::Log("zmp: MUTANT " + sMutant + " active (a past bug brought back on purpose: mutation test)");
