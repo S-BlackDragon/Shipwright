@@ -61,6 +61,9 @@
 //                          catches up (test builds only: the accelerated clock exists only there)
 //   captura_por_ventana    a screenshot asks the desktop for the game's window (finding AD, D-102): a window the
 //                          desktop does not show is "not found", or its capture is whatever the screen has there
+//   aparicion_sin_mirar    the spawn spot of a Link that appears next to others is searched as before phase 6
+//                          (finding AI, D-107): up to 315 units to a side, through walls, onto voids, lava, exits
+//                          and other Links (the group split in Phantom Ganon's room with six players)
 
 #ifdef __cplusplus
 extern "C" {

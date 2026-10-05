@@ -568,15 +568,27 @@ Vec3f SideOffset(const Vec3f& base, s16 yaw, int n) {
 }
 
 // A spawn spot with floor near the reference's height, not a scene exit, a void or lava (phase 4: the side offset of
-// the third player could be over the pit of Gohma's lair). Tries the side offsets n, n+2, n+4..., then behind the
-// reference, then the reference itself.
-bool GoodFloor(PlayState* play, Vec3f& pos, f32 refY) {
+// the third player could be over the pit of Gohma's lair).
+//
+// Phase 6 (six players, finding AI of reports/fase6/FAMILIAS.md): the side offsets reach 135 units and the search
+// went on to 315, through walls, so a Link appeared in the corridor of the door it came through (it walked out of
+// the scene as soon as it could move: the group split in Phantom Ganon's room), on a floor that voids out (Jabu-Jabu,
+// in front of the boss door), on a floor or next to a wall that burns (Dodongo's Cavern, in front of the boss door:
+// health and Deku shield lost before anybody moved), or on top of another Link. The floor check also looked at the
+// wrong field for the voids (the floor type; the voids are the floor property, 5 and 12, as Player_HandleExitsAndVoids
+// reads them) and left out lava (floor types 2 and 3). Now a spot also needs: the floor property and type are not a
+// void, lava or damage; a walk from the reference reaches it (no wall in between, floor all the way); no wall
+// within a Link's reach is a scene exit or burns; and no other Link stands there.
+bool GoodFloorAt(PlayState* play, Vec3f& pos, f32 refY, bool strict, bool sceneOnly = false) {
     Vec3f probe = pos;
     probe.y = refY + 50.0f;
     CollisionPoly* poly = nullptr;
     s32 bgId = 0;
     f32 y = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
     if (y == BGCHECK_Y_MIN || poly == nullptr || fabsf(y - refY) > 40.0f) {
+        return false;
+    }
+    if (sceneOnly && bgId != BGCHECK_SCENE) {
         return false;
     }
     if (SurfaceType_GetSceneExitIndex(&play->colCtx, poly, bgId) != 0) {
@@ -586,31 +598,194 @@ bool GoodFloor(PlayState* play, Vec3f& pos, f32 refY) {
     if (floorType == 5 || floorType == 9 || floorType == 12) {
         return false;
     }
+    if (strict) {
+        u32 floorProperty = func_80041EA4(&play->colCtx, poly, bgId);
+        if (floorProperty == 5 || floorProperty == 12 || floorType == 2 || floorType == 3 ||
+            SurfaceType_IsWallDamage(&play->colCtx, poly, bgId)) {
+            return false;
+        }
+    }
     pos.y = y;
     return true;
 }
 
-Vec3f SafeSpawnPos(PlayState* play, const Vec3f& base, s16 yaw, int n) {
-    for (int m = n; m < n + 10; m += 2) {
-        Vec3f pos = SideOffset(base, yaw, m);
-        if (GoodFloor(play, pos, base.y)) {
-            return pos;
+// A Link walking from `base` to `pos` gets there: no wall in between (a line at knee and at chest height) and good
+// floor every 15 units (no pit, lava or exit to cross).
+bool Reachable(PlayState* play, const Vec3f& base, const Vec3f& pos, bool sceneOnly) {
+    for (f32 h : { 20.0f, 45.0f }) {
+        Vec3f a = { base.x, base.y + h, base.z };
+        Vec3f b = { pos.x, pos.y + h, pos.z };
+        Vec3f hit;
+        CollisionPoly* poly = nullptr;
+        s32 bgId = 0;
+        if (BgCheck_EntityLineTest1(&play->colCtx, &a, &b, &hit, &poly, true, false, false, true, &bgId)) {
+            return false;
         }
     }
-    for (int m = n + 1; m < n + 10; m += 2) {
-        Vec3f pos = SideOffset(base, yaw, m);
-        if (GoodFloor(play, pos, base.y)) {
-            return pos;
+    f32 dx = pos.x - base.x;
+    f32 dz = pos.z - base.z;
+    int steps = (int)(sqrtf(dx * dx + dz * dz) / 15.0f);
+    for (int i = 1; i < steps; i++) {
+        f32 t = (f32)i / (f32)steps;
+        Vec3f mid = { base.x + dx * t, base.y, base.z + dz * t };
+        if (!GoodFloorAt(play, mid, base.y, true, sceneOnly)) {
+            return false;
         }
     }
-    for (int d = 1; d <= 3; d++) {
-        Vec3f pos = base;
-        pos.x -= Math_SinS(yaw) * 45.0f * d;
-        pos.z -= Math_CosS(yaw) * 45.0f * d;
-        if (GoodFloor(play, pos, base.y)) {
-            return pos;
+    return true;
+}
+
+// No wall a Link standing at `pos` would touch is a scene exit (it would walk out at once) or a wall that burns.
+bool SafeWalls(PlayState* play, const Vec3f& pos) {
+    for (int i = 0; i < 8; i++) {
+        s16 yaw = (s16)(i * 0x2000);
+        for (f32 h : { 20.0f, 45.0f }) {
+            Vec3f a = { pos.x, pos.y + h, pos.z };
+            Vec3f b = { pos.x + Math_SinS(yaw) * 40.0f, pos.y + h, pos.z + Math_CosS(yaw) * 40.0f };
+            Vec3f hit;
+            CollisionPoly* poly = nullptr;
+            s32 bgId = 0;
+            if (BgCheck_EntityLineTest1(&play->colCtx, &a, &b, &hit, &poly, true, false, false, true, &bgId) &&
+                poly != nullptr &&
+                (SurfaceType_GetSceneExitIndex(&play->colCtx, poly, bgId) != 0 ||
+                 SurfaceType_IsWallDamage(&play->colCtx, poly, bgId))) {
+                return false;
+            }
         }
     }
+    return true;
+}
+
+// Nobody else stands within `room` of there (the anchor included).
+bool FreeOfLinks(const Vec3f& pos, int self, f32 room) {
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k == self || !Present(k)) {
+            continue;
+        }
+        const Vec3f& o = Slot(k).player->actor.world.pos;
+        if (sqrtf(SQ(o.x - pos.x) + SQ(o.z - pos.z)) < room && fabsf(o.y - pos.y) < 60.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Good floor also 20 units around the spot: not at the edge of a pit (in the narrow tube in front of Jabu-Jabu's boss
+// door the Links pushed one another along it and the last one fell off its end).
+bool AwayFromEdges(PlayState* play, const Vec3f& pos, bool sceneOnly) {
+    for (int i = 0; i < 4; i++) {
+        s16 yaw = (s16)(i * 0x4000);
+        Vec3f around = { pos.x + Math_SinS(yaw) * 20.0f, pos.y, pos.z + Math_CosS(yaw) * 20.0f };
+        if (!GoodFloorAt(play, around, pos.y, true, sceneOnly)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool GoodSpot(PlayState* play, const Vec3f& base, Vec3f& pos, int self, f32 room, bool sceneOnly) {
+    return GoodFloorAt(play, pos, base.y, true, sceneOnly) && Reachable(play, base, pos, sceneOnly) &&
+           SafeWalls(play, pos) && AwayFromEdges(play, pos, sceneOnly) && FreeOfLinks(pos, self, room);
+}
+
+// The reference on the ground: an entrance can put its Link in the air (in front of Jabu-Jabu's boss door it appears
+// 970 units up and falls), and then no spot next to it had floor near its height: everybody appeared on the
+// reference, fell onto one point and pushed one another off the end of the tube.
+Vec3f GroundUnder(PlayState* play, const Vec3f& base) {
+    Vec3f probe = base;
+    probe.y = base.y + 50.0f;
+    CollisionPoly* poly = nullptr;
+    s32 bgId = 0;
+    f32 y = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
+    Vec3f ground = base;
+    if (y != BGCHECK_Y_MIN && poly != nullptr && base.y - y > 40.0f && base.y - y < 3000.0f) {
+        ground.y = y;
+    }
+    return ground;
+}
+
+// The spots tried for the n-th extra player, in order (SafeSpawnPos). The last 120 are the rings of a narrow place.
+std::vector<Vec3f> SpawnCandidates(const Vec3f& base, s16 yaw, int n) {
+    const int kMaxSide = 6; // SideOffset 6 is 135 units to the left
+    std::vector<Vec3f> spots;
+    for (int m = n; m <= kMaxSide; m += 2) {
+        spots.push_back(SideOffset(base, yaw, m));
+    }
+    for (int m = n + 1; m <= kMaxSide; m += 2) {
+        spots.push_back(SideOffset(base, yaw, m));
+    }
+    for (int m = 1; m < n && m <= kMaxSide; m++) {
+        spots.push_back(SideOffset(base, yaw, m));
+    }
+    // Rows in front of the reference first (into the room; behind it is usually the door it came through), then
+    // behind it.
+    for (int d : { 1, 2, -1, -2, -3 }) {
+        Vec3f row = base;
+        row.x += Math_SinS(yaw) * 45.0f * d;
+        row.z += Math_CosS(yaw) * 45.0f * d;
+        spots.push_back(row);
+        for (int m = 1; m <= 4; m++) {
+            spots.push_back(SideOffset(row, yaw, m));
+        }
+    }
+    // A narrow place (a corridor, a ledge): closer together and farther along it, rings of 22.5 units around the
+    // reference up to 225, every 30 degrees (the walk from the reference is still checked).
+    for (int r = 1; r <= 10; r++) {
+        for (int i = 0; i < 12; i++) {
+            s16 a = (s16)(yaw + 0x4000 + i * 0x1555);
+            spots.push_back({ base.x + Math_SinS(a) * 22.5f * r, base.y, base.z + Math_CosS(a) * 22.5f * r });
+        }
+    }
+    return spots;
+}
+
+// The spot of the n-th extra player (1..) next to `base`, for slot `self`. First the side offsets of n's own side
+// (n, n+2, ...: the places of always), then the other side, then rows in front of and behind the reference, then the
+// reference itself.
+// Nothing farther than three Links to a side (135 units), except along a narrow place (below).
+Vec3f SafeSpawnPos(PlayState* play, const Vec3f& base, s16 yaw, int n, int self) {
+    if (Zmp_TestMutant("aparicion_sin_mirar")) {
+        // Mutant (finding AI): the search of before phase 6.
+        for (int m = n; m < n + 10; m += 2) {
+            Vec3f pos = SideOffset(base, yaw, m);
+            if (GoodFloorAt(play, pos, base.y, false)) {
+                return pos;
+            }
+        }
+        for (int m = n + 1; m < n + 10; m += 2) {
+            Vec3f pos = SideOffset(base, yaw, m);
+            if (GoodFloorAt(play, pos, base.y, false)) {
+                return pos;
+            }
+        }
+        for (int d = 1; d <= 3; d++) {
+            Vec3f pos = base;
+            pos.x -= Math_SinS(yaw) * 45.0f * d;
+            pos.z -= Math_CosS(yaw) * 45.0f * d;
+            if (GoodFloorAt(play, pos, base.y, false)) {
+                return pos;
+            }
+        }
+        return base;
+    }
+    Vec3f ground = GroundUnder(play, base);
+    std::vector<Vec3f> spots = SpawnCandidates(ground, yaw, n);
+    size_t wide = spots.size() - 120; // the spots before the rings are 45 apart, the rings 22.5
+    // The floor of the scene first: a floor that is an actor can move away (in front of Jabu-Jabu's boss door a
+    // platform was under two of the spots when they were chosen, and gone a few ticks later). Then any floor.
+    for (bool sceneOnly : { true, false }) {
+        for (size_t i = 0; i < spots.size(); i++) {
+            Vec3f pos = spots[i];
+            if (GoodSpot(play, ground, pos, self, i < wide ? 30.0f : 22.0f, sceneOnly)) {
+                char buf[160];
+                snprintf(buf, sizeof(buf), "zmp: spawn spot of slot %d: candidate %d of %d (%s), %.0f %.0f %.0f", self,
+                         (int)i, (int)spots.size(), sceneOnly ? "scene floor" : "any floor", pos.x, pos.y, pos.z);
+                Zmp::Log(buf);
+                return pos;
+            }
+        }
+    }
+    Zmp::Log("zmp: spawn spot of slot " + std::to_string(self) + ": none free, on the reference");
     return base;
 }
 
@@ -766,7 +941,7 @@ extern "C" void Zmp_PlayInitPlayers(PlayState* play, s32 startBgCamIndex) {
             continue;
         }
         n++;
-        Vec3f pos = SafeSpawnPos(play, lead->actor.world.pos, lead->actor.shape.rot.y, n);
+        Vec3f pos = SafeSpawnPos(play, lead->actor.world.pos, lead->actor.shape.rot.y, n, k);
         SpawnPlayerActor(play, k, pos, lead->actor.shape.rot.y, lead->actor.params, startBgCamIndex);
     }
     Zmp::Log("zmp: scene " + std::to_string(play->sceneNum) + " with " + std::to_string(Zmp::Players::PresentCount()) +
@@ -2631,7 +2806,7 @@ void Spawn(int slot, const std::string& infoText) {
             where = "next to the player it follows";
         }
     }
-    Vec3f pos = SafeSpawnPos(play, base, yaw, n);
+    Vec3f pos = SafeSpawnPos(play, base, yaw, n, slot);
     s16 params = (s16)((PLAYER_START_MODE_IDLE << 8) | 0xFF);
     // Same background camera data as the anchor (fixed cameras of rooms and houses).
     MsgResetSlot(play, slot);
@@ -2695,6 +2870,30 @@ void StepInput(int slot, const OSContPad& pad) {
         return;
     }
     StepPad(&Slot(slot).input, pad);
+}
+
+std::vector<SpawnSpotCheck> DebugSpawnSpots(int self, int n) {
+    // Tests (finding AI): the candidates next to the group's entrance and the checks each one passes (scene floor).
+    std::vector<SpawnSpotCheck> out;
+    PlayState* play = gPlayState;
+    if (play == nullptr || play->linkActorEntry == nullptr) {
+        return out;
+    }
+    ActorEntry* entry = play->linkActorEntry;
+    Vec3f base = GroundUnder(play, { (f32)entry->pos.x, (f32)entry->pos.y, (f32)entry->pos.z });
+    for (Vec3f pos : SpawnCandidates(base, entry->rot.y, n)) {
+        SpawnSpotCheck c{};
+        c.floor = GoodFloorAt(play, pos, base.y, true, true);
+        c.x = pos.x;
+        c.y = pos.y;
+        c.z = pos.z;
+        c.reach = Reachable(play, base, pos, true);
+        c.walls = SafeWalls(play, pos);
+        c.edges = AwayFromEdges(play, pos, true);
+        c.free = FreeOfLinks(pos, self, 22.0f);
+        out.push_back(c);
+    }
+    return out;
 }
 
 Player* SlotPlayer(int slot) {

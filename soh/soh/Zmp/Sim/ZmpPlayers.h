@@ -524,6 +524,12 @@ uint32_t PlayInitCount();
 // Per-player input of this tick (pad of the bundle).
 void StepInput(int slot, const OSContPad& pad);
 Player* SlotPlayer(int slot);
+// Tests (finding AI): the spawn candidates next to the group's entrance and the checks each passes.
+struct SpawnSpotCheck {
+    float x, y, z;
+    bool floor, reach, walls, edges, free;
+};
+std::vector<SpawnSpotCheck> DebugSpawnSpots(int self, int n);
 int SlotOf(const Actor* actor);
 int SlotHealth(int slot);
 // Per-player block of a slot (live values when it is the context).

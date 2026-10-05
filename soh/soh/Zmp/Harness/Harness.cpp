@@ -338,6 +338,15 @@ json PlayerJson(Player* player, int slot = 0) {
     }
     bool downed = multi && Zmp::Players::SlotDowned(slot);
     int spectate = multi ? Zmp::Players::SlotSpectate(slot) : -1;
+    // (phase 6, finding AI: what the floor under this Link is; -1 with no floor)
+    json floor = { { "type", -1 }, { "property", -1 }, { "exit", -1 }, { "damage", -1 } };
+    if (a->floorPoly != nullptr) {
+        CollisionContext* col = &gPlayState->colCtx;
+        floor = { { "type", SurfaceType_GetFloorType(col, a->floorPoly, a->floorBgId) },
+                  { "property", func_80041EA4(col, a->floorPoly, a->floorBgId) },
+                  { "exit", SurfaceType_GetSceneExitIndex(col, a->floorPoly, a->floorBgId) },
+                  { "damage", SurfaceType_IsWallDamage(col, a->floorPoly, a->floorBgId) } };
+    }
     return {
         { "ok", true },
         { "index", slot },
@@ -373,6 +382,7 @@ json PlayerJson(Player* player, int slot = 0) {
         { "action_offset", (uint64_t)((uintptr_t)player->actionFunc - (uintptr_t)&__ImageBase) },
         { "bg_flags", a->bgCheckFlags },
         { "floor_y", a->floorHeight },
+        { "floor", floor },
         { "spectating", spectate >= 0 ? json(spectate) : json(nullptr) },
         { "pause_local", Zmp::Pause::State() },
         { "pause_save_stage", Zmp::Pause::SaveStage() },
@@ -1197,6 +1207,22 @@ void Dispatch(const RequestPtr& req) {
                 out.push_back(y);
             }
             req->Reply({ { "ok", true }, { "floors", out } });
+        }
+    } else if (name == "debug.spawn_spots") {
+        // Diagnosis (finding AI): the spawn candidates next to the group's entrance for a slot, and their checks.
+        if (!InPlay() || !Zmp_MultiActive()) {
+            req->Reply({ { "ok", false }, { "error", "not in a multiplayer game" } });
+        } else {
+            json out = json::array();
+            for (const auto& c : Zmp::Players::DebugSpawnSpots(cmd.value("slot", 1), cmd.value("n", 1))) {
+                out.push_back({ { "pos", json::array({ c.x, c.y, c.z }) },
+                                { "floor", c.floor },
+                                { "reach", c.reach },
+                                { "walls", c.walls },
+                                { "edges", c.edges },
+                                { "free", c.free } });
+            }
+            req->Reply({ { "ok", true }, { "spots", out } });
         }
     } else if (name == "debug.teleport") {
         // Exploration tool: puts the player exactly at a position (never used in recordings).
