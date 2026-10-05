@@ -570,15 +570,14 @@ Vec3f SideOffset(const Vec3f& base, s16 yaw, int n) {
 // A spawn spot with floor near the reference's height, not a scene exit, a void or lava (phase 4: the side offset of
 // the third player could be over the pit of Gohma's lair).
 //
-// Phase 6 (six players, finding AI of reports/fase6/FAMILIAS.md): the side offsets reach 135 units and the search
-// went on to 315, through walls, so a Link appeared in the corridor of the door it came through (it walked out of
-// the scene as soon as it could move: the group split in Phantom Ganon's room), on a floor that voids out (Jabu-Jabu,
-// in front of the boss door), on a floor or next to a wall that burns (Dodongo's Cavern, in front of the boss door:
-// health and Deku shield lost before anybody moved), or on top of another Link. The floor check also looked at the
-// wrong field for the voids (the floor type; the voids are the floor property, 5 and 12, as Player_HandleExitsAndVoids
-// reads them) and left out lava (floor types 2 and 3). Now a spot also needs: the floor property and type are not a
-// void, lava or damage; a walk from the reference reaches it (no wall in between, floor all the way); no wall
-// within a Link's reach is a scene exit or burns; and no other Link stands there.
+// Phase 6 (six players, finding AI of reports/fase6/FAMILIAS.md, D-107): the side offsets reach 135 units and the
+// search went on to 315, through walls and onto other Links, so a Link appeared on the exit of the door it came
+// through (it walked out of the scene as soon as it could move: the group split in Phantom Ganon's room). The floor
+// check also looked at the wrong field for the voids (the floor type; the voids are the floor property, 5 and 12, as
+// Player_HandleExitsAndVoids reads them) and left out lava (floor types 2 and 3) and damage floors. Now a spot also
+// needs: the floor property and type are not a void, lava or damage; a walk from the reference reaches it (no wall in
+// between, floor all the way); floor 20 units around it; no wall within a Link's reach is a scene exit or burns; and
+// no other Link stands there.
 bool GoodFloorAt(PlayState* play, Vec3f& pos, f32 refY, bool strict, bool sceneOnly = false) {
     Vec3f probe = pos;
     probe.y = refY + 50.0f;
