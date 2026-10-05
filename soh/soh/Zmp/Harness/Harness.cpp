@@ -6,6 +6,7 @@
 #include "Harness.h"
 #include "HarnessQueue.h"
 #include "Screenshot.h"
+#include "soh/Zmp/Test/Mutants.h"
 
 #include <chrono>
 #include <thread>
@@ -123,6 +124,7 @@ struct PendingShot {
     int frames = 0;
     uint32_t afterTick = 0; // not before this simulation tick has been drawn (0: as soon as the window is ready)
     CaptureRestore restore;
+    int frameId = 0; // the frame asked for (D-102): taken when the renderer presents it
 };
 std::vector<PendingShot> sShots;
 
@@ -380,6 +382,17 @@ json PlayerJson(Player* player, int slot = 0) {
         { "sim_stick", json::array({ multi ? (int)gZmpSim.slots[slot].input.cur.stick_x : 0,
                                      multi ? (int)gZmpSim.slots[slot].input.cur.stick_y : 0 }) },
         { "cs_action", player->csAction },
+        // (diagnosis, finding AG: where this Link's action and its animation are)
+        { "anim",
+          { { "frame", player->skelAnime.curFrame },
+            { "end", player->skelAnime.endFrame },
+            { "speed", player->skelAnime.playSpeed },
+            { "mode", player->skelAnime.mode } } },
+        { "action_vars", json::array({ player->av1.actionVar1, player->av2.actionVar2 }) },
+        { "get_item",
+          json::array({ player->getItemId, player->getItemEntry.objectId, player->getItemEntry.getItemId }) },
+        { "talk_actor", player->talkActor != nullptr ? json(player->talkActor->id) : json(nullptr) },
+        { "exchange_item", player->exchangeItemId },
         { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
         { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
         { "timer_state", gSaveContext.timerState },
@@ -549,6 +562,8 @@ json LockstepJson() {
              { "local_input_blocked", ls.localInputBlocked },
              { "inputs_held", ls.inputsHeld },
              { "tick_cost_us", ls.tickCostUs },
+             { "tick_full_cost_us", ls.tickFullCostUs },
+             { "shared_held", ls.sharedHeld },
              { "ticks_played", ls.ticksPlayed },
              // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the
              // group it runs in (an event sent for it now acts on it), and the scene the game is in.
@@ -808,6 +823,12 @@ void Dispatch(const RequestPtr& req) {
             resp["light_effect_hidden"] = Zmp::Players::LightEffectHidden();
             // (of the same picture as the line above: the simulation's value below may be a tick newer)
             resp["light_adj_drawn"] = Zmp::Players::LightEffectDrawn();
+            // Finding AB: whose effect that picture took the darkening for, the simulation's owner now, who is
+            // reviving with a fairy, and the black bars that picture was cut with
+            resp["light_owner_drawn"] = Zmp::Players::LightEffectOwner();
+            resp["adj_owner"] = gZmpSim.adjOwner;
+            resp["fairy_reviver"] = Zmp::Players::FairyReviver(gPlayState);
+            resp["drawn_letterbox"] = Zmp::Players::DrawnLetterbox();
             resp["light_adj"] = gPlayState->envCtx.adjAmbientColor[0];
             resp["light_ambient"] = gPlayState->lightCtx.ambientColor[0];
             resp["title_alpha"] = gPlayState->actorCtx.titleCtx.alpha;
@@ -1229,6 +1250,16 @@ void Dispatch(const RequestPtr& req) {
         Zmp::Lockstep::TestHoldInputs(cmd.value("hold_ms", 0));
         std::this_thread::sleep_for(std::chrono::milliseconds(cmd.value("freeze_ms", 0)));
         req->Reply({ { "ok", true } });
+    } else if (name == "debug.frame_cost") {
+        // Every frame of this machine costs `us` microseconds more, spent after drawing it (D-101: a PC or GPU busy
+        // with something else).
+        Zmp::Lockstep::TestFrameCost(cmd.value("us", 0));
+        req->Reply({ { "ok", true } });
+    } else if (name == "debug.hold_shared") {
+        // This machine keeps the patches of the shared game it would send until told to let them go (A of p19: two
+        // groups that change the same thing before either knows).
+        size_t held = Zmp::Lockstep::TestHoldShared(cmd.value("hold", false));
+        req->Reply({ { "ok", true }, { "held", held } });
     } else if (name == "debug.tick_view_lag") {
         // This machine decides its inputs as if the group's ticks reached it `ticks` ticks late (D-094).
         Zmp::Lockstep::TestTickViewLag(cmd.value("ticks", 0));
@@ -1250,11 +1281,9 @@ void Dispatch(const RequestPtr& req) {
         } else if (ResizeForCapture(cw, ch, &shot.restore)) {
             shot.frames = 4;
             sShots.push_back(shot);
-        } else if (shot.afterTick != 0) {
-            shot.frames = 1;
-            sShots.push_back(shot);
         } else {
-            TakeShot(req, path);
+            shot.frames = 1; // (the next frame: D-102)
+            sShots.push_back(shot);
         }
     } else if (name == "wait.tick" || name == "wait.stable" || name == "wait.scene" || name == "wait.state" ||
                name == "wait.sim_tick" || name == "wait.replay_end") {
@@ -1392,11 +1421,33 @@ static void UpdateWaits() {
 
 static void UpdateShots() {
     for (auto it = sShots.begin(); it != sShots.end();) {
-        if (--it->frames > 0 || (it->afterTick != 0 && Sim::CurrentTick() <= it->afterTick)) {
+        if (it->frameId != 0) {
+            // D-102 (finding AD): the picture is the frame this process drew, copied before it was presented; the
+            // desktop (which windows it shows, the compositor, the monitors) has no say in it.
+            bool ok = false;
+            int w = 0, h = 0;
+            std::string info;
+            if (!FrameCaptureResult(it->frameId, &ok, &w, &h, &info)) {
+                ++it; // (not presented yet)
+                continue;
+            }
+            if (ok) {
+                it->req->Reply(
+                    { { "ok", true }, { "path", it->path }, { "width", w }, { "height", h }, { "method", info } });
+            } else {
+                Log("harness: the frame could not be captured (" + info + "); capturing the window");
+                TakeShot(it->req, it->path);
+            }
+        } else if (--it->frames > 0 || (it->afterTick != 0 && Sim::CurrentTick() <= it->afterTick)) {
             ++it;
             continue;
+        } else if (FrameCaptureAvailable() && !Zmp_TestMutant("captura_por_ventana")) {
+            it->frameId = RequestFrameCapture(it->path);
+            ++it;
+            continue;
+        } else {
+            TakeShot(it->req, it->path); // (no frame presented through DXGI: OpenGL)
         }
-        TakeShot(it->req, it->path);
         CaptureRestore restore = it->restore;
         it = sShots.erase(it);
         if (sShots.empty()) {

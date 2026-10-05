@@ -32,6 +32,7 @@
 #include "ZmpLog.h"
 #include "Harness/Harness.h"
 #include "Net/ZmpClient.h"
+#include "Net/Lockstep.h"
 #include "Sim/Session.h"
 #include "State/FixedHeap.h"
 #include "State/ResourceSlots.h"
@@ -47,6 +48,9 @@ extern PlayState* gPlayState;
 }
 
 extern "C" void gfx_texture_cache_clear();
+#ifdef ZMP_HARNESS
+extern "C" void Zmp_TestHitOnClose(s32 slot); // (Sim/Players.cpp, tests)
+#endif
 
 static uint32_t sFrameCount = 0;
 
@@ -456,6 +460,20 @@ static void RegisterConsoleCommands() {
                             { "x", Ship::ArgumentType::TEXT },
                             { "y", Ship::ArgumentType::TEXT },
                             { "z", Ship::ArgumentType::TEXT } } });
+#ifdef ZMP_HARNESS
+    // Tests (a lockstep event, finding AG): a sword hit somewhere freezes the world in the tick before the last one of
+    // this slot's text box (the one tick in which its Link sees the box close).
+    console->AddCommand("zmp_hit_on_close",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 2) {
+                                 return 1;
+                             }
+                             Zmp_TestHitOnClose(std::stoi(args[1]));
+                             return 0;
+                         },
+                          "ZMP: a hit freezes the world just before that slot's text box closes (tests)",
+                          { { "slot", Ship::ArgumentType::TEXT } } });
+#endif
     console->AddCommand("zmp_replay",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {
@@ -1059,4 +1077,7 @@ extern "C" void Zmp_AfterRender(void) {
         memcpy(sMatrixStackBackup, sMatrixBackup, sizeof(sMatrixBackup));
         Matrix_ZmpSetPointers(sMatrixStackBackup, sMatrixCurrentBackup);
     }
+#ifdef ZMP_HARNESS
+    Zmp::Lockstep::BurnTestFrameCost(); // (D-101: a test can make every frame of this machine cost more)
+#endif
 }

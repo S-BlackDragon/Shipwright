@@ -34,6 +34,7 @@
 #include "fast/backends/gfx_screen_config.h"
 #include "fast/interpreter.h"
 #include "fast/Fast3dGui.h"
+#include "fast/Fast3dWindow.h" // ZMP: gZmpFramePacingWaitUs, gZmpBeforePresent
 
 #define DECLARE_GFX_DXGI_FUNCTIONS
 #include "fast/backends/gfx_dxgi.h"
@@ -922,6 +923,7 @@ void GfxWindowBackendDXGI::SwapBuffersBegin() {
 
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
+    const int64_t zmpWaitFrom = qpc_to_100ns(t.QuadPart); // ZMP: the limiter's wait is counted (Fast3dWindow.h)
     int64_t next = qpc_to_100ns(mPreviousPresentTime.QuadPart) +
                    FRAME_INTERVAL_NS_NUMERATOR / (FRAME_INTERVAL_NS_DENOMINATOR * 100);
     int64_t left = next - qpc_to_100ns(t.QuadPart) - 15000UL;
@@ -941,6 +943,12 @@ void GfxWindowBackendDXGI::SwapBuffersBegin() {
     }
     QueryPerformanceCounter(&t);
     mPreviousPresentTime = t;
+    // ZMP: the limiter's wait, and the frame to the test harness before it is presented (Fast3dWindow.h)
+    const int64_t zmpWaited = (int64_t)qpc_to_100ns(t.QuadPart) - zmpWaitFrom;
+    gZmpFramePacingWaitUs += zmpWaited > 0 ? (uint64_t)zmpWaited / 10 : 0;
+    if (gZmpBeforePresent != nullptr) {
+        gZmpBeforePresent(swap_chain.Get());
+    }
     if (mTearingSupport && !mVsyncEnabled) {
         // 512: DXGI_PRESENT_ALLOW_TEARING - allows for true V-Sync off with flip model
         ThrowIfFailed(swap_chain->Present(mVsyncEnabled, DXGI_PRESENT_ALLOW_TEARING));

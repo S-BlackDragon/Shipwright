@@ -667,6 +667,7 @@ void Play_Update(PlayState* play) {
     Input* input = play->state.input;
     s32 isPaused;
     s32 pad1;
+    s32 zmpActorsFrozen = false; // ZMP: a hit's freeze stopped the actors in this tick (finding AG)
 
     if ((SREG(1) < 0) || (DREG(0) != 0)) {
         SREG(1) = 0;
@@ -1151,6 +1152,7 @@ void Play_Update(PlayState* play) {
                 }
 
                 if (play->actorCtx.freezeFlashTimer && (play->actorCtx.freezeFlashTimer-- < 5)) {
+                    zmpActorsFrozen = true; // ZMP
                     if (GameInteractor_Should(VB_FLASH_SCREEN_FOR_FINISHING_BLOW, true)) {
                         osSyncPrintf("FINISH=%d\n", play->actorCtx.freezeFlashTimer);
 
@@ -1249,11 +1251,11 @@ void Play_Update(PlayState* play) {
                 Zmp_RestoreAnchor(play); // ZMP
                 // ZMP: a player reviving with a fairy keeps the game over context busy; the text boxes of the other
                 // players go on meanwhile (the original has one player and stops its text)
-                Zmp_MessageUpdateDuringRevive(play);
+                Zmp_MessageUpdateDuringRevive(play, zmpActorsFrozen);
             } else {
                 PLAY_LOG(3733);
                 // ZMP: one text box per player, each with its player's input (phase 5b)
-                if (!Zmp_MessageUpdateAll(play)) {
+                if (!Zmp_MessageUpdateAll(play, zmpActorsFrozen)) { // ZMP: the text boxes wait while it is frozen
                     Message_Update(play);
                 }
             }

@@ -2195,7 +2195,7 @@ void Environment_DrawCustomLensFlare(PlayState* play) {
 
 void Environment_InitGameOverLights(PlayState* play) {
     s32 pad;
-    Player* player = GET_PLAYER(play);
+    Player* player = Zmp_GameOverLightPlayer(play); // ZMP: the Link reviving with a fairy
 
     sGameOverLightsIntensity = 0;
 
@@ -2211,7 +2211,7 @@ void Environment_InitGameOverLights(PlayState* play) {
 }
 
 void Environment_FadeInGameOverLights(PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = Zmp_GameOverLightPlayer(play); // ZMP: the Link reviving with a fairy
     s16 i;
 
     Lights_PointNoGlowSetInfo(&sNGameOverLightInfo, (s16)player->actor.world.pos.x - 10.0f,
@@ -2251,7 +2251,7 @@ void Environment_FadeInGameOverLights(PlayState* play) {
 }
 
 void Environment_FadeOutGameOverLights(PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = Zmp_GameOverLightPlayer(play); // ZMP: the Link reviving with a fairy
     s16 i;
 
     if (sGameOverLightsIntensity >= 3) {

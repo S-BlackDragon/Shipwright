@@ -71,9 +71,11 @@ struct Status {
     uint32_t nextInputTick = 0;
     uint32_t nextServerTick = 0;
     bool localInputBlocked = false;
-    uint64_t ticksPlayed = 0; // ticks this machine has played in groups since it started (the tests' game clock)
-    uint32_t tickCostUs = 0;  // what one tick of the simulation takes on this machine now (moving average)
-    bool inputsHeld = false;  // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
+    uint64_t ticksPlayed = 0;    // ticks this machine has played in groups since it started (the tests' game clock)
+    uint32_t tickCostUs = 0;     // what one tick of the simulation takes on this machine now (moving average)
+    uint32_t tickFullCostUs = 0; // D-101: a tick with its frame and the harness' work, without the limiter's wait
+    uint32_t sharedHeld = 0;     // (test builds) patches of the shared game kept back: TestHoldShared
+    bool inputsHeld = false;     // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
     // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
     // pointers moved / left alone (unaligned look-alikes) in the last one.
     uint32_t relocatedLoads = 0;
@@ -121,6 +123,13 @@ void TestHoldInputs(int ms);
 // Test builds: this machine decides its inputs as if the group's ticks reached it `ticks` ticks late (a connection
 // with that much latency, without any clock involved).
 void TestTickViewLag(int ticks);
+// Test builds (D-101): every frame of this machine costs `us` microseconds more (a PC or GPU busy with something else);
+// BurnTestFrameCost spends them, after the frame is drawn.
+void TestFrameCost(int us);
+void BurnTestFrameCost();
+// Test builds: while `hold`, the patches of the shared game this machine would send are kept; letting go sends them
+// in order. Returns how many were kept. (Two groups that change the same thing before either knows, on purpose.)
+size_t TestHoldShared(bool hold);
 // Phase 5: the local player walked out of the scene alone (Zmp_TransitionGate): leave the group, let the scene change
 // happen here and enter (or found) the group of the destination.
 // `solo`: the destination starts with a scripted cutscene of this player (blue warp): it plays it in a group of its

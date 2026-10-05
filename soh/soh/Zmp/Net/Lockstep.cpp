@@ -42,6 +42,9 @@ void Play_Main(GameState* thisx);
 void Play_PerformSave(PlayState* play);
 }
 
+// (libultraship, Fast3dWindow.h: the frame-rate limiter's total wait, in microseconds; D-101)
+extern uint64_t gZmpFramePacingWaitUs;
+
 namespace Zmp::Lockstep {
 
 namespace {
@@ -170,7 +173,18 @@ std::chrono::steady_clock::time_point sInputAt;             // when the next inp
 std::chrono::steady_clock::time_point sTestHoldInputsUntil; // (test builds) no input is sent before this moment
 std::chrono::steady_clock::time_point sTickStartedAt;       // when the tick being played started
 double sTickCostUs = 0;                                     // what a tick takes on this machine (moving average)
-uint64_t sTicksPlayed = 0;                                  // ticks played in groups since the process started
+// D-101 (finding AC): what a tick really costs this machine: from the start of a tick to the next look at the tick
+// gate, which is the tick, its frame drawn and presented and the harness' work, without the frame-rate limiter's wait.
+// The accelerated clock of the tests paces itself on this (SendPendingInputs), never on the simulation alone.
+double sTickFullCostUs = 0;
+bool sTickFullPending = false; // a tick started and its cost has not been taken yet
+uint64_t sTickPacingAt = 0;    // the limiter's total wait when it started
+int sFrameCostTestUs = 0;      // (test builds) every frame costs this much more: a busy PC or GPU, on purpose
+// (test builds) the patches of the shared game this machine would send are kept until the test lets them go (a group
+// whose news reach the others late, on purpose: two groups that change the same thing before either knows)
+bool sSharedHold = false;
+std::vector<json> sSharedHeld;
+uint64_t sTicksPlayed = 0;    // ticks played in groups since the process started
 uint32_t sNextServerTick = 0; // the tick after the newest one received from the server (0: none yet)
 int sLastSpawnMs = -1;
 int sRegroupPending = -1; // REGROUP received before this player arrived in the group's new scene (that scene)
@@ -857,7 +871,11 @@ void SendPendingInputs() {
         // In real time (N = 1, the only speed outside the tests) a tick takes a tiny part of its 50 ms.
         long long period = 50000 / TimeScale();
         if (TimeScale() > 1) {
-            period = std::max(period, (long long)(2.0 * sTickCostUs));
+            // D-101 (finding AC): what a tick costs is the tick and its frame. Measured on the simulation alone, twice
+            // that was all a PC busy drawing could play: the group went as fast as its members could follow and
+            // whoever entered never caught up (a Link that did not appear in 30 s, entries of 34 s).
+            double cost = Zmp_TestMutant("ritmo_sin_dibujo") ? sTickCostUs : std::max(sTickCostUs, sTickFullCostUs);
+            period = std::max(period, (long long)(2.0 * cost));
         }
         sInputAt += std::chrono::microseconds(period);
     }
@@ -1433,6 +1451,15 @@ bool ShouldRunTick() {
     if (sPhase != Phase::Running) {
         return false;
     }
+    if (sTickFullPending) {
+        // (D-101) the tick started last time with its frame and the harness' work, without the limiter's wait
+        sTickFullPending = false;
+        double us = std::chrono::duration<double, std::micro>(Clock::now() - sTickStartedAt).count() -
+                    (double)(gZmpFramePacingWaitUs - sTickPacingAt);
+        if (us > 0 && us < 1e6) {
+            sTickFullCostUs = sTickFullCostUs <= 0 ? us : sTickFullCostUs * 0.95 + us * 0.05;
+        }
+    }
     uint32_t tick = Sim::CurrentTick();
     if (sResyncHold && tick >= sResyncTick) {
         return false;
@@ -1485,6 +1512,8 @@ bool ShouldRunTick() {
         sGateWaitMax = std::max(sGateWaitMax, ms);
     }
     sTickStartedAt = now;
+    sTickFullPending = true;
+    sTickPacingAt = gZmpFramePacingWaitUs;
     return true;
 }
 
@@ -1639,7 +1668,15 @@ void OnPadRead(void* padsV) {
 void ReportSharedAndClock(uint32_t tick) {
     std::vector<uint8_t> patch = SharedGame::TakeTickPatch();
     if (!patch.empty()) {
-        Send({ { "t", "SHARED" }, { "tick", tick }, { "data", json::binary(patch) } });
+        json msg = { { "t", "SHARED" }, { "tick", tick }, { "data", json::binary(patch) } };
+#ifdef ZMP_HARNESS
+        if (sSharedHold) {
+            sSharedHeld.push_back(std::move(msg)); // (a test: TestHoldShared)
+        } else
+#endif
+        {
+            Send(msg);
+        }
         sSharedSent++;
         if (sLeader) {
             Log("net: shared game changed here at tick " + std::to_string(tick) + ": " + SharedGame::Describe(patch));
@@ -1787,6 +1824,31 @@ void TestTickViewLag(int ticks) {
     sTestTickViewLag = ticks;
 }
 
+void TestFrameCost(int us) {
+    sFrameCostTestUs = std::max(0, us);
+}
+
+void BurnTestFrameCost() {
+    if (sFrameCostTestUs <= 0) {
+        return;
+    }
+    // (busy, not asleep: a sleep is as long as the system's timer wants, and the tests compare these costs)
+    auto until = Clock::now() + std::chrono::microseconds(sFrameCostTestUs);
+    while (Clock::now() < until) {}
+}
+
+size_t TestHoldShared(bool hold) {
+    size_t held = sSharedHeld.size();
+    sSharedHold = hold;
+    if (!hold) {
+        for (const json& msg : sSharedHeld) {
+            Send(msg); // in order, with the ticks they were made at
+        }
+        sSharedHeld.clear();
+    }
+    return held;
+}
+
 void SetLocalInputBlocked(bool blocked) {
     sLocalInputBlocked = blocked;
 }
@@ -1922,6 +1984,8 @@ Status GetStatus() {
     s.localInputBlocked = sLocalInputBlocked;
     s.inputsHeld = Clock::now() < sTestHoldInputsUntil;
     s.tickCostUs = (uint32_t)sTickCostUs;
+    s.tickFullCostUs = (uint32_t)sTickFullCostUs;
+    s.sharedHeld = (uint32_t)sSharedHeld.size();
     s.ticksPlayed = sTicksPlayed;
     s.relocatedLoads = sRelocatedLoads;
     s.lastRelocated = sLastRelocated;

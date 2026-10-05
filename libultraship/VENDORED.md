@@ -38,5 +38,16 @@ somebody else's repository still being there, and its fixes to this library live
    `mImpl.Backend` before anybody had set it. Test: `test_f0_start_does_not_depend_on_what_memory_held`, mutant
    `gui_sin_iniciar`.
 
+3. **Two hooks for the ZMP test harness** (findings AC and AD of the ZMP suite; `docs/DECISIONES.md` D-101 and D-102).
+   - `include/fast/Fast3dWindow.h`, `src/fast/Fast3dWindow.cpp`: `gZmpFramePacingWaitUs`, the total time the window
+     backend has waited in its frame-rate limiter, and `gZmpBeforePresent`, a function called with the DXGI swap chain
+     right before every present (null unless a test build sets it).
+   - `src/fast/backends/gfx_dxgi.cpp` (`SwapBuffersBegin`) and `src/fast/backends/gfx_sdl2.cpp`
+     (`SyncFramerateWithTime`): the limiter's wait is added up; the DXGI backend calls the hook before `Present`.
+   - Why: the accelerated clock of the tests needs what a tick and its frame cost without the limiter's sleep (D-101),
+     and the harness takes its screenshots from the frame itself instead of asking the desktop for the window (D-102).
+     Nothing changes for a game that does not set the hook. Tests:
+     `test_f5_whoever_enters_catches_up_with_an_accelerated_group`, `test_f0_screenshot_is_the_frame_whatever_the_window`.
+
 Not changed, and known: `ArchiveManager::AddArchive`, `RemoveArchive` and `SetArchives` rewrite the file table with no
 lock while other threads may be reading it. They run at start and when the player changes mods from the menu.

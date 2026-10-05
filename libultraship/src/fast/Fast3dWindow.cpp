@@ -17,6 +17,9 @@
 
 #include <fstream>
 
+uint64_t gZmpFramePacingWaitUs = 0;            // ZMP (see Fast3dWindow.h)
+void (*gZmpBeforePresent)(void*) = nullptr; // ZMP
+
 namespace Fast {
 
 extern void GfxSetInstance(std::shared_ptr<Interpreter> gfx);

@@ -13,6 +13,18 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
+#include <wrl/client.h>
+#endif
+
+#include <map>
+
+#include "soh/Zmp/ZmpLog.h"
+
+#ifdef _WIN32
+// (libultraship, Fast3dWindow.h: called with the DXGI swap chain right before every present)
+extern void (*gZmpBeforePresent)(void* dxgiSwapChain1);
 #endif
 
 namespace Zmp::Harness {
@@ -144,6 +156,145 @@ BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
     return TRUE;
 }
 
+HWND sFrameSwapHwnd = nullptr; // the window the renderer presents to (from its swap chain)
+uint64_t sFramePresents = 0;   // frames presented through DXGI
+struct FrameRequest {
+    std::string path;
+    bool done = false;
+    bool ok = false;
+    int w = 0, h = 0;
+    std::string info;
+};
+std::map<int, FrameRequest> sFrameRequests;
+int sFrameNextRequest = 1;
+
+// This process's window: the one its swap chain presents to; without one (OpenGL, or before the first frame), the
+// largest shown top-level window of this process.
+HWND GameWindow() {
+    if (sFrameSwapHwnd != nullptr && IsWindow(sFrameSwapHwnd)) {
+        return sFrameSwapHwnd;
+    }
+    FindCtx ctx;
+    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.best;
+}
+
+BOOL CALLBACK DescribeProc(HWND hwnd, LPARAM lp) {
+    auto* out = reinterpret_cast<std::string*>(lp);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != GetCurrentProcessId()) {
+        return TRUE;
+    }
+    char cls[64] = {};
+    GetClassNameA(hwnd, cls, sizeof(cls));
+    RECT rc{}, wr{};
+    GetClientRect(hwnd, &rc);
+    GetWindowRect(hwnd, &wr);
+    char line[256];
+    snprintf(line, sizeof(line), "%s%p %s%s%s%s%s%s client %ldx%ld at (%ld, %ld)", out->empty() ? "" : "; ",
+             (void*)hwnd, cls, hwnd == sFrameSwapHwnd ? " (the renderer's)" : "",
+             IsWindowVisible(hwnd) ? " shown" : " hidden", IsIconic(hwnd) ? " minimized" : "",
+             GetWindow(hwnd, GW_OWNER) != nullptr ? " owned" : "", IsHungAppWindow(hwnd) ? " not responding" : "",
+             rc.right - rc.left, rc.bottom - rc.top, wr.left, wr.top);
+    *out += line;
+    return TRUE;
+}
+
+// The frame, before it is presented (libultraship calls this on the game thread, the one that drew it).
+void OnBeforePresent(void* swapChain) {
+    auto* swap = static_cast<IDXGISwapChain1*>(swapChain);
+    sFramePresents++;
+    HWND hw = nullptr;
+    if (SUCCEEDED(swap->GetHwnd(&hw)) && hw != nullptr) {
+        sFrameSwapHwnd = hw;
+    }
+    bool any = false;
+    for (auto& [id, r] : sFrameRequests) {
+        any = any || !r.done;
+    }
+    if (!any) {
+        return;
+    }
+    using Microsoft::WRL::ComPtr;
+    std::string err;
+    std::vector<uint8_t> rgb;
+    int w = 0, h = 0;
+    ComPtr<ID3D11Texture2D> back;
+    HRESULT hr = swap->GetBuffer(0, IID_PPV_ARGS(&back));
+    if (FAILED(hr)) {
+        err = "the swap chain gave no Direct3D 11 buffer";
+    } else {
+        D3D11_TEXTURE2D_DESC d{};
+        back->GetDesc(&d);
+        ComPtr<ID3D11Device> dev;
+        ComPtr<ID3D11DeviceContext> ctx;
+        back->GetDevice(&dev);
+        dev->GetImmediateContext(&ctx);
+        bool bgr = d.Format == DXGI_FORMAT_B8G8R8A8_UNORM || d.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        bool rgba = d.Format == DXGI_FORMAT_R8G8B8A8_UNORM || d.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        if (!bgr && !rgba) {
+            err = "unexpected format of the swap chain: " + std::to_string((int)d.Format);
+        } else {
+            D3D11_TEXTURE2D_DESC sd = d;
+            sd.Usage = D3D11_USAGE_STAGING;
+            sd.BindFlags = 0;
+            sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            sd.MiscFlags = 0;
+            sd.MipLevels = 1;
+            sd.ArraySize = 1;
+            ComPtr<ID3D11Texture2D> staging;
+            hr = dev->CreateTexture2D(&sd, nullptr, &staging);
+            if (FAILED(hr)) {
+                err = "no staging texture for the copy of the frame";
+            } else {
+                ctx->CopyResource(staging.Get(), back.Get());
+                D3D11_MAPPED_SUBRESOURCE m{};
+                hr = ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m);
+                if (FAILED(hr)) {
+                    err = "the copy of the frame could not be read";
+                } else {
+                    w = (int)d.Width;
+                    h = (int)d.Height;
+                    rgb.resize((size_t)w * h * 3);
+                    for (int y = 0; y < h; y++) {
+                        const uint8_t* row = static_cast<const uint8_t*>(m.pData) + (size_t)y * m.RowPitch;
+                        uint8_t* o = &rgb[(size_t)y * w * 3];
+                        for (int x = 0; x < w; x++) {
+                            o[x * 3 + 0] = row[x * 4 + (bgr ? 2 : 0)];
+                            o[x * 3 + 1] = row[x * 4 + 1];
+                            o[x * 3 + 2] = row[x * 4 + (bgr ? 0 : 2)];
+                        }
+                    }
+                    ctx->Unmap(staging.Get(), 0);
+                }
+            }
+        }
+    }
+    if (err.empty()) {
+        // (what the desktop is doing with the window when the frame is taken: the evidence for finding AD)
+        HWND win = GameWindow();
+        if (win == nullptr || !IsWindowVisible(win) || IsIconic(win)) {
+            Log("harness: screenshot taken from the frame; the desktop has this process's windows as: " +
+                DescribeWindows());
+        }
+    }
+    for (auto& [id, r] : sFrameRequests) {
+        if (r.done) {
+            continue;
+        }
+        r.done = true;
+        if (!err.empty()) {
+            r.info = err + " (HRESULT " + std::to_string((long)hr) + ")";
+            continue;
+        }
+        r.ok = WritePngRgb(r.path, w, h, rgb.data());
+        r.w = w;
+        r.h = h;
+        r.info = r.ok ? "frame" : "cannot write " + r.path;
+    }
+}
+
 bool AllBlack(const std::vector<uint8_t>& bgra) {
     for (size_t i = 0; i + 3 < bgra.size(); i += 4) {
         if (bgra[i] > 8 || bgra[i + 1] > 8 || bgra[i + 2] > 8) {
@@ -156,12 +307,10 @@ bool AllBlack(const std::vector<uint8_t>& bgra) {
 } // namespace
 
 bool ResizeForCapture(int width, int height, CaptureRestore* saved) {
-    FindCtx ctx;
-    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
-    if (ctx.best == nullptr || width <= 0 || height <= 0) {
+    HWND hwnd = GameWindow();
+    if (hwnd == nullptr || width <= 0 || height <= 0) {
         return false;
     }
-    HWND hwnd = ctx.best;
     RECT client, outer;
     if (!GetClientRect(hwnd, &client) || !GetWindowRect(hwnd, &outer)) {
         return false;
@@ -192,28 +341,63 @@ void RestoreAfterCapture(const CaptureRestore& saved) {
     if (!saved.valid) {
         return;
     }
-    FindCtx ctx;
-    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
-    if (ctx.best != nullptr) {
-        SetWindowPos(ctx.best, nullptr, saved.x, saved.y, saved.w, saved.h,
+    HWND hwnd = GameWindow();
+    if (hwnd != nullptr) {
+        SetWindowPos(hwnd, nullptr, saved.x, saved.y, saved.w, saved.h,
                      SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
     }
 }
 
-bool CaptureGameWindow(const std::string& path, int* outW, int* outH, std::string* err) {
-    FindCtx ctx;
-    EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&ctx));
-    if (ctx.best == nullptr) {
-        *err = "game window not found";
+std::string DescribeWindows() {
+    std::string out;
+    EnumWindows(DescribeProc, reinterpret_cast<LPARAM>(&out));
+    return out.empty() ? "none" : out;
+}
+
+void InstallFrameCapture() {
+    gZmpBeforePresent = OnBeforePresent;
+}
+
+bool FrameCaptureAvailable() {
+    return sFramePresents > 0;
+}
+
+int RequestFrameCapture(const std::string& path) {
+    int id = sFrameNextRequest++;
+    sFrameRequests[id].path = path;
+    return id;
+}
+
+bool FrameCaptureResult(int id, bool* ok, int* outW, int* outH, std::string* info) {
+    auto it = sFrameRequests.find(id);
+    if (it == sFrameRequests.end()) {
+        *ok = false;
+        *info = "no such capture";
+        return true;
+    }
+    if (!it->second.done) {
         return false;
     }
-    HWND hwnd = ctx.best;
+    *ok = it->second.ok;
+    *outW = it->second.w;
+    *outH = it->second.h;
+    *info = it->second.info;
+    sFrameRequests.erase(it);
+    return true;
+}
+
+bool CaptureGameWindow(const std::string& path, int* outW, int* outH, std::string* err) {
+    HWND hwnd = GameWindow();
+    if (hwnd == nullptr) {
+        *err = "game window not found; this process's windows: " + DescribeWindows();
+        return false;
+    }
     RECT rc;
     GetClientRect(hwnd, &rc);
     int w = rc.right - rc.left;
     int h = rc.bottom - rc.top;
     if (w <= 0 || h <= 0) {
-        *err = "window has no client area (minimized?)";
+        *err = "window has no client area; this process's windows: " + DescribeWindows();
         return false;
     }
 
@@ -284,6 +468,27 @@ bool ResizeForCapture(int, int, CaptureRestore*) {
 }
 
 void RestoreAfterCapture(const CaptureRestore&) {
+}
+
+void InstallFrameCapture() {
+}
+
+bool FrameCaptureAvailable() {
+    return false;
+}
+
+int RequestFrameCapture(const std::string&) {
+    return 0;
+}
+
+bool FrameCaptureResult(int, bool* ok, int*, int*, std::string* info) {
+    *ok = false;
+    *info = "screenshot is only implemented on Windows";
+    return true;
+}
+
+std::string DescribeWindows() {
+    return "";
 }
 
 #endif

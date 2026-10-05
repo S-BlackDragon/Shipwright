@@ -5,6 +5,7 @@
 
 #include "Harness.h"
 #include "HarnessQueue.h"
+#include "Screenshot.h"
 
 #include <atomic>
 #include <chrono>
@@ -156,6 +157,7 @@ bool Start(uint16_t port) {
     if (sRunning) {
         return true;
     }
+    InstallFrameCapture(); // (screenshots from the frame itself, D-102)
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
