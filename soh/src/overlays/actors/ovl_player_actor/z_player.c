@@ -10453,6 +10453,12 @@ void Player_Action_80846050(Player* this, PlayState* play) {
     if (LinkAnimation_OnFrame(&this->skelAnime, 4.0f)) {
         Actor* interactRangeActor = this->interactRangeActor;
 
+        // ZMP (finding AK): a lift is offered to every player in reach; if another Link already took it (both
+        // pressed A in the same tick), this one lets go as if there were nothing to lift.
+        if ((interactRangeActor != NULL) && (interactRangeActor->parent != NULL) &&
+            (interactRangeActor->parent != &this->actor)) {
+            interactRangeActor = NULL;
+        }
         if (!func_80835644(play, this, interactRangeActor)) {
             this->heldActor = interactRangeActor;
             this->actor.child = interactRangeActor;

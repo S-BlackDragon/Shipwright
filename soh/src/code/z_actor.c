@@ -1,6 +1,7 @@
 #include "global.h"
 #include "soh/Zmp/Sim/ZmpSim.h"     // ZMP
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "vt.h"
 
 #include "overlays/actors/ovl_Arms_Hook/z_arms_hook.h"
@@ -2154,6 +2155,52 @@ s32 GiveItemEntryFromActorWithFixedRange(Actor* actor, PlayState* play, GetItemE
 // If you're doing something for randomizer, you're probably looking for GiveItemEntryFromActor
 s32 Actor_OfferGetItem(Actor* actor, PlayState* play, s32 getItemId, f32 xzRange, f32 yRange) {
     Player* player = GET_PLAYER(play);
+
+    if (Zmp_MultiActive() && (getItemId == GI_NONE) && !Zmp_TestMutant("oferta_al_mas_cercano")) {
+        // ZMP (phase 6, finding AK of reports/fase6/FAMILIAS.md, family 3): something to lift (a bomb flower, Ruto,
+        // a pot, a rock) is offered to every player in reach, each by its own distance and facing, as the talk offer
+        // of phase 5b: the nearest player, even with its back to it, no longer keeps the one facing it from picking it
+        // up. Whoever presses A lifts it; if two start in the same tick, the second lets go (Player_Action_80846050).
+        // Items (getItemId other than GI_NONE) still go to the nearest only: offered to two, both would get them.
+        s32 offered = false;
+        s32 k = -1;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* p = gZmpSim.slots[k].player;
+            f32 xz;
+            f32 y;
+            s16 yawTowards;
+            s16 yawDiff;
+            s32 absYawDiff;
+
+            if (p == NULL || gZmpSim.slots[k].downed) {
+                continue;
+            }
+            if ((p->stateFlags1 &
+                 (PLAYER_STATE1_DEAD | PLAYER_STATE1_CHARGING_SPIN_ATTACK | PLAYER_STATE1_HANGING_OFF_LEDGE |
+                  PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING | PLAYER_STATE1_FREEFALL |
+                  PLAYER_STATE1_FIRST_PERSON | PLAYER_STATE1_CLIMBING_LADDER)) ||
+                (Player_GetExplosiveHeld(p) >= 0) ||
+                (p->stateFlags1 & (PLAYER_STATE1_CARRYING_ACTOR | PLAYER_STATE1_IN_CUTSCENE))) {
+                continue;
+            }
+            xz = (p == player) ? actor->xzDistToPlayer : Actor_WorldDistXZToActor(actor, &p->actor);
+            y = (p == player) ? actor->yDistToPlayer : Actor_HeightDiff(actor, &p->actor);
+            yawTowards = (p == player) ? actor->yawTowardsPlayer : Actor_WorldYawTowardActor(actor, &p->actor);
+            if ((xz >= xzRange) || (fabsf(y) >= yRange)) {
+                continue;
+            }
+            yawDiff = yawTowards - p->actor.shape.rot.y;
+            absYawDiff = ABS(yawDiff);
+            if (p->getItemDirection < absYawDiff) {
+                p->getItemId = GI_NONE;
+                p->interactRangeActor = actor;
+                p->getItemDirection = absYawDiff;
+                offered |= (p == player);
+            }
+        }
+        return offered;
+    }
 
     if (!(player->stateFlags1 &
           (PLAYER_STATE1_DEAD | PLAYER_STATE1_CHARGING_SPIN_ATTACK | PLAYER_STATE1_HANGING_OFF_LEDGE |

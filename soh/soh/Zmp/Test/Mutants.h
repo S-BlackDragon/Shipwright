@@ -61,6 +61,8 @@
 //                          catches up (test builds only: the accelerated clock exists only there)
 //   captura_por_ventana    a screenshot asks the desktop for the game's window (finding AD, D-102): a window the
 //                          desktop does not show is "not found", or its capture is whatever the screen has there
+//   oferta_al_mas_cercano  something to lift is offered only to the nearest player (finding AK, D-109): the one
+//                          facing a bomb flower or Ruto cannot pick it up while another stands nearer
 //   sale_con_carga         a Link that goes away does not let go of what it carries (finding AJ, D-108): Ruto
 //                          keeps a pointer to the freed Link and nobody can carry her again
 //   aparicion_sin_mirar    the spawn spot of a Link that appears next to others is searched as before phase 6
