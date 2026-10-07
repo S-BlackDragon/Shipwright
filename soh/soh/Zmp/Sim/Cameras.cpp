@@ -501,6 +501,29 @@ extern "C" void Zmp_OnCameraCleared(PlayState* play, s16 camIdx) {
     }
 }
 
+// B1: the private one-point cutscene `csId` of a player who goes away (Ruto's warp starts one of 999 frames for the
+// player in it; the scene ended there in the original). Nobody else watches it; left running it would take a sub
+// camera for another player's turn and end, much later, in the context of whoever is the anchor then.
+extern "C" void Zmp_ClearOnePointOf(PlayState* play, s32 slot, s16 csId) {
+    if (!Zmp_MultiActive() || !ValidSlot(slot)) {
+        return;
+    }
+    for (int i = CAM_ID_SUB_FIRST; i < NUM_CAMS; i++) {
+        Camera* c = play->cameraPtrs[i];
+        if (c != nullptr && gZmpSim.camScope[i] == slot && c->csId == csId) {
+            Zmp::Log("zmp: one-point camera " + std::to_string(i) + " (" + std::to_string(csId) + ") of slot " +
+                     std::to_string(slot) + " cleared: its player went away");
+            Play_ClearCamera(play, i);
+        }
+    }
+    // Play_ClearCamera puts back on its main camera every other player who watched a cleared camera, not the one
+    // whose context is live: when that is this player, play->activeCamera would still name the cleared camera (this
+    // one, or the warp's own that the caller cleared just before), and letting this player go right after reads it
+    // (z_player.c, func_8005B1A4: the game closed when the anchor left through Ruto's warp). Same for the child of
+    // its main camera.
+    Sanitize(play);
+}
+
 extern "C" void Zmp_OnAllSubCamerasCleared(PlayState* play) {
     for (int i = 0; i < NUM_CAMS; i++) {
         sSubViewValid[i] = false;

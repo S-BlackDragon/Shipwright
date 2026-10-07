@@ -325,6 +325,8 @@ void Zmp_NoteTransitionBy(Player* player);
 void Zmp_WarpBegin(Player* player);
 void Zmp_WarpTransition(Player* player);
 s32 Zmp_WarpIsShared(void);
+// B1 (Cameras.cpp): clears the one-point cutscene `csId` of a player who goes away (the warp's own, Ruto's warp).
+void Zmp_ClearOnePointOf(PlayState* play, s32 slot, s16 csId);
 // Gohma's blue warp (z_boss_goma.c) is placed away from "the player"; this says whether another present player stands
 // within `half` of (x, z) along both axes, so that it does not appear under that one either (finding Z, D-099).
 s32 Zmp_OtherPlayerInBoxXZ(Player* except, f32 x, f32 z, f32 half);

@@ -350,6 +350,14 @@ int ContextSlot(const Actor* actor) {
     if (actor->id == ACTOR_DOOR_WARP1 && Present(gZmpSim.warpOwner)) {
         return gZmpSim.warpOwner; // the blue warp acts on the player floating in it (phase 5b)
     }
+    // B1: Ruto by her blue warp (the warp is her child) acts on the player in it, as the warp does: she turns that
+    // player towards her, puts it in front of her, talks to it and goes with it. Before, she did all that to the player
+    // nearest to her, who could be another one standing by her (moved, turned and frozen) while the one in the warp
+    // stayed floating.
+    if (actor->id == ACTOR_EN_RU1 && actor->child != nullptr && actor->child->id == ACTOR_DOOR_WARP1 &&
+        Present(gZmpSim.warpOwner) && !Zmp_TestMutant("ruto_al_mas_cercano")) {
+        return gZmpSim.warpOwner;
+    }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
         k = Zmp::Players::SlotOf(actor->parent);
         if (k >= 0) {
@@ -1744,6 +1752,26 @@ extern "C" void Zmp_WarpBegin(Player* player) {
     }
 }
 
+namespace {
+// The player in the blue warp goes away (it left through the warp, or left the group or the game in the middle of
+// it): the warp is free again for the next player, and Ruto's waits by it again (B1). Before B1 only a departure
+// through the warp freed it: a player who left the game while floating in it left the warp acting on whoever was
+// nearest, who was then taken in its place (and Ruto would have turned and moved that one).
+void ReleaseWarpOf(PlayState* play, int k) {
+    if (gZmpSim.warpOwner != k || k < 0) {
+        return;
+    }
+    gZmpSim.warpOwner = -1;
+    for (Actor* a = play->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_DOOR_WARP1) {
+            DoorWarp1_ZmpRelease(a, play);
+        }
+    }
+    // (Ruto's warp: the one-point cutscene of the player in it; then nobody's camera state names a cleared camera)
+    Zmp_ClearOnePointOf(play, k, 0x25E9);
+}
+} // namespace
+
 extern "C" void Zmp_WarpTransition(Player* player) {
     if (!Zmp_MultiActive()) {
         return;
@@ -2046,15 +2074,8 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         play->haltAllActors = gZmpSim.undoHaltAll;
         gSaveContext.nextCutsceneIndex = gZmpSim.undoNextCutsceneIndex;
     }
-    if (gZmpSim.warpOwner == k) {
-        // The blue warp is free again for the next player.
-        gZmpSim.warpOwner = -1;
-        for (Actor* a = play->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
-            if (a->id == ACTOR_DOOR_WARP1) {
-                DoorWarp1_ZmpRelease(a, play);
-            }
-        }
-    }
+    // The blue warp is free again for the next player.
+    ReleaseWarpOf(play, k);
     Zmp::Log("zmp: slot " + std::to_string(k) + " leaves the scene through entrance " +
              std::to_string(play->nextEntranceIndex) + " (its Link goes away here)");
     Zmp::Players::Despawn(k);
@@ -2878,6 +2899,9 @@ void Despawn(int slot) {
         gZmpSim.anchor = (s8)next;
     } else if (gZmpSim.ctx != gZmpSim.anchor) {
         SwitchTo(play, gZmpSim.anchor);
+    }
+    if (!Zmp_TestMutant("portal_sin_soltar")) {
+        ReleaseWarpOf(play, slot); // B1: it left the group or the game while in the blue warp
     }
     Player* p = s.player;
     if (p->naviActor != nullptr) {

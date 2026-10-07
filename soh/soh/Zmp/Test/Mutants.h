@@ -68,6 +68,10 @@
 //   aparicion_sin_mirar    the spawn spot of a Link that appears next to others is searched as before phase 6
 //                          (finding AI, D-107): up to 315 units to a side, through walls, onto voids, lava, exits
 //                          and other Links (the group split in Phantom Ganon's room with six players)
+//   ruto_al_mas_cercano    Ruto by her blue warp acts on the player nearest to her, not on the one in the warp (B1,
+//                          D-113): another player standing by her is teleported, turned and frozen
+//   portal_sin_soltar      a player who leaves the group or the game while in the blue warp does not free it (B1,
+//                          D-113): the warp, and Ruto, go on with whoever is nearest, who is taken in its place
 
 #ifdef __cplusplus
 extern "C" {

@@ -488,6 +488,12 @@ json ActorsJson(const json& cmd) {
                 list.back()["ru1_carrier"] = carrier;
                 list.back()["ru1_room2"] = r->roomNum2;
             }
+            if (a->id == ACTOR_DOOR_WARP1) {
+                // Phase 6 (B1): Ruto's warp talks with her through this state (0 not ready ... 5 warping), and the
+                // player the blue warps act on while one floats in one (-1 nobody).
+                list.back()["warp_ruto_state"] = ((const DoorWarp1*)a)->rutoWarpState;
+                list.back()["warp_owner"] = gZmpSim.warpOwner;
+            }
             if (a->id == ACTOR_BOSS_VA) {
                 // Phase 6 scenario tests (Barinade with five players): every part is a Boss_Va (params: body -1,
                 // supports 0-2, zappers 3-5, Bari 6-15, stumps 16-18, door 19).

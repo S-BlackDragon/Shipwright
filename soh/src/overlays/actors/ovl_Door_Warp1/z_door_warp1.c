@@ -58,8 +58,10 @@ static InitChainEntry sInitChain[] = {
 };
 
 static s16 sWarpTimerTarget;
+static s16 sRutoWarpSubCamId; // ZMP: declared here to travel with the state (B1)
 
-#define DOOR_WARP1_SHIP_SAVESTATE_FIELDS(F) F(sWarpTimerTarget)
+// ZMP (B1): Ruto's warp camera travels too: whoever joins during her text must not take camera 0 for it.
+#define DOOR_WARP1_SHIP_SAVESTATE_FIELDS(F) F(sWarpTimerTarget) F(sRutoWarpSubCamId)
 SHIP_SAVESTATE_DEFINE(DoorWarp1, DOOR_WARP1_SHIP_SAVESTATE_FIELDS)
 
 void DoorWarp1_SetupAction(DoorWarp1* this, DoorWarp1ActionFunc actionFunc) {
@@ -580,13 +582,12 @@ void DoorWarp1_RutoWarpIdle(DoorWarp1* this, PlayState* play) {
 
     if (this->rutoWarpState != WARP_BLUE_RUTO_STATE_INITIAL && DoorWarp1_PlayerInRange(this, play)) {
         this->rutoWarpState = WARP_BLUE_RUTO_STATE_ENTERED;
+        Zmp_WarpBegin(GET_PLAYER(play)); // ZMP (B1): the warp, and Ruto, are this player's until it leaves
         Player_SetCsActionWithHaltedActors(play, &this->actor, 10);
         this->unk_1B2 = 1;
         DoorWarp1_SetupAction(this, func_80999EE0);
     }
 }
-
-static s16 sRutoWarpSubCamId;
 
 void func_80999EE0(DoorWarp1* this, PlayState* play) {
     Vec3f at;
@@ -596,6 +597,14 @@ void func_80999EE0(DoorWarp1* this, PlayState* play) {
     if (this->rutoWarpState == WARP_BLUE_RUTO_STATE_3) {
         Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
         sRutoWarpSubCamId = Play_CreateSubCamera(play);
+        if (sRutoWarpSubCamId == SUBCAM_NONE) { // ZMP (B1): no free camera (never in the original): text only
+            Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_ACTIVE);
+            sRutoWarpSubCamId = 0;
+            this->rutoWarpState = WARP_BLUE_RUTO_STATE_TALKING;
+            Message_StartTextbox(play, 0x4022, NULL);
+            DoorWarp1_SetupAction(this, func_80999FE4);
+            return;
+        }
 
         Play_ChangeCameraStatus(play, sRutoWarpSubCamId, CAM_STAT_ACTIVE);
         at.x = this->actor.world.pos.x;
@@ -619,8 +628,10 @@ void func_80999FE4(DoorWarp1* this, PlayState* play) {
         Audio_PlaySfxGeneral(NA_SE_EV_LINK_WARP, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,
                              &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
         OnePointCutscene_Init(play, 0x25E9, 999, &this->actor, CAM_ID_MAIN);
-        Play_CopyCamera(play, -1, sRutoWarpSubCamId);
-        Play_ChangeCameraStatus(play, sRutoWarpSubCamId, CAM_STAT_WAIT);
+        if (sRutoWarpSubCamId != 0) { // ZMP (B1): (see func_80999EE0)
+            Play_CopyCamera(play, -1, sRutoWarpSubCamId);
+            Play_ChangeCameraStatus(play, sRutoWarpSubCamId, CAM_STAT_WAIT);
+        }
         this->rutoWarpState = WARP_BLUE_RUTO_STATE_WARPING;
         DoorWarp1_SetupAction(this, DoorWarp1_RutoWarpOut);
     }
@@ -653,6 +664,7 @@ void DoorWarp1_RutoWarpOut(DoorWarp1* this, PlayState* play) {
 
         play->transitionTrigger = TRANS_TRIGGER_START;
         play->transitionType = TRANS_TYPE_FADE_WHITE_SLOW;
+        Zmp_WarpTransition(player); // ZMP (B1): only the player in the warp leaves, like any blue warp (D-067)
     }
 
     Math_StepToF(&this->unk_194, 2.0f, 0.01f);
@@ -897,12 +909,27 @@ void DoorWarp1_AdultWarpOut(DoorWarp1* this, PlayState* play) {
 }
 
 // ZMP (phase 5b): the player that was in the warp left the scene alone; the warp appears again for the next one.
+// B1: Ruto's warp too, and Ruto waits by it again (the player who was in it left with her, or left the game).
+void EnRu1_ZmpBackByWarp(Actor* thisx, PlayState* play);
 void DoorWarp1_ZmpRelease(Actor* thisx, PlayState* play) {
     DoorWarp1* this = (DoorWarp1*)thisx;
     s32 adult = this->actionFunc == DoorWarp1_AdultWarpOut || this->actionFunc == func_8099A508;
+    s32 ruto = this->actor.params == WARP_BLUE_RUTO && this->rutoWarpState >= WARP_BLUE_RUTO_STATE_ENTERED;
 
-    if (!adult && this->actionFunc != DoorWarp1_ChildWarpOut) {
+    if (!adult && !ruto && this->actionFunc != DoorWarp1_ChildWarpOut) {
         return;
+    }
+    if (ruto) {
+        // Its own camera (made in func_80999EE0, never cleared in the original: the scene ended) would take one of the
+        // three sub cameras each time.
+        if (sRutoWarpSubCamId != 0 && play->cameraPtrs[sRutoWarpSubCamId] != NULL) {
+            Play_ClearCamera(play, sRutoWarpSubCamId);
+        }
+        sRutoWarpSubCamId = 0;
+        this->rutoWarpState = WARP_BLUE_RUTO_STATE_READY;
+        if (this->actor.parent != NULL && this->actor.parent->id == ACTOR_EN_RU1) {
+            EnRu1_ZmpBackByWarp(this->actor.parent, play);
+        }
     }
     this->scale = 0;
     this->unk_1AE = -140;

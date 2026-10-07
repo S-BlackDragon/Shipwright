@@ -1175,6 +1175,24 @@ void func_80AED414(EnRu1* this, PlayState* play) {
     EnRu1_UpdateSkelAnime(this);
 }
 
+// ZMP (B1): the player who was in Ruto's blue warp went away (it left through the warp with her, or left the game).
+// For the ones who stay she is back where she waited by the warp, as before anybody stepped in, for the next one
+// (action 18 waits for the warp to say that somebody entered; the warp appears again, DoorWarp1_ZmpRelease).
+void EnRu1_ZmpBackByWarp(Actor* thisx, PlayState* play) {
+    EnRu1* this = (EnRu1*)thisx;
+
+    if (this->action < 18 || this->action > 21) {
+        return;
+    }
+    this->action = 18;
+    this->walkingFrame = 0.0f;
+    this->xzDistToPlayerInBlueWarp = 0.0f;
+    this->actor.world.pos = this->actor.home.pos;
+    this->actor.prevPos = this->actor.home.pos;
+    this->actor.velocity.y = 0.0f;
+    func_80AEB264(this, &gRutoChildWaitHandsOnHipsAnim, 0, 0, 0);
+}
+
 void func_80AED44C(EnRu1* this, PlayState* play) {
     s8 actorRoom;
 
