@@ -25,6 +25,7 @@ void Interface_UpdateMagicBar(PlayState* play);
 void Player_SetEquipmentData(PlayState* play, Player* player);
 void Player_SetBootData(PlayState* play, Player* player);
 void Player_ZmpRevive(PlayState* play, Player* player);
+void Player_ZmpLetGo(PlayState* play, Player* player);
 void Attention_Update(TargetContext* targetCtx, Player* player, Actor* actorArg, PlayState* play);
 void Player_ReleaseLockOn(Player* player);
 }
@@ -2828,6 +2829,37 @@ void Despawn(int slot) {
         s.present = 0;
         s.player = nullptr;
         return;
+    }
+    if (slot == gZmpSim.anchor) {
+        int others = 0;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            others += (k != slot && Present(k)) ? 1 : 0;
+        }
+        if (others == 0) {
+            Log("zmp: DESPAWN of the last player ignored");
+            s.active = 1;
+            return;
+        }
+    }
+    if (!Zmp_TestMutant("sale_con_carga")) {
+        // Finding AJ (family 2 of reports/fase6/FAMILIAS.md): the Link that goes away lets go of what it carries, in
+        // its own context (its items and equipment), and nothing keeps pointing at it as parent or child. Before, Ruto
+        // kept a pointer to the freed Link: nobody could carry her again, and whatever chose her context read it.
+        if (gZmpSim.ctx != slot) {
+            SwitchTo(play, slot);
+        }
+        Player* gone = s.player;
+        Player_ZmpLetGo(play, gone);
+        for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
+            for (Actor* a = play->actorCtx.actorLists[cat].head; a != nullptr; a = a->next) {
+                if (a->parent == &gone->actor) {
+                    a->parent = nullptr;
+                }
+                if (a->child == &gone->actor) {
+                    a->child = nullptr;
+                }
+            }
+        }
     }
     if (slot == gZmpSim.anchor) {
         int next = -1;

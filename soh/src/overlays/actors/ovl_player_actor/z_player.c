@@ -3575,6 +3575,13 @@ void Player_ZmpRevive(PlayState* play, Player* this) {
     this->av2.actionVar2 = -1; // func_80843AE8: stand up when the health accumulator is empty
     Player_PlaySfx(this, NA_SE_EV_FIATY_HEAL - SFX_FLAG);
 }
+// ZMP: this Link goes away (its player left the group or the scene, soh/soh/Zmp/Sim/Players.cpp): it lets go of
+// whatever it holds, as when it is hit while carrying (finding AJ, reports/fase6/FAMILIAS.md family 2). Before,
+// Ruto (or a bomb, a pot) kept a pointer to a Link that no longer existed.
+void Player_ZmpLetGo(PlayState* play, Player* this) {
+    Player_DestroyHookshot(this);
+    func_80832564(play, this);
+}
 
 int Player_CanUpdateItems(Player* this) {
     return (!(Player_Action_WaitForPutAway == this->actionFunc) ||
