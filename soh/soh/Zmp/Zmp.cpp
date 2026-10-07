@@ -535,6 +535,13 @@ static LRESULT CALLBACK NoActivateCbtProc(int code, WPARAM wParam, LPARAM lParam
     if (code == HCBT_ACTIVATE && !UserAskedForActivation()) {
         return 1; // refuse the activation
     }
+    if (code == HCBT_CREATEWND && !Zmp_TestMutant("ventanas_delante")) {
+        // A new top-level window is created at the BOTTOM of the z-order, not over the person's windows (D-110)
+        auto* create = reinterpret_cast<CBT_CREATEWNDW*>(lParam);
+        if (create != nullptr && create->lpcs != nullptr && (create->lpcs->style & WS_CHILD) == 0) {
+            create->hwndInsertAfter = HWND_BOTTOM;
+        }
+    }
     return CallNextHookEx(sNoActivateHook, code, wParam, lParam);
 }
 #endif
@@ -924,9 +931,40 @@ extern "C" int Zmp_InstallNoActivateHook(void) {
 #endif
 }
 
+// Test instances stay BEHIND every other window unless the person raises one (Alex, 2026-10-07, D-110): a new window
+// is placed at the top of the z-order even when it is shown without activation, so it covered VS Code. The CBT hook
+// creates the windows at the bottom; and once a second every visible top-level window of this process that is not
+// the active window is pushed to the bottom again, without activating anything (whatever raised it). A window the
+// person clicked on (activated, allowed by the CBT hook) stays where Windows put it while it is the active one.
+static void KeepTestWindowsBehind() {
+#ifdef _WIN32
+    static ULONGLONG sLast = 0;
+    if (!sBootIsTestInstance || Zmp_TestMutant("ventanas_delante")) {
+        return;
+    }
+    ULONGLONG now = GetTickCount64();
+    if (now - sLast < 1000) {
+        return;
+    }
+    sLast = now;
+    EnumWindows(
+        [](HWND hwnd, LPARAM) -> BOOL {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            if (pid == GetCurrentProcessId() && IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == nullptr &&
+                hwnd != GetForegroundWindow()) {
+                SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            return TRUE;
+        },
+        0);
+#endif
+}
+
 // Audio of an instance plays only while one of its windows has the focus (presentation only; the
 // mixer output is silenced, the game-side audio state is untouched).
 static void UpdateFocusMute() {
+    KeepTestWindowsBehind();
     bool enabled = CVarGetInteger(ZMP_CVAR_MUTE_UNFOCUSED, 0) != 0;
     bool realMute = false;
 #ifdef _WIN32
