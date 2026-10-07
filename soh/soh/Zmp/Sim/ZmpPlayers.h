@@ -190,11 +190,14 @@ typedef struct {
     // read while the game over context is in a revive state. Stored as 1 + slot so that "nobody" is the zero every
     // reset of this structure leaves (the trap of finding Z).
     u8 reviveBy;
-    u8 pad6;
+    // D-111: the arc of the running group cutscene. Bit k: slot k was placed in it (or tried) for the current centre;
+    // a player who arrives during the cutscene has its bit clear and is placed on the next tick.
+    u8 csArcPlaced;
     // Phase 5b: rupees the room spent beyond what it had (two groups buying at the same moment); shown as zero
     // rupees and paid off by the next ones.
     s16 rupeeDebt;
-    s16 pad7[3];
+    // D-111: centre of that arc: the cutscene player's x and z and the floor under it, when the arc was laid out.
+    s16 csArcCentre[3];
     u8 msgStatics[ZMP_MAX_PLAYERS + 1][ZMP_MSG_STATICS_SIZE];
     u8 ocaStatics[ZMP_MAX_PLAYERS + 1][ZMP_OCA_STATICS_SIZE]; // each player's ocarina (code_800EC960.c)
     u8 msgSegment[ZMP_MAX_PLAYERS][0x2200]; // each slot's text box background and icon (msgCtx.textboxSegment)
@@ -524,6 +527,9 @@ uint32_t PlayInitCount();
 // Per-player input of this tick (pad of the bundle).
 void StepInput(int slot, const OSContPad& pad);
 Player* SlotPlayer(int slot);
+// D-111: a spot of a group cutscene's arc (pos.y is set to its floor), and the ground under a point in the air.
+bool ArcSpotOk(PlayState* play, const Vec3f& centre, Vec3f& pos);
+Vec3f GroundBelow(PlayState* play, const Vec3f& pos);
 // Tests (finding AI): the spawn candidates next to the group's entrance and the checks each passes.
 struct SpawnSpotCheck {
     float x, y, z;

@@ -156,56 +156,79 @@ void Sanitize(PlayState* play) {
 }
 
 // Arc of radius 120 around the player a global cutscene is about (PLAN.md 2.9 point 4): the others are placed
-// behind and beside it, facing where it faces. A spot without floor near the same height, or behind a wall, is
-// skipped; with no free spot the player stays where it is.
-void PlaceInArc(PlayState* play, int trigger) {
+// behind and beside it, facing where it faces.
+//
+// D-111 (family 4 of reports/fase6/FAMILIAS.md): the arc was laid out once, on the tick the cutscene started, and
+// measured against the cutscene player's own height. Three things left the others far from it: (1) a boss intro that
+// starts when the first player of the group arrives (Twinrova, Ganondorf, Ganon): the others arrive during it and
+// appear at the entrance, 200-450 away, and in Ganondorf's room they kept watching their own camera; (2) the script
+// moves its player after the first tick (the position "the script assigns"): the arc stayed where it had been;
+// (3) the cutscene player in the air (King Dodongo's intro: it falls into the room): no spot had floor near its
+// height and nobody moved. Now the arc is kept while the cutscene runs (MaintainArc): its centre is the floor under
+// the cutscene player; whoever arrives is placed in it and watches the cutscene's camera; when the cutscene player
+// has moved more than 40 from the centre (and stands still, or is more than 120 away) the arc is laid out again.
+// A spot passes the spawn spot checks (D-107) from the centre and is not where another Link stands; sixteen
+// directions on rings of 120, then 90, 150 and 60.
+Vec3f ArcCentre(PlayState* play, Player* t) {
+    // (mutant "arco_solo_al_empezar": the arc of before, measured from the cutscene player's own height)
+    if (Zmp_TestMutant("arco_solo_al_empezar")) {
+        return t->actor.world.pos;
+    }
+    return Zmp::Players::GroundBelow(play, t->actor.world.pos);
+}
+
+void PlaceInArc(PlayState* play, int trigger, u8 mask) {
     Player* t = Zmp::Players::SlotPlayer(trigger);
     if (t == nullptr) {
         return;
     }
-    // Beside it first, then behind-beside, in front-beside and behind (behind is often the door it came in by).
-    static const s16 kAngles[] = { (s16)0x4000, (s16)0xC000, (s16)0x6000, (s16)0xA000, (s16)0x2000,
-                                   (s16)0xE000, (s16)0x5000, (s16)0xB000, (s16)0x8000 };
-    const f32 kRadius = 120.0f;
+    // Beside it first, then behind-beside, in front-beside and behind (behind is often the door it came in by); then
+    // the directions in between and in front (sixteen in all, the arc of a narrow or broken floor needs them).
+    static const s16 kAngles[] = { (s16)0x4000, (s16)0xC000, (s16)0x6000, (s16)0xA000, (s16)0x2000, (s16)0xE000,
+                                   (s16)0x5000, (s16)0xB000, (s16)0x8000, (s16)0x3000, (s16)0xD000, (s16)0x7000,
+                                   (s16)0x9000, (s16)0x1000, (s16)0xF000, (s16)0x0000 };
+    static const f32 kRadii[] = { 120.0f, 90.0f, 150.0f, 60.0f };
+    const int kAngleCount = (int)(sizeof(kAngles) / sizeof(kAngles[0]));
+    const int kCount = kAngleCount * (int)(sizeof(kRadii) / sizeof(kRadii[0]));
+    Vec3f centre = ArcCentre(play, t);
     s16 yaw = t->actor.shape.rot.y;
-    int next = 0;
+    bool used[sizeof(kAngles) / sizeof(kAngles[0]) * sizeof(kRadii) / sizeof(kRadii[0])] = {};
+    // Where Links will stand: the cutscene player and whoever is not moved now.
+    Vec3f taken[ZMP_MAX_PLAYERS + 1];
+    int nTaken = 0;
+    taken[nTaken++] = t->actor.world.pos;
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Player* p = Zmp::Players::SlotPlayer(k);
-        if (k == trigger || p == nullptr || Zmp::Players::SlotDowned(k)) {
+        if (p != nullptr && k != trigger && !(mask & (1 << k))) {
+            taken[nTaken++] = p->actor.world.pos;
+        }
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp::Players::SlotPlayer(k);
+        if (k == trigger || p == nullptr || Zmp::Players::SlotDowned(k) || !(mask & (1 << k))) {
             continue;
         }
         bool placed = false;
-        while (next < (int)(sizeof(kAngles) / sizeof(kAngles[0])) && !placed) {
-            s16 ang = (s16)(yaw + kAngles[next++]);
-            Vec3f pos = t->actor.world.pos;
-            pos.x += Math_SinS(ang) * kRadius;
-            pos.z += Math_CosS(ang) * kRadius;
-            Vec3f probe = pos;
-            probe.y += 50.0f;
-            CollisionPoly* poly = nullptr;
-            s32 bgId = 0;
-            f32 floorY = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
-            if (floorY == BGCHECK_Y_MIN || fabsf(floorY - t->actor.world.pos.y) > 40.0f) {
+        for (int c = 0; c < kCount && !placed; c++) {
+            if (used[c]) {
                 continue;
             }
-            // Never on a scene exit, a void or lava.
-            if (SurfaceType_GetSceneExitIndex(&play->colCtx, poly, bgId) != 0) {
+            s16 ang = (s16)(yaw + kAngles[c % kAngleCount]);
+            f32 radius = kRadii[c / kAngleCount];
+            Vec3f pos = centre;
+            pos.x += Math_SinS(ang) * radius;
+            pos.z += Math_CosS(ang) * radius;
+            bool free = true;
+            for (int n = 0; n < nTaken && free; n++) {
+                f32 dx = taken[n].x - pos.x;
+                f32 dz = taken[n].z - pos.z;
+                free = sqrtf(dx * dx + dz * dz) >= 40.0f || fabsf(taken[n].y - centre.y) >= 60.0f;
+            }
+            if (!free || !Zmp::Players::ArcSpotOk(play, centre, pos)) {
                 continue;
             }
-            u32 floorType = SurfaceType_GetFloorType(&play->colCtx, poly, bgId);
-            if (floorType == 5 || floorType == 9 || floorType == 12) {
-                continue;
-            }
-            pos.y = floorY;
-            Vec3f from = t->actor.world.pos;
-            from.y += 30.0f;
-            Vec3f to = pos;
-            to.y += 30.0f;
-            Vec3f hit;
-            CollisionPoly* wall = nullptr;
-            if (BgCheck_EntityLineTest1(&play->colCtx, &from, &to, &hit, &wall, true, false, false, true, &bgId)) {
-                continue; // a wall between them
-            }
+            used[c] = true;
+            taken[nTaken++] = pos;
             p->actor.world.pos = pos;
             p->actor.prevPos = pos;
             p->actor.home.pos = pos;
@@ -213,8 +236,74 @@ void PlaceInArc(PlayState* play, int trigger) {
             p->yaw = yaw;
             p->linearVelocity = 0.0f;
             p->actor.speedXZ = 0.0f;
+            p->actor.velocity.y = 0.0f;
             placed = true;
-            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " placed next to slot " + std::to_string(trigger));
+            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " placed next to slot " + std::to_string(trigger) +
+                     " (" + std::to_string((int)radius) + " away)");
+        }
+        if (!placed) {
+            Zmp::Log("zmp: cutscene: no spot next to slot " + std::to_string(trigger) + " for slot " +
+                     std::to_string(k) + ", it stays where it is");
+        }
+    }
+}
+
+// Every tick of a group cutscene (D-111): who arrived is placed and watches the cutscene's camera; a cutscene player
+// that moved away takes the arc with it.
+void MaintainArc(PlayState* play) {
+    if (Zmp_TestMutant("arco_solo_al_empezar")) {
+        return;
+    }
+    int trigger = gZmpSim.csTrigger;
+    Player* t = Zmp::Players::SlotPlayer(trigger);
+    if (t == nullptr) {
+        return;
+    }
+    u8 held = 0;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k != trigger && Zmp::Players::SlotPlayer(k) != nullptr && !Zmp::Players::SlotDowned(k)) {
+            held |= (u8)(1 << k);
+        }
+    }
+    // (a player who left, or lies downed, is placed again when it is back)
+    gZmpSim.csArcPlaced &= held;
+    Vec3f c = ArcCentre(play, t);
+    f32 cx = c.x - gZmpSim.csArcCentre[0];
+    f32 cz = c.z - gZmpSim.csArcCentre[2];
+    f32 away = sqrtf(cx * cx + cz * cz);
+    f32 sx = t->actor.world.pos.x - t->actor.prevPos.x;
+    f32 sz = t->actor.world.pos.z - t->actor.prevPos.z;
+    f32 step = sqrtf(sx * sx + sz * sz);
+    bool moved = away > 40.0f || fabsf(c.y - gZmpSim.csArcCentre[1]) > 40.0f;
+    if (moved && (step < 1.0f || away > 120.0f)) {
+        gZmpSim.csArcPlaced = 0;
+    }
+    u8 todo = held & (u8)~gZmpSim.csArcPlaced;
+    if (todo != 0) {
+        if (gZmpSim.csArcPlaced == 0) {
+            gZmpSim.csArcCentre[0] = (s16)c.x;
+            gZmpSim.csArcCentre[1] = (s16)c.y;
+            gZmpSim.csArcCentre[2] = (s16)c.z;
+        }
+        PlaceInArc(play, trigger, todo);
+        gZmpSim.csArcPlaced |= todo;
+    }
+    // Everybody watches the cutscene's camera (PLAN.md 2.9 point 2): one who arrived during it starts on its own.
+    int cam = -1;
+    for (int k = 0; k < ZMP_MAX_PLAYERS && cam < 0; k++) {
+        int a = Present(k) ? ActiveOf(play, k) : CAM_ID_MAIN;
+        if (IsGlobal(a) && play->cameraPtrs[a] != nullptr) {
+            cam = a;
+        }
+    }
+    if (cam < 0) {
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && !IsGlobal(ActiveOf(play, k))) {
+            SetActiveOf(play, k, (s16)cam);
+            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " watches the group cutscene's camera " +
+                     std::to_string(cam));
         }
     }
 }
@@ -259,13 +348,20 @@ void UpdateGlobalCutscene(PlayState* play) {
         Camera_ZmpResetInterface(0);
         Zmp::Log("zmp: global cutscene starts (" + std::string(scripted ? "scripted" : "camera") + "), about slot " +
                  std::to_string(trigger));
-        PlaceInArc(play, trigger);
+        gZmpSim.csArcPlaced = 0;
+        if (Zmp_TestMutant("arco_solo_al_empezar")) {
+            PlaceInArc(play, trigger, 0xFF);
+        }
     } else if (!active && gZmpSim.globalCs) {
         gZmpSim.globalCs = 0;
         gZmpSim.csTrigger = -1;
         gZmpSim.csStarter = -1;
+        gZmpSim.csArcPlaced = 0;
         Camera_ZmpResetInterface(1);
         Zmp::Log("zmp: global cutscene ends");
+    }
+    if (active && gZmpSim.globalCs) {
+        MaintainArc(play);
     }
     // Outside the events everybody watches the shared letterbox and HUD are the normal ones (the players' own cameras
     // drive only their own, Present.cpp): what a camera left before the group formed or a scene started goes back.

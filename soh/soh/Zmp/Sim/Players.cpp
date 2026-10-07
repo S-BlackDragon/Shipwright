@@ -2931,6 +2931,18 @@ Player* SlotPlayer(int slot) {
     return Present(slot) ? Slot(slot).player : nullptr;
 }
 
+// D-111: a spot of the arc of a group cutscene passes the same checks as a spawn spot (D-107), from the centre of
+// the arc: good floor near its height, a walk from the centre reaches it, no exit or burning wall at hand, away from
+// edges. (Other Links are the caller's business: it knows who is about to move.)
+bool ArcSpotOk(PlayState* play, const Vec3f& centre, Vec3f& pos) {
+    return GoodFloorAt(play, pos, centre.y, true) && Reachable(play, centre, pos, false) && SafeWalls(play, pos) &&
+           AwayFromEdges(play, pos, false);
+}
+
+Vec3f GroundBelow(PlayState* play, const Vec3f& pos) {
+    return GroundUnder(play, pos);
+}
+
 int SlotOf(const Actor* actor) {
     if (actor == nullptr || actor->id != ACTOR_PLAYER) {
         return -1;
