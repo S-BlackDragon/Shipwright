@@ -4085,10 +4085,14 @@ void BossVa_ZmpDebug(s32* out) {
     out[5] = sDoorState;
 }
 
-// what 0: every support, zapper and Bari goes away and the body goes on to its last phase (it gets there at the end of
-// its current animation, through the original phase changes; BossVa_SetupBodyPhase4 then sets 4 hits). what 1: the
+// what 0: the supports are cut (as a sword cuts them), every Bari goes away and the body goes on to its last phase (it
+// gets there at the end of its current animation, through the original phase changes; BossVa_SetupBodyPhase4 then
+// sets 4 hits). The cut supports and the zappers stay, as in the original fight: the death cutscene only goes on
+// through them (DEATH_ZAPPER_1..3 the zappers, DEATH_SHELL_BURST..CORE_TUMORS the cut supports); killing them here
+// left it waiting for ever (reports/fase6/FAMILIAS.md S3). what 1: the
 // body, already in its last phase, is in the last of its three rounds with `value` hits left (the next hits kill it).
-// Returns 0 when it does nothing (no battle running, or not in the last phase yet).
+// what 2: the body, in its last phase, is stunned for `value` ticks (160 if 0), as the boomerang stuns it: the sword
+// hurts it meanwhile. Returns 0 when it does nothing (no battle running, or not in the last phase yet).
 s32 BossVa_ZmpStage(PlayState* play, s32 what, s32 value) {
     s32 cat;
     Actor* a;
@@ -4099,7 +4103,14 @@ s32 BossVa_ZmpStage(PlayState* play, s32 what, s32 value) {
     if (what == 0) {
         for (cat = 0; cat < ACTORCAT_MAX; cat++) {
             for (a = play->actorCtx.actorLists[cat].head; a != NULL; a = a->next) {
-                if (a->id == ACTOR_BOSS_VA && a->params >= BOSSVA_SUPPORT_1 && a->params <= BOSSVA_BARI_LOWER_5) {
+                if (a->id != ACTOR_BOSS_VA) {
+                    continue;
+                }
+                if (a->params >= BOSSVA_SUPPORT_1 && a->params <= BOSSVA_SUPPORT_3) {
+                    if (((BossVa*)a)->actionFunc != BossVa_SupportCut) {
+                        BossVa_SetupSupportCut((BossVa*)a, play);
+                    }
+                } else if (a->params >= BOSSVA_BARI_UPPER_1 && a->params <= BOSSVA_BARI_LOWER_5) {
                     Actor_Kill(a);
                 }
             }
@@ -4111,6 +4122,19 @@ s32 BossVa_ZmpStage(PlayState* play, s32 what, s32 value) {
         sFightPhase = PHASE_DEATH - 1;
         sPhase4HP = (s8)value;
         return 1;
+    }
+    if (what == 2 && sFightPhase >= PHASE_4 && sFightPhase < PHASE_DEATH) {
+        for (a = play->actorCtx.actorLists[ACTORCAT_BOSS].head; a != NULL; a = a->next) {
+            if (a->id == ACTOR_BOSS_VA && a->params == BOSSVA_BODY) {
+                BossVa* body = (BossVa*)a;
+                // (the boomerang's branch of BossVa_BodyPhase4)
+                body->timer = (value > 0) ? value : 160;
+                body->vaBodySpinRate = 0;
+                body->actor.speedXZ = 0.0f;
+                Actor_SetColorFilter(&body->actor, 0, 125, 0, 255);
+                return 1;
+            }
+        }
     }
     return 0;
 }

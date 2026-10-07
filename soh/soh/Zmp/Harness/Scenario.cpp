@@ -251,10 +251,11 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
             Object_Spawn(&gPlayState->objectCtx, id);
         }
     } else if (op == "barinade" && w.size() == 4) {
-        // "zmp_stage barinade skip 0": supports, zappers and Bari gone, the body goes to its last phase;
-        // "zmp_stage barinade last <n>": in the last phase, the last round with <n> hits left (the fight's progress is
-        // in statics of the overlay, z_boss_va.c).
-        int what = w[2] == "skip" ? 0 : (w[2] == "last" ? 1 : -1);
+        // "zmp_stage barinade skip 0": supports cut, Bari gone (the zappers stay), the body goes to its last phase;
+        // "zmp_stage barinade last <n>": in the last phase, the last round with <n> hits left;
+        // "zmp_stage barinade stun <ticks>": in the last phase, the body stunned as by the boomerang (the fight's
+        // progress is in statics of the overlay, z_boss_va.c).
+        int what = w[2] == "skip" ? 0 : (w[2] == "last" ? 1 : (w[2] == "stun" ? 2 : -1));
         if (what < 0 || !BossVa_ZmpStage(gPlayState, what, Num(w[3]))) {
             return Bad(cmd, "Barinade is not in a state where that applies");
         }
