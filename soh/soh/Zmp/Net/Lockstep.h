@@ -92,7 +92,8 @@ struct Status {
 const char* PhaseName(Phase phase);
 
 // Network thread.
-void OnConnected(bool rejoin);
+// `leaveShared`: the server takes the shared changes of the leaving tick with LEAVE_GROUP (D-115).
+void OnConnected(bool rejoin, bool leaveShared = false);
 void OnDisconnected();
 void OnNetMessage(nlohmann::json&& msg);
 

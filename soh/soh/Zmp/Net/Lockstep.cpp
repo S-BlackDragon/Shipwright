@@ -5,6 +5,7 @@
 #include "soh/Zmp/Harness/Scenario.h"
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <cinttypes>
 #include <cstring>
@@ -80,6 +81,8 @@ std::deque<json> sControl;
 bool sConnectedEvent = false;
 bool sDisconnectedEvent = false;
 bool sRejoin = false;
+// D-115: the server takes the shared changes of the leaving tick with LEAVE_GROUP (it said so in its WELCOME)
+std::atomic<bool> sServerLeaveShared{ false };
 std::vector<SlotInfo> sPlayers;
 int sServerDelay = 2;
 uint32_t sGroupTick = 0;
@@ -1234,6 +1237,13 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
 void ApplyConsoleEvent(uint32_t tick, int slot, const std::string& cmd) {
     // Same command on every machine at the start of the same tick (PLAN.md 1.3.3), in the context of the player
     // who sent it (its health, ammo and equipment are the ones a console command like "addammo" changes).
+    // Several lines in one event run in order in that same tick (tests: two things that must happen together).
+    size_t nl = cmd.find('\n');
+    if (nl != std::string::npos) {
+        ApplyConsoleEvent(tick, slot, cmd.substr(0, nl));
+        ApplyConsoleEvent(tick, slot, cmd.substr(nl + 1));
+        return;
+    }
     if (!ApplyGameEvent(slot, cmd)) {
         ConsoleArg arg{ &cmd };
         Players::RunInContext(slot, RunConsoleInContext, &arg);
@@ -1256,10 +1266,11 @@ const char* PhaseName(Phase phase) {
     }
 }
 
-void OnConnected(bool rejoin) {
+void OnConnected(bool rejoin, bool leaveShared) {
     std::lock_guard<std::mutex> lock(sMutex);
     sConnectedEvent = true;
     sRejoin = rejoin;
+    sServerLeaveShared = leaveShared;
 }
 
 void OnDisconnected() {
@@ -1871,15 +1882,34 @@ void DetachForTransition(int entrance, bool solo) {
     }
     // Leave now (inside the tick, before this tick's hash could be sent): the others' simulations dropped this Link at
     // the same tick. Then ask for the destination's group right away (OnFrameBegin).
+    std::string shared;
     if (sPhase == Phase::Running) {
-        Send({ { "t", "LEAVE_GROUP" } });
+        json leave = { { "t", "LEAVE_GROUP" } };
+        if (sServerLeaveShared && !Zmp_TestMutant("salida_cuenta_doble")) {
+            // D-115: what the group changed in this tick up to here (an item, a flag, rupees) and the rupees still
+            // coming in are the group's: the members who stay send them. Counted here as this player's own, the
+            // next group it founds would add them a second time (counters are merged by their difference). They go
+            // with the leave instead; the server keeps them only if nobody stays in the group to send this tick.
+            int coming = 0;
+            std::vector<uint8_t> patch = SharedGame::TakeLeavePatch(&coming);
+            uint32_t tick = Sim::GetStatus().tick;
+            if (!patch.empty()) {
+                leave["tick"] = tick;
+                leave["shared"] = json::binary(patch);
+            }
+            shared = " (shared changes of its last tick " + std::to_string(tick) + ": " +
+                     (patch.empty() ? std::string("none") : SharedGame::Describe(patch)) + "; rupees still coming " +
+                     std::to_string(coming) + ", settled here)";
+        }
+        Send(leave);
         sDetachAt = Clock::now();
     }
     int scene = -1;
     if (entrance >= 0 && entrance < ENTR_MAX) {
         scene = gEntranceTable[entrance].scene;
     }
-    Log("net: left the group through entrance " + std::to_string(entrance) + " to scene " + std::to_string(scene));
+    Log("net: left the group through entrance " + std::to_string(entrance) + " to scene " + std::to_string(scene) +
+        shared);
     sPhase = Phase::Detached;
     sFreeRun = true;
     sDetachScene = scene;

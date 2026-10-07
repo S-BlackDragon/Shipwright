@@ -1008,6 +1008,7 @@ void Dispatch(const RequestPtr& req) {
               { "size", snap.size() },
               { "layout", SharedGame::LayoutHash() },
               { "rupees", gSaveContext.rupees },
+              { "rupees_coming", gSaveContext.rupeeAccumulator },
               { "health_capacity", gSaveContext.healthCapacity },
               { "gs_tokens", gSaveContext.inventory.gsTokens },
               { "items", json(std::vector<int>(gSaveContext.inventory.items, gSaveContext.inventory.items + 24)) },

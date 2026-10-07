@@ -44,6 +44,14 @@ void ClearBaseline();
 // End of a tick of a group member: patch since the baseline (empty: nothing changed); the baseline moves.
 std::vector<uint8_t> TakeTickPatch();
 
+// A player walks out of its group alone (D-115): what the group changed in this tick up to now, and the rupees
+// still coming in on the wallet's counter, are the group's, and the members who stay send them (as their own tick
+// patch, and as the counter goes on there). The leaver settles the counter at once, moves its baseline to the game as
+// it is now (so none of that counts later as its own change when it founds the next group) and returns the patch from
+// the old baseline: the server uses it only if nobody stays in the group to send that tick. `rupeesSettled` gets the
+// rupees that were still coming.
+std::vector<uint8_t> TakeLeavePatch(int* rupeesSettled);
+
 // Founding a group: merges the room's canonical game into the current one keeping this client's changes made since
 // its baseline (none for a fresh game). `canonical` empty: the server took this client's game (`sent`).
 void MergeOnFound(const std::vector<uint8_t>& canonical, const std::vector<uint8_t>& sent);

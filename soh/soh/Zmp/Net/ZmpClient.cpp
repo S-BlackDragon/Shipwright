@@ -358,7 +358,7 @@ void Client::Run(std::string host, uint16_t port, std::string room, std::string 
                             Log("net: WELCOME player_id=" + std::to_string(mStatus.playerId) + " room=" + mStatus.room +
                                 (msg.value("rejoin", false) ? " (rejoin)" : ""));
                             welcomed = true;
-                            Lockstep::OnConnected(msg.value("rejoin", false));
+                            Lockstep::OnConnected(msg.value("rejoin", false), msg.value("leave_shared", false));
                         } else if (t == "REJECT") {
                             std::string reason = msg.value("reason", std::string("rejected"));
                             std::string detail = msg.value("detail", std::string());

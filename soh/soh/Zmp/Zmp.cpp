@@ -406,6 +406,17 @@ static void RegisterConsoleCommands() {
                          },
                           "ZMP: set a flag (swch|chest|clear|collect of the current scene, or event) (tests)",
                           { { "type", Ship::ArgumentType::TEXT }, { "flag", Ship::ArgumentType::TEXT } } });
+    // D-115 tests: rupees the way the game gives them (Rupees_ChangeBy): they come in one per frame on the wallet.
+    console->AddCommand("zmp_rupees_add",
+                        { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
+                             if (args.size() < 2) {
+                                 return 1;
+                             }
+                             Rupees_ChangeBy((s16)std::stoi(args[1], nullptr, 0));
+                             return 0;
+                         },
+                          "ZMP: give or take rupees the way the game does, one per frame (tests)",
+                          { { "amount", Ship::ArgumentType::TEXT } } });
     console->AddCommand("zmp_time",
                         { [](std::shared_ptr<Ship::Console>, std::vector<std::string> args, std::string* output) {
                              if (args.size() < 2) {

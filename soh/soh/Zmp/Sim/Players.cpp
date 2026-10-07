@@ -2057,8 +2057,9 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
     if (k == sLocalSlot) {
         // This machine's player leaves: the transition happens here, the others stay where they are.
         Zmp::Log("zmp: this player leaves the group through entrance " + std::to_string(play->nextEntranceIndex));
-        Zmp::Players::KeepOnlyLocal();
+        // (leave first: what the group shares is read as the group still has it, the others' bottles included, D-115)
         Zmp::Lockstep::DetachForTransition(play->nextEntranceIndex, gSaveContext.nextCutsceneIndex >= 0xFFF0);
+        Zmp::Players::KeepOnlyLocal();
         return 1;
     }
     // Another player leaves: its Link goes away, the scene and everything the exit touched stay as they were.

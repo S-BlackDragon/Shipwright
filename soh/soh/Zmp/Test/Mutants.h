@@ -72,6 +72,9 @@
 //                          D-113): another player standing by her is teleported, turned and frozen
 //   portal_sin_soltar      a player who leaves the group or the game while in the blue warp does not free it (B1,
 //                          D-113): the warp, and Ruto, go on with whoever is nearest, who is taken in its place
+//   salida_cuenta_doble    a player who walks out of its group keeps as its own what the group changed in that tick
+//                          and the rupees still coming in (finding AL, D-115): the next group it founds adds them a
+//                          second time (77 rupees and a new player saw 4)
 
 #ifdef __cplusplus
 extern "C" {

@@ -439,6 +439,27 @@ std::vector<uint8_t> TakeTickPatch() {
     return patch;
 }
 
+std::vector<uint8_t> TakeLeavePatch(int* rupeesSettled) {
+    int coming = gSaveContext.rupeeAccumulator;
+    if (coming != 0) {
+        // (what Interface_Update would still add one by one: up to the wallet, down to zero)
+        int now = (int)gSaveContext.rupees + coming;
+        int cap = CUR_CAPACITY(UPG_WALLET);
+        gSaveContext.rupees = (s16)(now < 0 ? 0 : (now > cap ? cap : now));
+        gSaveContext.rupeeAccumulator = 0;
+    }
+    if (rupeesSettled != nullptr) {
+        *rupeesSettled = coming;
+    }
+    if (!HasBaseline()) {
+        return {};
+    }
+    std::vector<uint8_t> cur = Snapshot();
+    std::vector<uint8_t> patch = Diff(Baseline(), cur);
+    SetBaseline(cur);
+    return patch;
+}
+
 void MergeOnFound(const std::vector<uint8_t>& canonical, const std::vector<uint8_t>& sent) {
     std::vector<uint8_t> base = HasBaseline() ? Baseline() : std::vector<uint8_t>();
     if (canonical.size() == Size()) {
