@@ -74,6 +74,14 @@ bool GlobalActor(const Actor* actor) {
         case ACTOR_EN_CLEAR_TAG: // boss-like
         case ACTOR_EN_FHG:       // Phantom Ganon's horse (boss intro)
             return true;
+        case ACTOR_BOSS_MO:
+            // D-135 (row A2 of the Water Temple): the camera of Morpha's tentacle shaking a Link it grabbed is that
+            // Link's own; the others go on fighting and can free it (the core and its cutscenes stay everybody's).
+            // The tentacle runs in the grabbed Link's context (D-134), so its camera is created as that player's.
+            if (actor->params == 100 && !Zmp_TestMutant("sacudida_global")) { // (BOSSMO_TENTACLE; mutant: as before)
+                return false;
+            }
+            return true;
         default:
             return actor->category == ACTORCAT_BOSS;
     }

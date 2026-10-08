@@ -10,6 +10,8 @@
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "vt.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -355,6 +357,193 @@ static f32 sDropletWidth[41] = {
     0.0f,      0.0f,      0.0f,      0.0f,      0.0f,
 }; // These are sqrt(9^2 - (i/2 - 9)^2), a sphere of radius 9.
 
+// ZMP (family T1 of reports/fase6/INVENTARIO.md, rows A1 and A6 of the Water Temple, D-134): what the original does to
+// its one player when a tentacle lets go of it.
+static void BossMo_ZmpLetGo(Player* link) {
+    link->av2.actionVar2 = 0x65;
+    link->actor.parent = NULL;
+    link->csAction = 0;
+}
+
+// ZMP (A6, D-134): when Morpha dies or the tentacle is cut, the original lets go of its one player (the core's: the
+// Link nearest to the core). In a group every Link this tentacle holds is let go: one held by the second tentacle, or
+// by the first while another Link was nearer to the core, stayed held with a parent that was about to disappear.
+static void BossMo_ZmpLetGoAll(BossMo* tent) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || (tent == NULL) || Zmp_TestMutant("agarre_al_mas_cercano")) {
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.parent == &tent->actor)) {
+            BossMo_ZmpLetGo(link);
+        }
+    }
+}
+
+// ZMP (T1, A1, D-134): a tentacle acts on the Link it grabbed from the grab until its shake camera is closed. While it
+// marks that Link as its parent the context already is that Link's (ContextSlot); after it lets go (thrown, or cut)
+// its camera still follows that Link and closes when it lands: zmpHeldSlot says who it is. Before, "the player" was
+// the Link nearest to the tentacle on every tick: a partner by its base was dragged to its tip and shaken while the
+// grabbed one kept the tentacle as its parent. If the Link it holds left the group, the tentacle lets go: nobody else
+// is pulled to its tip or shaken in its place.
+static Player* BossMo_ZmpHeldPlayer(BossMo* this, PlayState* play, Player* player) {
+    Player* held;
+
+    if (!Zmp_MultiActive() || (this->zmpHeldSlot < 0) || Zmp_TestMutant("agarre_al_mas_cercano")) {
+        return player;
+    }
+    if ((this->csCamera == 0) && (this->work[MO_TENT_ACTION_STATE] != MO_TENT_GRAB) &&
+        (this->work[MO_TENT_ACTION_STATE] != MO_TENT_SHAKE)) {
+        this->zmpHeldSlot = -1; // (it let go and its camera is closed: it holds nobody)
+        return player;
+    }
+    held = Zmp_HeldPlayer(play, this->zmpHeldSlot);
+    if (held != NULL) {
+        return held;
+    }
+    // (the Link it held left the group)
+    this->zmpHeldSlot = -1;
+    if ((this->work[MO_TENT_ACTION_STATE] == MO_TENT_GRAB) || (this->work[MO_TENT_ACTION_STATE] == MO_TENT_SHAKE)) {
+        this->work[MO_TENT_ACTION_STATE] = MO_TENT_RETREAT;
+        this->work[MO_TENT_INVINC_TIMER] = 50;
+        this->timers[0] = 75;
+    }
+    if (this->csCamera != 0) {
+        func_800C08AC(play, this->csCamera, 0);
+        this->csCamera = 0;
+    }
+    return player;
+}
+
+// ZMP (row A4 of the Water Temple, D-136): the intro starts when "the player" stands on one of the four platforms.
+// "The player" of the core is the Link nearest to it, and it waits far away at x 1000, beyond the door: with partners
+// by the door, the one on a platform never started it. In a group any present Link standing on a platform starts it,
+// and the cutscene starts in that Link's context (it is the cutscene's player, put at (180, y, -130)).
+static s32 BossMo_ZmpOnPlatform(Player* link) {
+    return ((fabsf(link->actor.world.pos.z - 180.0f) < 40.0f) && (fabsf(link->actor.world.pos.x - 180.0f) < 40.0f)) ||
+           ((fabsf(link->actor.world.pos.z - -180.0f) < 40.0f) && (fabsf(link->actor.world.pos.x - 180.0f) < 40.0f)) ||
+           ((fabsf(link->actor.world.pos.z - 180.0f) < 40.0f) && (fabsf(link->actor.world.pos.x - -180.0f) < 40.0f)) ||
+           ((fabsf(link->actor.world.pos.z - -180.0f) < 40.0f) && (fabsf(link->actor.world.pos.x - -180.0f) < 40.0f));
+}
+
+static Player* BossMo_ZmpIntroPlayer(BossMo* this, PlayState* play, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("intro_mo_mas_cercano")) { // (mutant: the nearest, as before)
+        return player;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && !Zmp_IsDowned(link) && BossMo_ZmpOnPlatform(link)) {
+            Zmp_SetContext(play, k);
+            return GET_PLAYER(play);
+        }
+    }
+    return player;
+}
+
+// ZMP (D-136): Navi's warning about the water (text 0x403F) opens for the Link nearest to the core a moment after the
+// room is entered, and the original closes it when the intro starts. In a group it was another Link's than the one
+// whose context starts the intro: left open, it covered the whole intro on every screen (a group cutscene shows the
+// anchor's text, D-069). When the intro starts every Link's warning is closed.
+static void BossMo_ZmpCloseWarnings(PlayState* play) {
+    s32 back = Zmp_SlotOfPlayer(GET_PLAYER(play));
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || (back < 0) || Zmp_TestMutant("aviso_del_agua_abierto")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Zmp_SetContext(play, k);
+        if ((play->msgCtx.textId == 0x403F) && (play->msgCtx.msgMode != MSGMODE_NONE)) {
+            Message_CloseTextbox(play);
+        }
+    }
+    Zmp_SetContext(play, back);
+}
+
+// ZMP (row A5 of the Water Temple, D-137): while "the player" is more than 50 under the water the core goes under too
+// (MO_CORE_UNDERWATER: it makes no tentacle and swims after that player), and it comes back when that player is at the
+// surface again. With one player that is Link diving with the iron boots; with several, "the player" was the Link
+// nearest to the core, so one partner walking on the bottom stopped the tentacles for everybody above. In a group the
+// core goes under only when every present Link standing is that deep, and comes back as soon as any is at the surface.
+static s32 BossMo_ZmpEverybodyDeep(PlayState* play, Player* player) {
+    s32 k = -1;
+    s32 n = 0;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("nucleo_esconde_por_uno")) { // (mutant: the nearest, as before)
+        return player->actor.world.pos.y < (MO_WATER_LEVEL(play) - 50.0f);
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link == NULL) || Zmp_IsDowned(link)) {
+            continue;
+        }
+        if (link->actor.world.pos.y >= (MO_WATER_LEVEL(play) - 50.0f)) {
+            return false;
+        }
+        n++;
+    }
+    return n > 0;
+}
+
+static s32 BossMo_ZmpAnybodyUp(PlayState* play, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("nucleo_esconde_por_uno")) {
+        return player->actor.world.pos.y >= MO_WATER_LEVEL(play);
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && !Zmp_IsDowned(link) && (link->actor.world.pos.y >= MO_WATER_LEVEL(play))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ZMP (row A7 of the Water Temple, D-138): the blue warp appears on the bottom of the drained pool, where the last drop
+// of Morpha fell, while the death cutscene still holds everybody. It takes a Link within 60 of it, and the cutscene's
+// arc (D-111) lays the others around its player wherever that one fell: a Link standing there would leave without
+// stepping in. When the warp appears, every present Link within 85 of it is moved out to 85, the way it stood from it.
+static void BossMo_ZmpClearWarp(PlayState* play, f32 x, f32 z) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("portal_al_alcance_mo")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (link == NULL) {
+            continue;
+        }
+        dx = link->actor.world.pos.x - x;
+        dz = link->actor.world.pos.z - z;
+        d = sqrtf(SQ(dx) + SQ(dz));
+        if (d >= 85.0f) {
+            continue;
+        }
+        if (d < 1.0f) {
+            dx = 0.0f;
+            dz = d = 1.0f;
+        }
+        link->actor.world.pos.x = x + dx / d * 85.0f;
+        link->actor.world.pos.z = z + dz / d * 85.0f;
+        link->actor.prevPos = link->actor.home.pos = link->actor.world.pos;
+        link->actor.speedXZ = 0.0f;
+    }
+}
+
 void BossMo_Init(Actor* thisx, PlayState* play2) {
     PlayState* play = play2;
     BossMo* this = (BossMo*)thisx;
@@ -366,6 +555,7 @@ void BossMo_Init(Actor* thisx, PlayState* play2) {
 
     Actor_ProcessInitChain(&this->actor, sInitChain);
     ActorShape_Init(&this->actor.shape, 0.0f, NULL, 0.0f);
+    this->zmpHeldSlot = -1; // ZMP (T1): nobody held (the actor's memory starts at 0, which is slot 0)
     if (this->actor.params != BOSSMO_TENTACLE) {
         Flags_SetSwitch(play, 0x14);
         sMorphaCore = this;
@@ -770,6 +960,7 @@ void BossMo_Tentacle(BossMo* this, PlayState* play) {
                 if ((this->timers[0] >= 5) && (this->linkHitTimer != 0) && (player->actor.parent == NULL)) {
                     if (play->grabPlayer(play, player)) {
                         player->actor.parent = &this->actor;
+                        this->zmpHeldSlot = Zmp_SlotOfPlayer(player); // ZMP (T1): -1 outside a group
                         this->work[MO_TENT_ACTION_STATE] = MO_TENT_GRAB;
                         Sfx_PlaySfxAtPos(&this->tentTipPos, NA_SE_EN_MOFER_CATCH);
                         Audio_PlaySfxGeneral(NA_SE_VO_LI_DAMAGE_S, &player->actor.projectedPos, 4,
@@ -816,7 +1007,11 @@ void BossMo_Tentacle(BossMo* this, PlayState* play) {
                     this->mashCounter = 0;
                     this->sfxTimer = 30;
                     Audio_ResetIncreasingTranspose();
-                    func_80064520(play, &play->csCtx);
+                    // ZMP (row A2, D-135): in a group the shake is the grabbed Link's own (its camera is that player's,
+                    // Cameras.cpp): no manual cutscene, which would stop every player for up to 150 ticks.
+                    if (!Zmp_MultiActive() || Zmp_TestMutant("sacudida_global")) {
+                        func_80064520(play, &play->csCtx);
+                    }
                     this->csCamera = Play_CreateSubCamera(play);
                     Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
                     Play_ChangeCameraStatus(play, this->csCamera, CAM_STAT_ACTIVE);
@@ -831,9 +1026,9 @@ void BossMo_Tentacle(BossMo* this, PlayState* play) {
             break;
         tent_shake:
         case MO_TENT_SHAKE:
-            if (this->timers[0] == 138) {
+            if ((this->timers[0] == 138) && (!Zmp_MultiActive() || Zmp_TestMutant("sacudida_global"))) { // ZMP (A2)
                 Letterbox_SetSizeTarget(0);
-                Interface_ChangeHudVisibilityMode(0xB);
+                Interface_ChangeHudVisibilityMode(0xB); // (the HUD is everybody's)
             }
             if ((this->timers[0] % 8) == 0) {
                 play->damagePlayer(play, -1);
@@ -944,7 +1139,9 @@ void BossMo_Tentacle(BossMo* this, PlayState* play) {
                     camera2->at = this->cameraAt;
                     func_800C08AC(play, this->csCamera, 0);
                     this->csCamera = 0;
-                    func_80064534(play, &play->csCtx);
+                    if (!Zmp_MultiActive() || Zmp_TestMutant("sacudida_global")) { // ZMP (A2): none was started
+                        func_80064534(play, &play->csCtx);
+                    }
                 }
             }
             for (indS1 = 0; indS1 < 41; indS1++) {
@@ -1144,6 +1341,7 @@ void BossMo_Tentacle(BossMo* this, PlayState* play) {
                         Actor_SpawnAsChild(&play->actorCtx, &this->actor, play, ACTOR_DOOR_WARP1,
                                            this->actor.world.pos.x, -280.0f, this->actor.world.pos.z, 0, 0, 0,
                                            WARP_DUNGEON_ADULT);
+                        BossMo_ZmpClearWarp(play, this->actor.world.pos.x, this->actor.world.pos.z); // ZMP (A7)
                     }
 
                     if (GameInteractor_Should(VB_SPAWN_HEART_CONTAINER, true)) {
@@ -1264,6 +1462,7 @@ void BossMo_IntroCs(BossMo* this, PlayState* play) {
             if (this->timers[0] == 1) {
                 Message_StartTextbox(play, 0x403F, NULL);
             }
+            player = BossMo_ZmpIntroPlayer(this, play, player); // ZMP (A4): any Link on a platform starts it
             if (((fabsf(player->actor.world.pos.z - 180.0f) < 40.0f) &&
                  (fabsf(player->actor.world.pos.x - 180.0f) < 40.0f)) ||
                 ((fabsf(player->actor.world.pos.z - -180.0f) < 40.0f) &&
@@ -1287,6 +1486,7 @@ void BossMo_IntroCs(BossMo* this, PlayState* play) {
                 sMorphaTent1->timers[0] = 30000;
                 Audio_QueueSeqCmd(0x1 << 28 | SEQ_PLAYER_BGM_MAIN << 24 | 0x3200FF);
                 Message_CloseTextbox(play);
+                BossMo_ZmpCloseWarnings(play); // ZMP (D-136): every Link's warning
             } else {
                 break;
             }
@@ -1775,10 +1975,96 @@ void BossMo_DeathCs(BossMo* this, PlayState* play) {
     }
 }
 
-void BossMo_CoreCollisionCheck(BossMo* this, PlayState* play) {
+// ZMP: the body of the core's hit in BossMo_CoreCollisionCheck, unchanged, moved here so that the phase 6 tests can
+// give the core the hit of a weapon a bot cannot aim (BossMo_ZmpStage).
+static void BossMo_CoreHurt(BossMo* this, PlayState* play, u32 dmgFlags) {
     s16 i;
     Player* player = GET_PLAYER(play);
 
+    if ((dmgFlags & 0x00020000) && (this->work[MO_TENT_ACTION_STATE] == MO_CORE_ATTACK)) {
+        this->work[MO_TENT_ACTION_STATE] = MO_CORE_RETREAT;
+    }
+    // "hit 2 !!"
+    osSyncPrintf("Core_Damage_check 当り 2 ！！\n");
+    if ((this->work[MO_TENT_ACTION_STATE] != MO_CORE_UNDERWATER) && (this->work[MO_TENT_INVINC_TIMER] == 0)) {
+        u8 damage = CollisionCheck_GetSwordDamage(dmgFlags, play);
+
+        if ((damage != 0) && (this->work[MO_TENT_ACTION_STATE] < MO_CORE_ATTACK)) {
+            // "sword hit !!"
+            osSyncPrintf("Core_Damage_check 剣 当り！！\n");
+            this->work[MO_TENT_ACTION_STATE] = MO_CORE_STUNNED;
+            this->timers[0] = 25;
+
+            this->actor.speedXZ = 15.0f;
+
+            this->actor.world.rot.y = this->actor.yawTowardsPlayer + 0x8000;
+            this->work[MO_CORE_DMG_FLASH_TIMER] = 15;
+            Audio_PlayActorSound2(&this->actor, NA_SE_EN_MOFER_CORE_DAMAGE);
+            this->actor.colChkInfo.health -= damage;
+            this->hitCount++;
+            if ((s8)this->actor.colChkInfo.health <= 0) {
+                if (((sMorphaTent1->csCamera == 0) && (sMorphaTent2 == NULL)) ||
+                    ((sMorphaTent1->csCamera == 0) && (sMorphaTent2 != NULL) && (sMorphaTent2->csCamera == 0))) {
+                    Enemy_StartFinishingBlow(play, &this->actor);
+                    GameInteractor_ExecuteOnBossDefeat(&this->actor);
+                    Audio_QueueSeqCmd(0x1 << 28 | SEQ_PLAYER_BGM_MAIN << 24 | 0x100FF);
+                    this->csState = MO_DEATH_START;
+                    sMorphaTent1->drawActor = false;
+                    sMorphaTent1->work[MO_TENT_ACTION_STATE] = MO_TENT_DEATH_START;
+                    sMorphaTent1->baseAlpha = 0.0f;
+                    if (sMorphaTent2 != NULL) {
+                        sMorphaTent2->tent2KillTimer = 1;
+                    }
+                    if (player->actor.parent != NULL) {
+                        player->av2.actionVar2 = 0x65;
+                        player->actor.parent = NULL;
+                        player->csAction = 0;
+                    }
+                    BossMo_ZmpLetGoAll(sMorphaTent1); // ZMP (A6): every Link a tentacle holds
+                    BossMo_ZmpLetGoAll(sMorphaTent2);
+                } else {
+                    this->actor.colChkInfo.health = 1;
+                }
+            }
+            this->work[MO_TENT_INVINC_TIMER] = 10;
+        } else if (!(dmgFlags & 0x00100000) && (dmgFlags & 0x80)) {
+            if (this->work[MO_TENT_ACTION_STATE] >= MO_CORE_ATTACK) {
+                Sfx_PlaySfxAtPos(&sMorphaTent1->tentTipPos, NA_SE_EN_MOFER_CUT);
+                sMorphaTent1->cutIndex = this->work[MO_CORE_POS_IN_TENT];
+                sMorphaTent1->meltIndex = sMorphaTent1->cutIndex + 1;
+                sMorphaTent1->cutScale = 1.0f;
+                sMorphaTent1->work[MO_TENT_ACTION_STATE] = MO_TENT_CUT;
+                sMorphaTent1->timers[0] = 40;
+                sMorphaTent1->actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+                if (player->actor.parent == &sMorphaTent1->actor) {
+                    player->av2.actionVar2 = 0x65;
+                    player->actor.parent = NULL;
+                    player->csAction = 0;
+                }
+                BossMo_ZmpLetGoAll(sMorphaTent1); // ZMP (A6): whoever it holds, not only the core's player
+            }
+            this->work[MO_TENT_ACTION_STATE] = MO_CORE_STUNNED;
+            this->timers[0] = 30;
+            this->work[MO_TENT_INVINC_TIMER] = 10;
+            this->actor.speedXZ = 0.0f;
+        }
+        for (i = 0; i < 10; i++) {
+            Vec3f pos;
+            Vec3f velocity;
+
+            velocity.x = Rand_CenteredFloat(4.0f);
+            velocity.y = Rand_ZeroFloat(2.0f) + 3.0f;
+            velocity.z = Rand_CenteredFloat(4.0f);
+            pos = this->actor.world.pos;
+            pos.x += (velocity.x * 3.0f);
+            pos.z += (velocity.z * 3.0f);
+            BossMo_SpawnDroplet(MO_FX_DROPLET, (BossMoEffect*)play->specialEffects, &pos, &velocity,
+                                Rand_ZeroFloat(0.08f) + 0.13f);
+        }
+    }
+}
+
+void BossMo_CoreCollisionCheck(BossMo* this, PlayState* play) {
     osSyncPrintf(VT_FGCOL(YELLOW));
     osSyncPrintf("Core_Damage_check START\n");
     if (this->coreCollider.base.atFlags & AT_HIT) {
@@ -1793,84 +2079,7 @@ void BossMo_CoreCollisionCheck(BossMo* this, PlayState* play) {
         // "hit!!"
         osSyncPrintf("Core_Damage_check 当り！！\n");
         this->coreCollider.base.acFlags &= ~AC_HIT;
-        if ((hurtbox->toucher.dmgFlags & 0x00020000) && (this->work[MO_TENT_ACTION_STATE] == MO_CORE_ATTACK)) {
-            this->work[MO_TENT_ACTION_STATE] = MO_CORE_RETREAT;
-        }
-        // "hit 2 !!"
-        osSyncPrintf("Core_Damage_check 当り 2 ！！\n");
-        if ((this->work[MO_TENT_ACTION_STATE] != MO_CORE_UNDERWATER) && (this->work[MO_TENT_INVINC_TIMER] == 0)) {
-            u8 damage = CollisionCheck_GetSwordDamage(hurtbox->toucher.dmgFlags, play);
-
-            if ((damage != 0) && (this->work[MO_TENT_ACTION_STATE] < MO_CORE_ATTACK)) {
-                // "sword hit !!"
-                osSyncPrintf("Core_Damage_check 剣 当り！！\n");
-                this->work[MO_TENT_ACTION_STATE] = MO_CORE_STUNNED;
-                this->timers[0] = 25;
-
-                this->actor.speedXZ = 15.0f;
-
-                this->actor.world.rot.y = this->actor.yawTowardsPlayer + 0x8000;
-                this->work[MO_CORE_DMG_FLASH_TIMER] = 15;
-                Audio_PlayActorSound2(&this->actor, NA_SE_EN_MOFER_CORE_DAMAGE);
-                this->actor.colChkInfo.health -= damage;
-                this->hitCount++;
-                if ((s8)this->actor.colChkInfo.health <= 0) {
-                    if (((sMorphaTent1->csCamera == 0) && (sMorphaTent2 == NULL)) ||
-                        ((sMorphaTent1->csCamera == 0) && (sMorphaTent2 != NULL) && (sMorphaTent2->csCamera == 0))) {
-                        Enemy_StartFinishingBlow(play, &this->actor);
-                        GameInteractor_ExecuteOnBossDefeat(&this->actor);
-                        Audio_QueueSeqCmd(0x1 << 28 | SEQ_PLAYER_BGM_MAIN << 24 | 0x100FF);
-                        this->csState = MO_DEATH_START;
-                        sMorphaTent1->drawActor = false;
-                        sMorphaTent1->work[MO_TENT_ACTION_STATE] = MO_TENT_DEATH_START;
-                        sMorphaTent1->baseAlpha = 0.0f;
-                        if (sMorphaTent2 != NULL) {
-                            sMorphaTent2->tent2KillTimer = 1;
-                        }
-                        if (player->actor.parent != NULL) {
-                            player->av2.actionVar2 = 0x65;
-                            player->actor.parent = NULL;
-                            player->csAction = 0;
-                        }
-                    } else {
-                        this->actor.colChkInfo.health = 1;
-                    }
-                }
-                this->work[MO_TENT_INVINC_TIMER] = 10;
-            } else if (!(hurtbox->toucher.dmgFlags & 0x00100000) && (hurtbox->toucher.dmgFlags & 0x80)) {
-                if (this->work[MO_TENT_ACTION_STATE] >= MO_CORE_ATTACK) {
-                    Sfx_PlaySfxAtPos(&sMorphaTent1->tentTipPos, NA_SE_EN_MOFER_CUT);
-                    sMorphaTent1->cutIndex = this->work[MO_CORE_POS_IN_TENT];
-                    sMorphaTent1->meltIndex = sMorphaTent1->cutIndex + 1;
-                    sMorphaTent1->cutScale = 1.0f;
-                    sMorphaTent1->work[MO_TENT_ACTION_STATE] = MO_TENT_CUT;
-                    sMorphaTent1->timers[0] = 40;
-                    sMorphaTent1->actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
-                    if (player->actor.parent == &sMorphaTent1->actor) {
-                        player->av2.actionVar2 = 0x65;
-                        player->actor.parent = NULL;
-                        player->csAction = 0;
-                    }
-                }
-                this->work[MO_TENT_ACTION_STATE] = MO_CORE_STUNNED;
-                this->timers[0] = 30;
-                this->work[MO_TENT_INVINC_TIMER] = 10;
-                this->actor.speedXZ = 0.0f;
-            }
-            for (i = 0; i < 10; i++) {
-                Vec3f pos;
-                Vec3f velocity;
-
-                velocity.x = Rand_CenteredFloat(4.0f);
-                velocity.y = Rand_ZeroFloat(2.0f) + 3.0f;
-                velocity.z = Rand_CenteredFloat(4.0f);
-                pos = this->actor.world.pos;
-                pos.x += (velocity.x * 3.0f);
-                pos.z += (velocity.z * 3.0f);
-                BossMo_SpawnDroplet(MO_FX_DROPLET, (BossMoEffect*)play->specialEffects, &pos, &velocity,
-                                    Rand_ZeroFloat(0.08f) + 0.13f);
-            }
-        }
+        BossMo_CoreHurt(this, play, hurtbox->toucher.dmgFlags); // ZMP: the body moved, unchanged
     }
     // "end !!"
     osSyncPrintf("Core_Damage_check 終わり ！！\n");
@@ -1943,7 +2152,7 @@ void BossMo_Core(BossMo* this, PlayState* play) {
     Math_ApproachF(&this->actor.scale.y, yScaleTarget, 0.2f, 0.001f);
     this->work[MO_CORE_DRAW_SHADOW] = BossMo_NearLand(&this->actor.world.pos, 15.0f);
     nearLand = BossMo_NearLand(&this->actor.world.pos, 0.0f);
-    if ((player->actor.world.pos.y < (MO_WATER_LEVEL(play) - 50.0f)) &&
+    if (BossMo_ZmpEverybodyDeep(play, player) && // ZMP (A5): every Link deep in a group
         ((this->work[MO_TENT_ACTION_STATE] == MO_CORE_MOVE) ||
          (this->work[MO_TENT_ACTION_STATE] == MO_CORE_MAKE_TENT))) {
         this->work[MO_TENT_ACTION_STATE] = MO_CORE_UNDERWATER;
@@ -1985,7 +2194,7 @@ void BossMo_Core(BossMo* this, PlayState* play) {
             }
             break;
         case MO_CORE_UNDERWATER:
-            if (player->actor.world.pos.y >= MO_WATER_LEVEL(play)) {
+            if (BossMo_ZmpAnybodyUp(play, player)) { // ZMP (A5): any Link at the surface in a group
                 this->work[MO_TENT_ACTION_STATE] = MO_CORE_MOVE;
                 this->actor.speedXZ = 0.0f;
             }
@@ -2302,6 +2511,7 @@ void BossMo_UpdateTent(Actor* thisx, PlayState* play) {
     Player* player = GET_PLAYER(play);
     f32 phi_f0;
 
+    player = BossMo_ZmpHeldPlayer(this, play, player); // ZMP (T1): the Link it holds, until its camera closes
     if ((this == sMorphaTent2) && (this->tent2KillTimer != 0)) {
         this->tent2KillTimer++;
         this->actor.draw = NULL;
@@ -3638,4 +3848,75 @@ void BossMo_Reset(void) {
     sSeed1 = 0;
     sSeed2 = 0;
     sSeed3 = 0;
+}
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls this; run in the context of the player
+// `arg` when it is a slot). what 0: the first tentacle grabs the player in context (as at the end of its curl, its base
+// moved 100 from that Link towards the middle of the pool), rows A1, A2, T1; 1: the core inside the tentacle is hit as
+// by the hookshot (cut out of it); 2: the core is hit as by the Master Sword (its health -2, or its death); 3: the
+// first tentacle is cut as by Din's Fire. Returns 0 when Morpha is not in a state where that applies.
+s32 BossMo_ZmpStage(PlayState* play, s32 what, s32 arg) {
+    BossMo* core = sMorphaCore;
+    BossMo* tent = sMorphaTent1;
+    Player* player = GET_PLAYER(play);
+
+    if ((core == NULL) || (tent == NULL) || (core->csState != MO_BATTLE)) {
+        return 0;
+    }
+    if (what == 0) {
+        s16 st = tent->work[MO_TENT_ACTION_STATE];
+        f32 d = sqrtf(SQ(player->actor.world.pos.x) + SQ(player->actor.world.pos.z));
+        f32 r;
+
+        if (!tent->drawActor || HAS_LINK(tent) || HAS_LINK(sMorphaTent2) || (player->actor.parent != NULL) ||
+            ((st != MO_TENT_READY) && (st != MO_TENT_SWING) && (st != MO_TENT_ATTACK) && (st != MO_TENT_CURL))) {
+            return 0;
+        }
+        r = (d > 100.0f) ? (d - 100.0f) / d : 0.0f;
+        tent->actor.world.pos.x = player->actor.world.pos.x * r;
+        tent->actor.world.pos.z = player->actor.world.pos.z * r;
+        tent->actor.prevPos = tent->targetPos = tent->actor.world.pos;
+        tent->actor.shape.rot.y = (s16)(Math_FAtan2F(player->actor.world.pos.x - tent->actor.world.pos.x,
+                                                     player->actor.world.pos.z - tent->actor.world.pos.z) *
+                                        (0x8000 / M_PI));
+        if (!play->grabPlayer(play, player)) {
+            return 0;
+        }
+        player->actor.parent = &tent->actor;
+        tent->zmpHeldSlot = Zmp_SlotOfPlayer(player);
+        tent->work[MO_TENT_ACTION_STATE] = MO_TENT_GRAB;
+        tent->linkToLeft = false;
+        tent->tentMaxAngle = .001f;
+        tent->tentSpeed = 0;
+        tent->timers[0] = 35;
+        return 1;
+    }
+    if (what == 1) {
+        if (core->work[MO_TENT_ACTION_STATE] < MO_CORE_ATTACK) {
+            return 0;
+        }
+        BossMo_CoreHurt(core, play, 0x80); // (DMG_HOOKSHOT)
+        return 1;
+    }
+    if (what == 2) {
+        if ((core->work[MO_TENT_ACTION_STATE] >= MO_CORE_ATTACK) ||
+            (core->work[MO_TENT_ACTION_STATE] == MO_CORE_UNDERWATER) || (core->work[MO_TENT_INVINC_TIMER] != 0)) {
+            return 0;
+        }
+        BossMo_CoreHurt(core, play, 0x200); // (DMG_SLASH_MASTER)
+        return 1;
+    }
+    if (what == 3) {
+        if (!tent->drawActor || (tent->cutIndex != 0) || (tent->work[MO_TENT_ACTION_STATE] > MO_TENT_SHAKE)) {
+            return 0;
+        }
+        tent->work[MO_TENT_INVINC_TIMER] = 5; // (BossMo_TentCollisionCheck, a hit of DMG_MAGIC_FIRE)
+        tent->cutIndex = 15;
+        tent->meltIndex = tent->cutIndex + 1;
+        tent->work[MO_TENT_ACTION_STATE] = MO_TENT_CUT;
+        tent->timers[0] = 40;
+        tent->cutScale = 1.0f;
+        return 1;
+    }
+    return 0;
 }

@@ -117,6 +117,18 @@
 //   calavera_tapada        in Volvagia's death cutscene its player faces wherever it faced, and the arc of the others
 //                          leaves two of them between the camera and the falling skull (D-131): every screen sees a
 //                          back
+//   agarre_al_mas_cercano  an actor that holds a Link acts on the Link nearest to it on every tick (family T1, D-134):
+//                          Morpha's tentacle drags and shakes a partner by its base and leaves the grabbed one held
+//   sacudida_global        Morpha's tentacle shaking a Link starts a cutscene everybody watches (row A2, D-135): the
+//                          other five stand frozen up to 150 ticks and nobody can free the grabbed one
+//   intro_mo_mas_cercano   Morpha's intro waits for the player nearest to its core, far beyond the door (row A4,
+//                          D-136): with partners by the door, the one on a platform never starts it
+//   aviso_del_agua_abierto Navi's warning about Morpha's water stays open over the intro when it is not the intro
+//                          player's (D-136): it covers the intro on every screen
+//   nucleo_esconde_por_uno Morpha's core hides while the Link nearest to it is deep in the water (row A5, D-137): one
+//                          partner on the bottom stops the fight for everybody above
+//   portal_al_alcance_mo   Morpha's blue warp appears on the bottom of the pool with a Link in its reach (row A7,
+//                          D-138): that Link leaves without stepping in
 
 #ifdef __cplusplus
 extern "C" {

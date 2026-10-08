@@ -127,9 +127,15 @@ typedef struct BossMo {
     /* 0x103C */ ColliderJntSphElement tentElements[19];
     /* 0x14FC */ ColliderCylinder coreCollider;
     /* 0x1548 */ char unk_1548[0x44];
-} BossMo; // size = 0x158C
+    // ZMP (family T1 of reports/fase6/INVENTARIO.md, D-134): the slot of the Link this tentacle grabbed, from the grab
+    // until its shake camera is closed (-1 nobody). A slot, never an address: it travels with the heap.
+    s8 zmpHeldSlot;
+} BossMo; // size = 0x158C (+ the ZMP field)
 
 #define BOSSMO_CORE -1
 #define BOSSMO_TENTACLE 100
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls it). See z_boss_mo.c.
+s32 BossMo_ZmpStage(struct PlayState* play, s32 what, s32 arg);
 
 #endif
