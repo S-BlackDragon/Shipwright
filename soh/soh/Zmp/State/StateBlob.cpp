@@ -38,6 +38,7 @@ extern EffectContext sEffectContext;
 extern Arena sZeldaArena;
 void Play_Main(GameState* thisx);
 void BossDodongo_ZmpAfterStateLoad(void); // (D-116: King Dodongo's textures, told to the renderer again)
+void ResourceMgr_ClearSkeletons(void);
 }
 
 #ifdef _WIN32
@@ -820,6 +821,13 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     SohStats stats = gSaveContext.ship.stats;
 
     memcpy(gSystemHeap, heap, SYSTEM_HEAP_SIZE);
+    // (D-118, finding AN) SoH's list of the skeletons to patch holds the addresses of the skelAnimes this process
+    // initialised: in the loaded heap they are other actors (the founder's Link, where this process had its own child
+    // Link before joining an adult group). Forgotten here, as when a game state ends (game.c); "esqueleto_ajeno"
+    // (mutation test) keeps it, as before.
+    if (!Zmp_TestMutant("esqueleto_ajeno")) {
+        ResourceMgr_ClearSkeletons();
+    }
     memcpy(&gSaveContext, saveCtx, sizeof(gSaveContext));
     if (!sKeepSharedSettings) {
         gSaveContext.language = language;

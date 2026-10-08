@@ -84,6 +84,11 @@
 //                          boss's room alone and sees the intro without the group
 //   puerta_cuenta_al_de_fuera the boss door also waits for the players of the room who play somewhere else (another
 //                          group): it never opens while anybody is away from the dungeon (D-117, case a)
+//   agua_no_viaja          the scene's water boxes do not travel in the group state (A3, D-118): whoever is given the
+//                          state keeps the water levels of its own copy of the scene (Morpha's water, the Water Temple)
+//   esqueleto_ajeno        SoH's list of skeletons to patch (addresses of the skelAnimes this process initialised)
+//                          survives a state load and rewrites a Link's skeleton in multiplayer (finding AN, D-118): the
+//                          founder's adult Link gets the child skeleton on the machines that were child before joining
 
 #ifdef __cplusplus
 extern "C" {

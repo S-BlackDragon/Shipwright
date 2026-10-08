@@ -3,6 +3,9 @@
 
 #include "Skeleton.h"
 #include "soh/OTRGlobals.h"
+#include "soh/Zmp/Test/Mutants.h" // ZMP
+
+extern "C" s32 Zmp_MultiActive(void); // ZMP
 
 extern "C" {
 #include <soh_assets.h>
@@ -105,7 +108,19 @@ void SkeletonPatcher::ClearSkeletons() {
     skeletons.clear();
 }
 
+// ZMP (D-118, finding AN): in a multiplayer game the skeleton a Link or an actor uses is simulation (its limbs place
+// the body parts, the head, the feet and the colliders the game reads: Navi, ledges, the cylinder). This list is each
+// process's own (raw addresses of the skelAnimes it saw initialised, from its own history, never part of the state):
+// after a state load it names other objects. In a multiplayer game it writes nothing; the skeleton stays the one the
+// actor's Init chose, the same on every machine. ("esqueleto_ajeno", mutation test: it writes, as before.)
+static bool ZmpPatcherFrozen() {
+    return Zmp_MultiActive() && !Zmp_TestMutant("esqueleto_ajeno");
+}
+
 void SkeletonPatcher::UpdateSkeletons() {
+    if (ZmpPatcherFrozen()) { // ZMP
+        return;
+    }
     auto resourceMgr = Ship::Context::GetRawInstance()->GetResourceManager();
     bool isAlt = resourceMgr->IsAltAssetsEnabled();
     for (auto& skel : skeletons) {
@@ -124,6 +139,9 @@ void SkeletonPatcher::UpdateSkeletons() {
 }
 
 void SkeletonPatcher::UpdateCustomSkeletons() {
+    if (ZmpPatcherFrozen()) { // ZMP
+        return;
+    }
     for (auto& skel : skeletons) {
         if (!skel.isLocalPlayer) {
             continue;
