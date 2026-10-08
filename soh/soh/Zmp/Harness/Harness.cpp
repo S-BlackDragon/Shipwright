@@ -59,6 +59,7 @@ extern "C" {
 #include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"       // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"               // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"             // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"               // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
@@ -317,6 +318,22 @@ void ApplyScriptInput(OSContPad* pads) {
     }
 }
 
+// The id and params of an actor a Link has as its parent, looked up among the scene's actors (the pointer is compared,
+// never followed: one that is not there any more gives -1).
+json ParentJson(const Actor* parent) {
+    if (parent == nullptr) {
+        return nullptr;
+    }
+    for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
+        for (Actor* x = gPlayState->actorCtx.actorLists[cat].head; x != nullptr; x = x->next) {
+            if (x == parent) {
+                return { { "id", x->id }, { "params", x->params } };
+            }
+        }
+    }
+    return -1;
+}
+
 json PlayerJson(Player* player, int slot = 0) {
     Actor* a = &player->actor;
     // Multiplayer simulation: the slot's own health and camera (live when it is the context player).
@@ -426,6 +443,8 @@ json PlayerJson(Player* player, int slot = 0) {
         { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
         // (phase 6, Volvagia: its fire sets a Link on fire; a hit leaves it invincible for a while)
         { "burning", player->bodyIsBurning != 0 },
+        // (phase 6, D-134: what holds this Link, by the actor's id; -1 a parent that is no actor of the scene any more)
+        { "parent", ParentJson(player->actor.parent) },
         { "invincible", player->invincibilityTimer },
         { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
         { "timer_state", gSaveContext.timerState },
@@ -602,6 +621,39 @@ json ActorsJson(const json& cmd) {
                 list.back()["fd2_invincible"] = h->work[FD2_INVINC_TIMER];
                 list.back()["fd2_timer0"] = h->timers[0];
                 list.back()["fd2_head"] = Vec3(h->headPos);
+            }
+            if (a->id == ACTOR_BOSS_MO) {
+                // Phase 6 scenario tests (Morpha with six players): the core (params 0 once it is born) and its
+                // tentacles (params 100). Its intro and death (csState: 0 battle, 1-5 intro, 100-105 and 150 death),
+                // its action (work[0]: core 0 move, 1 make a tentacle, 2 under the water, 5 stunned, 10 in the
+                // tentacle, 11 back out; tentacle 0 ready, 1 swing, 2 attack, 3 curl, 4 grab, 5 shake, 10 wait,
+                // 11 spawn, 100 cut, 101 retreat, 102 despawn, 200+ death), its health, the shake camera, the water,
+                // the Link it holds (D-134: by the players' parent, compared and never followed; and its own field).
+                const BossMo* m = (const BossMo*)a;
+                int grabbed = -1;
+                for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                    const Player* p = Zmp::Players::IsPresent(k) ? Zmp::Players::SlotPlayer(k) : nullptr;
+                    if (p != nullptr && p->actor.parent == a) {
+                        grabbed = k;
+                    }
+                }
+                list.back()["mo_part"] = a->params == 100 ? "tentacle" : "core";
+                list.back()["mo_cs_state"] = m->csState;
+                list.back()["mo_action_state"] = m->work[0];
+                list.back()["mo_health"] = (s8)a->colChkInfo.health;
+                list.back()["mo_hit_count"] = m->hitCount;
+                list.back()["mo_cs_camera"] = m->csCamera;
+                list.back()["mo_water_level"] = m->waterLevel;
+                list.back()["mo_mash"] = m->mashCounter;
+                list.back()["mo_timer0"] = m->timers[0];
+                list.back()["mo_draw"] = m->drawActor;
+                list.back()["mo_held_slot"] = m->zmpHeldSlot;
+                list.back()["mo_grabbed"] = grabbed;
+                list.back()["mo_pos_in_tent"] = m->work[6];
+                list.back()["mo_invincible"] = m->work[4];
+                list.back()["mo_cut_index"] = m->cutIndex;
+                list.back()["mo_targetable"] = (a->flags & ACTOR_FLAG_ATTENTION_ENABLED) ? 1 : 0;
+                list.back()["mo_tip"] = Vec3(m->tentPos[40]);
             }
             if (a->id == ACTOR_EN_FHG) {
                 // Phantom Ganon's horse: the intro (cutsceneState, INTRO_*) and the paintings it rides between.

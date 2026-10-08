@@ -27,6 +27,7 @@ extern "C" {
 #include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"
+#include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"
 extern PlayState* gPlayState;
 s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
 }
@@ -121,6 +122,18 @@ void HpInContext(void* p) {
 struct RoomArg {
     int room;
 };
+
+// Morpha (f6_water.py, test_f6_morpha.py): BossMo_ZmpStage in the context of a player.
+struct MorphaArg {
+    int what;
+    int slot;
+    int done;
+};
+
+void MorphaInContext(void* p) {
+    MorphaArg* a = (MorphaArg*)p;
+    a->done = BossMo_ZmpStage(gPlayState, a->what, a->slot);
+}
 
 // D-117 tests: the player in context walks into a room as through a door (the room loads for it if nobody is there).
 void RoomInContext(void* p) {
@@ -368,6 +381,25 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
             }
         } else {
             return Bad(cmd, "unknown volvagia event");
+        }
+    } else if (op == "morpha" && w.size() == 4) {
+        // Morpha (f6_water.py, test_f6_morpha.py), what the bots cannot aim or wait for:
+        // "zmp_stage morpha grab <slot>": the first tentacle grabs that Link (rows A1, A2 and family T1, D-134);
+        // "zmp_stage morpha hook <slot>": the core inside the tentacle is hit as by that Link's hookshot;
+        // "zmp_stage morpha sword <slot>": the core out of the tentacle is hit as by that Link's Master Sword;
+        // "zmp_stage morpha cut <slot>": the first tentacle is cut as by Din's Fire.
+        int what = w[2] == "grab" ? 0 : (w[2] == "hook" ? 1 : (w[2] == "sword" ? 2 : (w[2] == "cut" ? 3 : -1)));
+        int target = Num(w[3]);
+        if (what < 0) {
+            return Bad(cmd, "unknown morpha event");
+        }
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        MorphaArg a{ what, target, 0 };
+        Zmp::Players::RunInContext(target, MorphaInContext, &a);
+        if (!a.done) {
+            return Bad(cmd, "Morpha is not in a state where that applies");
         }
     } else if (op == "fhg_burst" && w.size() == 3) {
         // "zmp_stage fhg_burst <slot>": the lightning burst of Phantom Ganon's energy ball when it hits that Link (what
