@@ -359,6 +359,42 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
             return Bad(cmd, "the burst could not be spawned");
         }
         ((EnFhgFire*)b)->work[FHGFIRE_US_2] = (s16)(target + 1);
+    } else if (op == "gather" && w.size() >= 6) {
+        // "zmp_stage gather <x> <y> <z> <radius> [slot ...]": these present Links (all of them without a list) on a
+        // ring of <radius> around (x, z), facing its centre, in ONE tick (several players stepping into a blue warp at
+        // once, f6_portales.py).
+        f32 x = strtof(w[2].c_str(), nullptr);
+        f32 y = strtof(w[3].c_str(), nullptr);
+        f32 z = strtof(w[4].c_str(), nullptr);
+        f32 r = strtof(w[5].c_str(), nullptr);
+        std::vector<int> who;
+        for (size_t i = 6; i < w.size(); i++) {
+            who.push_back(Num(w[i]));
+        }
+        if (who.empty()) {
+            for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                who.push_back(k);
+            }
+        }
+        std::vector<Player*> links;
+        for (int k : who) {
+            Player* p =
+                (k >= 0 && k < ZMP_MAX_PLAYERS && gZmpSim.slots[k].present) ? Zmp::Players::SlotPlayer(k) : nullptr;
+            if (p != nullptr) {
+                links.push_back(p);
+            }
+        }
+        if (links.empty()) {
+            return Bad(cmd, "nobody to gather");
+        }
+        for (size_t i = 0; i < links.size(); i++) {
+            s16 a = (s16)(i * 0x10000 / links.size());
+            Vec3f pos = { x + Math_SinS(a) * r, y, z + Math_CosS(a) * r };
+            Player* p = links[i];
+            p->actor.world.pos = p->actor.prevPos = p->actor.home.pos = pos;
+            p->actor.shape.rot.y = p->actor.world.rot.y = p->yaw = (s16)(a + 0x8000);
+            p->actor.speedXZ = 0.0f;
+        }
     } else if (op == "invincible" && w.size() == 4) {
         // "zmp_stage invincible <slot> <ticks>": that Link cannot be hurt for <ticks> (as just after a hit).
         int target = Num(w[2]);
