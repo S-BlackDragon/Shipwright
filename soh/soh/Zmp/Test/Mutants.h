@@ -105,6 +105,15 @@
 //                          room's entrance, with no way in (row F3, D-125)
 //   texto_de_uno           the text of the player a group cutscene is about is shown on that player's screen only
 //                          (row F6, D-126): Phantom Ganon's last words were read by one of the six
+//   intro_fd_mas_cercano   Volvagia's intro waits for the player nearest to Volvagia (under the middle of the arena)
+//                          at the edge of the arena (row V3, D-128): with partners nearer to the middle it never starts
+//   aliento_al_del_contexto  a flame of Volvagia's breath burns only the Link nearest to its body, and its hit makes
+//                          the fire harmless for everybody for 50 ticks (row V2, D-129)
+//   portal_al_alcance_fd   Volvagia's blue warp appears over the middle hole with a Link in its reach, left there by
+//                          the death cutscene's arc (row V1, D-130): that Link leaves without stepping in
+//   calavera_tapada        in Volvagia's death cutscene its player faces wherever it faced, and the arc of the others
+//                          leaves two of them between the camera and the falling skull (D-131): every screen sees a
+//                          back
 
 #ifdef __cplusplus
 extern "C" {

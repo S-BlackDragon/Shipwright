@@ -57,11 +57,23 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h" // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_fHG/z_en_fhg.h"                 // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"       // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"               // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
+void BossFd_Wait(BossFd* self, PlayState* play); // (phase 6 tests: Volvagia's actions)
+void BossFd2_Emerge(BossFd2* self, PlayState* play);
+void BossFd2_Idle(BossFd2* self, PlayState* play);
+void BossFd2_Burrow(BossFd2* self, PlayState* play);
+void BossFd2_BreatheFire(BossFd2* self, PlayState* play);
+void BossFd2_ClawSwipe(BossFd2* self, PlayState* play);
+void BossFd2_Vulnerable(BossFd2* self, PlayState* play);
+void BossFd2_Damaged(BossFd2* self, PlayState* play);
+void BossFd2_Death(BossFd2* self, PlayState* play);
+void BossFd2_Wait(BossFd2* self, PlayState* play);
 extern u8 sAudioExtraFilter;
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
@@ -412,6 +424,9 @@ json PlayerJson(Player* player, int slot = 0) {
         { "talk_actor", player->talkActor != nullptr ? json(player->talkActor->id) : json(nullptr) },
         { "exchange_item", player->exchangeItemId },
         { "heat_seconds", multi ? Zmp::Players::SlotHeatSeconds(slot) : -1 },
+        // (phase 6, Volvagia: its fire sets a Link on fire; a hit leaves it invincible for a while)
+        { "burning", player->bodyIsBurning != 0 },
+        { "invincible", player->invincibilityTimer },
         { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
         { "timer_state", gSaveContext.timerState },
         { "tick", sFrame },
@@ -540,6 +555,53 @@ json ActorsJson(const json& cmd) {
                 list.back()["gnd_body"] = Vec3(g->targetPos);
                 list.back()["gnd_stunned"] = g->actionFunc == BossGanondrof_Stunned ? 1 : 0;
                 list.back()["gnd_charging"] = g->actionFunc == BossGanondrof_Charge ? 1 : 0;
+            }
+            if (a->id == ACTOR_BOSS_FD) {
+                // Phase 6 scenario tests (Volvagia with six players): the flying body. Its intro (BFD_CS_*), its
+                // action (BOSSFD_*), the hole it goes to, its health (the head's hits count here too), the flames of
+                // its breath alive (its own and the head's: they share the effects).
+                const BossFd* f = (const BossFd*)a;
+                int flames = 0;
+                for (int i = 0; i < BOSSFD_EFFECT_COUNT; i++) {
+                    flames += f->effects[i].type == BFD_FX_FIRE_BREATH ? 1 : 0;
+                }
+                list.back()["fd_intro_state"] = f->introState;
+                list.back()["fd_intro_camera"] = f->introCamera;
+                list.back()["fd_action_state"] = f->work[BFD_ACTION_STATE];
+                list.back()["fd_health"] = (s8)a->colChkInfo.health;
+                list.back()["fd_hole_index"] = f->holeIndex;
+                list.back()["fd_face_exposed"] = f->faceExposed;
+                list.back()["fd_skin_segments"] = f->skinSegments;
+                list.back()["fd_handoff"] = f->handoffSignal;
+                list.back()["fd_platform"] = f->platformSignal;
+                list.back()["fd_waiting"] = f->actionFunc == BossFd_Wait ? 1 : 0;
+                list.back()["fd_rock_timer"] = f->work[BFD_ROCK_TIMER];
+                list.back()["fd_fly_count"] = f->work[BFD_FLY_COUNT];
+                list.back()["fd_breath_timer"] = f->fireBreathTimer;
+                list.back()["fd_flames"] = flames;
+                list.back()["fd_timers"] = json(std::vector<int>(f->timers, f->timers + 6));
+            }
+            if (a->id == ACTOR_BOSS_FD2) {
+                // Volvagia's head in the holes: what it does, its death cutscene (DEATH_*), its hole counter.
+                const BossFd2* h = (const BossFd2*)a;
+                const char* act = h->actionFunc == BossFd2_Emerge        ? "emerge"
+                                  : h->actionFunc == BossFd2_Idle        ? "idle"
+                                  : h->actionFunc == BossFd2_Burrow      ? "burrow"
+                                  : h->actionFunc == BossFd2_BreatheFire ? "breathe"
+                                  : h->actionFunc == BossFd2_ClawSwipe   ? "claw"
+                                  : h->actionFunc == BossFd2_Vulnerable  ? "vulnerable"
+                                  : h->actionFunc == BossFd2_Damaged     ? "damaged"
+                                  : h->actionFunc == BossFd2_Death       ? "death"
+                                  : h->actionFunc == BossFd2_Wait        ? "wait"
+                                                                         : "other";
+                list.back()["fd2_action"] = act;
+                list.back()["fd2_action_state"] = h->work[FD2_ACTION_STATE];
+                list.back()["fd2_death_state"] = h->deathState;
+                list.back()["fd2_death_camera"] = h->deathCamera;
+                list.back()["fd2_hole_counter"] = h->work[FD2_HOLE_COUNTER];
+                list.back()["fd2_invincible"] = h->work[FD2_INVINC_TIMER];
+                list.back()["fd2_timer0"] = h->timers[0];
+                list.back()["fd2_head"] = Vec3(h->headPos);
             }
             if (a->id == ACTOR_EN_FHG) {
                 // Phantom Ganon's horse: the intro (cutsceneState, INTRO_*) and the paintings it rides between.

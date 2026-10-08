@@ -4,6 +4,8 @@
  * Description: Volvagia, hole form
  */
 
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "z_boss_fd2.h"
 #include "objects/object_fd2/object_fd2.h"
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"
@@ -646,6 +648,70 @@ void BossFd2_UpdateCamera(BossFd2* this, PlayState* play) {
     }
 }
 
+// ZMP (row V1 of the Fire Temple, D-130): the blue warp appears over the middle hole (0, 100, 0) at the very tick the
+// death cutscene ends and everybody is let go. It takes a Link within 60 of it, and the floor around the hole begins
+// 40 from its middle: the cutscene's arc (D-111, radius 120 around the player put at (40, 90, 150)) can leave a Link
+// 40-60 from the middle, which the warp took some 80 ticks later without it stepping in (a player who did not want to
+// leave yet). With one player nobody stands there. When the warp appears, every present Link within 85 of the middle is
+// moved out to 85, the way it stood from the middle.
+static void BossFd2_ZmpClearWarp(BossFd2* this, PlayState* play) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("portal_al_alcance_fd")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (link == NULL) {
+            continue;
+        }
+        dx = link->actor.world.pos.x;
+        dz = link->actor.world.pos.z;
+        d = sqrtf(SQ(dx) + SQ(dz));
+        if (d >= 85.0f) {
+            continue;
+        }
+        if (d < 1.0f) {
+            dx = 0.0f;
+            dz = d = 1.0f;
+        }
+        link->actor.world.pos.x = dx / d * 85.0f;
+        link->actor.world.pos.z = dz / d * 85.0f;
+        link->actor.world.pos.y = 100.0f;
+        link->actor.prevPos = link->actor.home.pos = link->actor.world.pos;
+        link->actor.speedXZ = 0.0f;
+        link->actor.velocity.y = 0.0f;
+    }
+}
+
+// ZMP (D-131): while the skull falls the death camera looks at it from (0, 140, 220-300) towards (0, 100, 0); the
+// script has put its player at (40, 90, 150), beside where it lands. The others stand in the arc around that player
+// (D-111, laid out from where it faces), and with six two of them could stand between the camera and the skull: every
+// screen saw a Link's back instead of Volvagia's end. In a group, a Link in front of the camera (|x| < 110, z 150-340)
+// is moved sideways out of its view (x 115 on its side; the holes there are 130 away).
+static void BossFd2_ZmpClearSkullView(BossFd2* this, PlayState* play) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("calavera_tapada")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link == NULL) || (fabsf(link->actor.world.pos.x) >= 110.0f) || (link->actor.world.pos.z <= 150.0f) ||
+            (link->actor.world.pos.z >= 340.0f)) {
+            continue;
+        }
+        link->actor.world.pos.x = (link->actor.world.pos.x < 0.0f) ? -115.0f : 115.0f;
+        link->actor.prevPos = link->actor.home.pos = link->actor.world.pos;
+        link->actor.speedXZ = 0.0f;
+    }
+}
+
 void BossFd2_Death(BossFd2* this, PlayState* play) {
     f32 retreatSpeed;
     Vec3f sp70;
@@ -768,6 +834,7 @@ void BossFd2_Death(BossFd2* this, PlayState* play) {
             }
             break;
         case DEATH_FD_SKULL:
+            BossFd2_ZmpClearSkullView(this, play); // ZMP (D-131): nobody between the camera and the skull
             Math_ApproachF(&this->camData.nextAt.y, 100.0, 1.0f, 100.0f);
             this->camData.nextAt.x = 0.0f;
             this->camData.nextAt.z = 0.0f;
@@ -794,6 +861,7 @@ void BossFd2_Death(BossFd2* this, PlayState* play) {
                 if (GameInteractor_Should(VB_SPAWN_BLUE_WARP, true, this)) {
                     Actor_SpawnAsChild(&play->actorCtx, &this->actor, play, ACTOR_DOOR_WARP1, 0.0f, 100.0f, 0.0f, 0, 0,
                                        0, WARP_DUNGEON_ADULT);
+                    BossFd2_ZmpClearWarp(this, play); // ZMP (V1): nobody stands in its reach when it appears
                 }
                 Flags_SetClear(play, play->roomCtx.curRoom.num);
             }
@@ -1226,4 +1294,65 @@ void BossFd2_Draw(Actor* thisx, PlayState* play) {
         POLY_OPA_DISP = Play_SetFog(play, POLY_OPA_DISP);
     }
     CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls this), what a bot cannot aim by itself:
+// what 0, the hammer: the head out of its hole, its face covered, is hit as by a hammer (the hammer's branch of
+// BossFd2_CollisionCheck, without the debris): 2 off the health, the face exposed, the head knocked out;
+// what 1, the sword: the head knocked out with its face exposed is hit as by the Master Sword (its sword branch, 2 of
+// damage that can kill): hurt, or its death. Returns 0 when the head is not in a state where that applies.
+s32 BossFd2_ZmpStage(PlayState* play, s32 what) {
+    Actor* a;
+    BossFd2* this = NULL;
+    BossFd* bossFd;
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BOSS].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_BOSS_FD2) {
+            this = (BossFd2*)a;
+        }
+    }
+    if ((this == NULL) || (this->actor.parent == NULL) || (this->work[FD2_INVINC_TIMER] != 0)) {
+        return 0;
+    }
+    bossFd = (BossFd*)this->actor.parent;
+    if (what == 0) {
+        if (bossFd->faceExposed || !((this->actionFunc == BossFd2_Idle) || (this->actionFunc == BossFd2_BreatheFire) ||
+                                     (this->actionFunc == BossFd2_ClawSwipe) ||
+                                     ((this->actionFunc == BossFd2_Emerge) && (this->work[FD2_ACTION_STATE] == 2)))) {
+            return 0;
+        }
+        bossFd->actor.colChkInfo.health -= 2;
+        if ((s8)bossFd->actor.colChkInfo.health <= 2) {
+            bossFd->actor.colChkInfo.health = 1;
+        }
+        bossFd->faceExposed = true;
+        BossFd2_SetupVulnerable(this, play);
+        this->work[FD2_INVINC_TIMER] = 30;
+        this->work[FD2_DAMAGE_FLASH_TIMER] = 5;
+        Audio_PlayActorSound2(&this->actor, NA_SE_EN_VALVAISA_MAHI1);
+        return 1;
+    }
+    if (what == 1) {
+        if (!bossFd->faceExposed || (this->actionFunc != BossFd2_Vulnerable)) {
+            return 0;
+        }
+        bossFd->actor.colChkInfo.health -= 2;
+        if ((s8)bossFd->actor.colChkInfo.health <= 0) {
+            bossFd->actor.colChkInfo.health = 0;
+            BossFd2_SetupDeath(this, play);
+            this->work[FD2_DAMAGE_FLASH_TIMER] = 10;
+            this->work[FD2_INVINC_TIMER] = 30000;
+            Audio_QueueSeqCmd(0x1 << 28 | SEQ_PLAYER_BGM_MAIN << 24 | 0x100FF);
+            Audio_PlayActorSound2(&this->actor, NA_SE_EN_VALVAISA_DEAD);
+            Enemy_StartFinishingBlow(play, &this->actor);
+            GameInteractor_ExecuteOnBossDefeat(&this->actor);
+        } else {
+            BossFd2_SetupDamaged(this, play);
+            this->work[FD2_DAMAGE_FLASH_TIMER] = 10;
+            this->work[FD2_INVINC_TIMER] = 100;
+            Audio_PlayActorSound2(&this->actor, NA_SE_EN_VALVAISA_DAMAGE1);
+        }
+        return 1;
+    }
+    return 0;
 }

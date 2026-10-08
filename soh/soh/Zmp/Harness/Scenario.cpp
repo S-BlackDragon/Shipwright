@@ -25,6 +25,8 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h"
 #include "overlays/actors/ovl_En_fHG/z_en_fhg.h"
 #include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"
+#include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"
+#include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"
 extern PlayState* gPlayState;
 s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
 }
@@ -342,6 +344,30 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
             g->returnCount = (u8)CLAMP(Num(w[3]), 1, 100);
         } else {
             return Bad(cmd, "unknown ganondrof event");
+        }
+    } else if (op == "volvagia" && w.size() == 4) {
+        // Volvagia (f6_fire.py, test_f6_volvagia.py), what the bots cannot aim by themselves:
+        // "zmp_stage volvagia hammer 0": the head out of its hole is hit as by a hammer (its face exposed);
+        // "zmp_stage volvagia sword 0": the knocked-out head is hit as by the Master Sword;
+        // "zmp_stage volvagia flame <slot>": one still flame of the breath where that Link stands (row V2).
+        if (w[2] == "hammer" || w[2] == "sword") {
+            if (!BossFd2_ZmpStage(gPlayState, w[2] == "hammer" ? 0 : 1)) {
+                return Bad(cmd, "Volvagia's head is not where that applies");
+            }
+        } else if (w[2] == "flame") {
+            int target = Num(w[3]);
+            Player* p = (target >= 0 && target < ZMP_MAX_PLAYERS && gZmpSim.slots[target].present)
+                            ? Zmp::Players::SlotPlayer(target)
+                            : nullptr;
+            if (p == nullptr) {
+                return Bad(cmd, "no such player");
+            }
+            Vec3f at = { p->actor.world.pos.x, p->actor.world.pos.y + 30.0f, p->actor.world.pos.z };
+            if (!BossFd_ZmpStage(gPlayState, 0, &at)) {
+                return Bad(cmd, "Volvagia is not in the room");
+            }
+        } else {
+            return Bad(cmd, "unknown volvagia event");
         }
     } else if (op == "fhg_burst" && w.size() == 3) {
         // "zmp_stage fhg_burst <slot>": the lightning burst of Phantom Ganon's energy ball when it hits that Link (what

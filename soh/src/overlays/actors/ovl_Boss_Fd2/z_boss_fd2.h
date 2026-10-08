@@ -90,4 +90,7 @@ typedef struct BossFd2 {
     /* 0x167C */ u32 epoch;
 } BossFd2; // size = 0x1680
 
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls it): the hammer (0) or the sword (1).
+s32 BossFd2_ZmpStage(struct PlayState* play, s32 what);
+
 #endif
