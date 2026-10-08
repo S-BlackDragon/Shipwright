@@ -582,6 +582,14 @@ void Message_SetTextColor(MessageContext* msgCtx, u16 colorParameter) {
     Cosmetics_MaybeSetTextColor(msgCtx, colorParameter);
 }
 
+// ZMP (family 1, D-116): the flashing of the "next" icon of a text box, only drawing reads and writes it (this PC's own
+// text box). Statics of Message_DrawTextboxIcon before; at file scope with a name, so that the hunt for statics can
+// tell what they are (unnamed, the code that touches them could not be told apart from its neighbours').
+static Color_RGB8 sTextboxIconPrim = { 0, 80, 200 };
+static s16 sTextboxIconFlashTimer = 12;
+static s16 sTextboxIconFlashColorIdx = 0;
+static Color_RGB8 sTextboxIconEnv = { 0, 0, 0 };
+
 void Message_DrawTextboxIcon(PlayState* play, Gfx** p, s16 x, s16 y) {
     // SoH [Cosmetics] The following Color_RGB8 were originally static
     Color_RGB8 sIconPrimColors[2] = {
@@ -604,10 +612,10 @@ void Message_DrawTextboxIcon(PlayState* play, Gfx** p, s16 x, s16 y) {
         sIconPrimColors[1] = (Color_RGB8){ 50, 255, 130 };
         sIconEnvColors[1] = (Color_RGB8){ 50, 255, 130 };
     }
-    static Color_RGB8 sIconPrim = { 0, 80, 200 };
-    static s16 sIconFlashTimer = 12;
-    static s16 sIconFlashColorIdx = 0;
-    static Color_RGB8 sIconEnv = { 0, 0, 0 };
+#define sIconPrim sTextboxIconPrim // ZMP: file statics now (D-116)
+#define sIconFlashTimer sTextboxIconFlashTimer
+#define sIconFlashColorIdx sTextboxIconFlashColorIdx
+#define sIconEnv sTextboxIconEnv
     MessageContext* msgCtx = &play->msgCtx;
     Font* font = &msgCtx->font;
     Gfx* gfx = *p;
@@ -695,6 +703,10 @@ void Message_DrawTextboxIcon(PlayState* play, Gfx** p, s16 x, s16 y) {
 
     *p = gfx;
 }
+#undef sIconPrim
+#undef sIconFlashTimer
+#undef sIconFlashColorIdx
+#undef sIconEnv
 
 f32 sFontWidths[144] = {
     8.0f,  // ' '
@@ -4762,8 +4774,6 @@ SHIP_SAVESTATE_DEFINE(MessageZmp, MESSAGE_ZMP_SAVESTATE_FIELDS)
     F(sOcarinaSongBitFlags)         \
     F(sOcarinaButtonIndexBuf)       \
     F(sOcarinaNotesAlphaValues)     \
-    F(sCharTexSize)                 \
-    F(sCharTexScale)                \
     F(sAnalogStickHeld)             \
     F(D_80153D74)                   \
     F(D_80153D78)

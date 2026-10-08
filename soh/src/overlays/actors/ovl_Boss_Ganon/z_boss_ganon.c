@@ -130,13 +130,19 @@ static GanondorfEffect sEffects[200];
     F(sSeed1)                               \
     F(sSeed2)                               \
     F(sSeed3)                               \
-    F(sGanondorf)                           \
-    F(sZelda)                               \
-    F(sCape)                                \
     F(sEffects)
-SHIP_SAVESTATE_DEFINE(BossGanon, BOSS_GANON_SHIP_SAVESTATE_FIELDS)
 
 static u8 sWindowShatterTex[2048] = { { 0 } };
+
+// ZMP (family 1, INVENTARIO G2, D-116): which pieces of the windows are already broken decides how many random numbers
+// BossGanon_ShatterWindows asks for: who entered during the death had another count. Ganondorf, Zelda and the cape
+// travel as references to actors, never as addresses (they used to be in the list above).
+#define BOSS_GANON_ZMP_NEW_FIELDS(F) F(sWindowShatterTex)
+#define BOSS_GANON_ZMP_ACTOR_REFS(R) \
+    R(sGanondorf)                    \
+    R(sZelda)                        \
+    R(sCape)
+ZMP_SAVESTATE_DEFINE(BossGanon, BOSS_GANON_SHIP_SAVESTATE_FIELDS, BOSS_GANON_ZMP_NEW_FIELDS, BOSS_GANON_ZMP_ACTOR_REFS)
 
 void BossGanonEff_SpawnWindowShard(PlayState* play, Vec3f* pos, Vec3f* velocity, f32 scale) {
     static Color_RGB8 shardColors[] = { { 255, 175, 85 }, { 155, 205, 155 }, { 155, 125, 55 } };

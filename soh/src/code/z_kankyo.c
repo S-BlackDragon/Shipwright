@@ -70,7 +70,13 @@ u16 gTimeSpeed = 0;
     F(D_8011FB34)                            \
     F(D_8011FB38)                            \
     F(gSkyboxBlendingEnabled)
-SHIP_SAVESTATE_DEFINE(Environment, ENVIRONMENT_SHIP_SAVESTATE_FIELDS)
+// ZMP (family 1, D-116): the sandstorm's two colours of the time of day and the blend between them, written by the
+// environment's update when the time entry changes: who entered afterwards drew another sandstorm.
+extern u8 D_8011FDCC;
+extern u8 D_8011FDD0;
+extern f32 D_8011FDD4;
+#define ENVIRONMENT_ZMP_NEW_FIELDS(F) F(D_8011FDCC) F(D_8011FDD0) F(D_8011FDD4)
+ZMP_SAVESTATE_DEFINE(Environment, ENVIRONMENT_SHIP_SAVESTATE_FIELDS, ENVIRONMENT_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 u16 D_8011FB44 = 0xFFFC;
 

@@ -6,6 +6,7 @@
 
 #include "z_bg_jya_zurerukabe.h"
 #include "objects/object_jya_obj/object_jya_obj.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 #include "vt.h"
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
@@ -22,6 +23,10 @@ void func_8089B80C(BgJyaZurerukabe* this);
 void func_8089B870(BgJyaZurerukabe* this, PlayState* play);
 
 static f32 D_8089B9C0[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+// ZMP (family 1, INVENTARIO Spirit R4, D-116): how fast each sliding wall moves; the others read it to push a
+// player out from between two walls: who entered had zeros.
+#define BG_JYA_ZURERUKABE_ZMP_NEW_FIELDS(F) F(D_8089B9C0)
+ZMP_SAVESTATE_DEFINE(BgJyaZurerukabe, ZMP_SAVESTATE_NONE, BG_JYA_ZURERUKABE_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 const ActorInit Bg_Jya_Zurerukabe_InitVars = {
     ACTOR_BG_JYA_ZURERUKABE,

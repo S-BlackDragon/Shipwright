@@ -75,6 +75,11 @@
 //   salida_cuenta_doble    a player who walks out of its group keeps as its own what the group changed in that tick
 //                          and the rupees still coming in (finding AL, D-115): the next group it founds adds them a
 //                          second time (77 rupees and a new player saw 4)
+//   estaticas_de_jefe      the statics D-116 put into the group state (bosses' cameras, Bongo Bongo's hands,
+//                          Twinrova's fight and its sisters, Dark Link's AI, the hidden items' tags, the sandstorm's
+//                          colours, Ganondorf's windows) and the actor pointers it made references are not loaded:
+//                          this process keeps its own, as before (family 1: whoever enters a boss fight in the middle
+//                          computes something else)
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,5 +1,6 @@
 #include "global.h"
-#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h"               // ZMP
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 #include "vt.h"
 #include "textures/parameter_static/parameter_static.h"
 #include "textures/do_action_static/do_action_static.h"
@@ -185,6 +186,20 @@ static s16 Item_GetSlot(u8 item) {
 
 static s16 sEnvHazard = PLAYER_ENV_HAZARD_NONE;
 static s16 sEnvHazardActive = false;
+// ZMP (family 1, INVENTARIO E1, D-116): the counters of the timers (the escape's countdown among them) were statics of
+// Interface_Draw, and the hazard flag says whether the main timer kills when it reaches zero: who entered had its own.
+// At file scope so that they travel. (That the countdown runs while drawing is the rest of E1, still open.)
+static s16 sTimerNextSecondTimer;
+static s16 sTimerStateTimer;
+static s16 sSubTimerNextSecondTimer;
+static s16 sSubTimerStateTimer;
+#define INTERFACE_ZMP_NEW_FIELDS(F) \
+    F(sEnvHazardActive)             \
+    F(sTimerNextSecondTimer)        \
+    F(sTimerStateTimer)             \
+    F(sSubTimerNextSecondTimer)     \
+    F(sSubTimerStateTimer)
+ZMP_SAVESTATE_DEFINE(InterfaceZmp, ZMP_SAVESTATE_NONE, INTERFACE_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 static Gfx sSetupDL_80125A60[] = {
     gsDPPipeSync(),
@@ -5146,10 +5161,6 @@ void Interface_Draw(PlayState* play) {
     static s16 spoilingItemEntrances[] = { ENTR_LOST_WOODS_2, ENTR_ZORAS_DOMAIN_3, ENTR_ZORAS_DOMAIN_3 };
     static f32 D_80125B54[] = { -40.0f, -35.0f }; // unused
     static s16 D_80125B5C[] = { 91, 91 };         // unused
-    static s16 sTimerNextSecondTimer;
-    static s16 sTimerStateTimer;
-    static s16 sSubTimerNextSecondTimer;
-    static s16 sSubTimerStateTimer;
     static s16 timerDigits[5];
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
     PauseContext* pauseCtx = &play->pauseCtx;

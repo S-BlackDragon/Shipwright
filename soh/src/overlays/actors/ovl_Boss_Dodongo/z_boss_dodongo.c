@@ -7,6 +7,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 #include <libultraship/bridge/resourcebridge.h>
 
 #include <stdlib.h> // malloc
@@ -77,6 +78,20 @@ static u16 sLavaFloorModifiedTex[LAVA_TEX_SIZE];
 static u16 sLavaWavyTex[LAVA_TEX_SIZE];
 
 static u8 hasRegisteredBlendedHook = 0;
+
+// ZMP (family 1, INVENTARIO KD row 6, D-116): see BossDodongo_ZmpAfterStateLoad.
+#define BOSS_DODONGO_ZMP_NEW_FIELDS(F) \
+    F(sMaskTex16x16)                   \
+    F(sMaskTex8x16)                    \
+    F(sMaskTex16x32)                   \
+    F(sMaskTex32x16)                   \
+    F(sMaskTex8x8)                     \
+    F(sMaskTex8x32)                    \
+    F(sMaskTexLava)                    \
+    F(sLavaFloorModifiedTex)           \
+    F(sLavaWavyTex)
+ZMP_SAVESTATE_DEFINE(BossDodongo, ZMP_SAVESTATE_NONE, BOSS_DODONGO_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
+void BossDodongo_ZmpRegisterSkin(void);
 
 static InitChainEntry sInitChain[] = {
     ICHAIN_U8(targetMode, 5, ICHAIN_CONTINUE),
@@ -314,6 +329,47 @@ s32 BossDodongo_AteExplosive(BossDodongo* this, PlayState* play) {
     return false;
 }
 
+// ZMP (family 1, INVENTARIO KD row 6, D-116): the burnt skin and the lava are textures this file changes (the masks
+// while the boss burns and dies, the lava's waves and its cooling into rock): they now travel with the state, and the
+// renderer is told about them again after a state is loaded in this room (BossDodongo_ZmpAfterStateLoad, called by
+// soh/Zmp/State/StateBlob.cpp): who entered did not run the boss's Init, so it drew the original textures (lava where
+// the others saw rock).
+void BossDodongo_ZmpRegisterSkin(void) {
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015890, sMaskTex8x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_017210, sMaskTex8x32, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015D90, sMaskTex16x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016390, sMaskTex16x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016590, sMaskTex16x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016790, sMaskTex16x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015990, sMaskTex16x32, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015F90, sMaskTex16x32, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016990, sMaskTex32x16, NULL);
+    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016E10, sMaskTex32x16, NULL);
+
+    // Clear cache for masks
+    Gfx_TextureCacheDelete(sMaskTex8x16);
+    Gfx_TextureCacheDelete(sMaskTex8x32);
+    Gfx_TextureCacheDelete(sMaskTex16x16);
+    Gfx_TextureCacheDelete(sMaskTex16x32);
+    Gfx_TextureCacheDelete(sMaskTex32x16);
+}
+
+void BossDodongo_ZmpAfterStateLoad(void) {
+    if (gPlayState == NULL || gPlayState->sceneNum != SCENE_DODONGOS_CAVERN_BOSS) {
+        return;
+    }
+    BossDodongo_ZmpRegisterSkin();
+    if (ResourceMgr_TexIsRaw(gDodongosCavernBossLavaFloorTex)) {
+        // (the replacement texture of a texture pack lives outside the state: built again from the room's flags)
+        BossDodongo_RegisterBlendedLavaTextureUpdate();
+        return;
+    }
+    Gfx_RegisterBlendedTexture(gDodongosCavernBossLavaFloorTex, sMaskTexLava, sLavaWavyTex);
+    Gfx_TextureCacheDelete(sMaskTexLava);
+    Gfx_TextureCacheDelete(sLavaWavyTex);
+    Gfx_TextureCacheDelete(sLavaFloorModifiedTex);
+}
+
 void BossDodongo_Init(Actor* thisx, PlayState* play) {
     BossDodongo* this = (BossDodongo*)thisx;
     s16 i;
@@ -374,23 +430,7 @@ void BossDodongo_Init(Actor* thisx, PlayState* play) {
     }
 
     // Register all blended textures
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015890, sMaskTex8x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_017210, sMaskTex8x32, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015D90, sMaskTex16x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016390, sMaskTex16x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016590, sMaskTex16x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016790, sMaskTex16x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015990, sMaskTex16x32, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_015F90, sMaskTex16x32, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016990, sMaskTex32x16, NULL);
-    Gfx_RegisterBlendedTexture(object_kingdodongo_Tex_016E10, sMaskTex32x16, NULL);
-
-    // Clear cache for masks
-    Gfx_TextureCacheDelete(sMaskTex8x16);
-    Gfx_TextureCacheDelete(sMaskTex8x32);
-    Gfx_TextureCacheDelete(sMaskTex16x16);
-    Gfx_TextureCacheDelete(sMaskTex16x32);
-    Gfx_TextureCacheDelete(sMaskTex32x16);
+    BossDodongo_ZmpRegisterSkin(); // ZMP (D-116): the same list, also used after a state load
 
     BossDodongo_RegisterBlendedLavaTextureUpdate();
 

@@ -37,6 +37,7 @@ extern PlayState* gPlayState;
 extern EffectContext sEffectContext;
 extern Arena sZeldaArena;
 void Play_Main(GameState* thisx);
+void BossDodongo_ZmpAfterStateLoad(void); // (D-116: King Dodongo's textures, told to the renderer again)
 }
 
 #ifdef _WIN32
@@ -89,6 +90,17 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(EnZl3)                     \
     X(ObjectKankyo)              \
     X(EnHeishi1)                 \
+    X(EnTorch2)                  \
+    X(EnWonderItem)              \
+    X(EnItem00)                  \
+    X(ActorCeiling)              \
+    X(InterfaceZmp)              \
+    X(EnEg)                      \
+    X(BossDodongo)               \
+    X(BgJya1flift)               \
+    X(BgJyaBigmirror)            \
+    X(BgJyaLift)                 \
+    X(BgJyaZurerukabe)           \
     X(Player)                    \
     X(Demo)                      \
     X(MessageZmp)                \
@@ -905,6 +917,8 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
     if (mutantWater) {
         put(Environment_SaveState, keepEnv);
     }
+    // (D-116: textures the game changes and the renderer was told about in an Init this process did not run)
+    BossDodongo_ZmpAfterStateLoad();
     {
         const int16_t* ids = (const int16_t*)sections[SEC_TRANSITION_IDS].first;
         size_t n = sections[SEC_TRANSITION_IDS].second / sizeof(int16_t);
@@ -1051,3 +1065,85 @@ void SetKeepSharedSettings(bool keep) {
     sKeepSharedSettings = keep;
 }
 } // namespace Zmp::State
+
+// Statics of the game's code that point to an actor (docs/DECISIONES.md D-116): they travel as a reference that does
+// not depend on where things are in memory, never as an address (CLAUDE.md). Kinds: 0 none, 1 a live actor (its
+// category and its place in that category's list: the lists travel inside the heap, so the same place names the same
+// actor on every machine), 2 a pointer to an actor that is no longer in any list (a boss keeps pointing to the sister
+// it merged with): its offset inside the system heap, which travels whole, so it reads the same freed bytes as on the
+// machine that saved it; 3 anything else (left out: loaded as none).
+namespace {
+struct ActorRef {
+    int32_t kind;
+    int32_t value;
+};
+
+ActorRef RefOf(const Actor* a) {
+    if (a == nullptr) {
+        return { 0, 0 };
+    }
+    if (gPlayState != nullptr) {
+        for (int32_t cat = 0; cat < ACTORCAT_MAX; cat++) {
+            int32_t i = 0;
+            for (Actor* it = gPlayState->actorCtx.actorLists[cat].head; it != nullptr; it = it->next, i++) {
+                if (it == a) {
+                    return { 1, (cat << 16) | i };
+                }
+            }
+        }
+    }
+    uintptr_t h = (uintptr_t)gSystemHeap;
+    if ((uintptr_t)a >= h && (uintptr_t)a < h + SYSTEM_HEAP_SIZE) {
+        return { 2, (int32_t)((uintptr_t)a - h) };
+    }
+    return { 3, 0 };
+}
+
+Actor* ActorOf(const ActorRef& r) {
+    if (r.kind == 1 && gPlayState != nullptr) {
+        int32_t cat = r.value >> 16;
+        int32_t index = r.value & 0xFFFF;
+        if (cat >= 0 && cat < ACTORCAT_MAX) {
+            int32_t i = 0;
+            for (Actor* it = gPlayState->actorCtx.actorLists[cat].head; it != nullptr; it = it->next, i++) {
+                if (i == index) {
+                    return it;
+                }
+            }
+        }
+        Zmp::Log("zmp: state load: an actor reference names no actor here (category " + std::to_string(cat) +
+                 ", place " + std::to_string(index) + ")");
+        return nullptr;
+    }
+    if (r.kind == 2 && r.value >= 0 && (uint32_t)r.value < SYSTEM_HEAP_SIZE) {
+        return (Actor*)((uintptr_t)gSystemHeap + (uint32_t)r.value);
+    }
+    return nullptr;
+}
+} // namespace
+
+extern "C" void Zmp_SaveStateActorRef(SaveStateCtx* ctx, void* field) {
+    Actor** slot = (Actor**)field;
+    ActorRef r = {};
+    if (ctx->mode == SHIP_SAVESTATE_SAVE) {
+        r = RefOf(*slot);
+    }
+    SaveState_Blob(ctx, &r, sizeof(r));
+    if (ctx->mode == SHIP_SAVESTATE_LOAD) {
+        // (mutation test "estaticas_de_jefe": the statics D-116 added do not travel, as before; this process keeps its
+        // own pointer)
+        if (!Zmp_TestMutant("estaticas_de_jefe")) {
+            *slot = ActorOf(r);
+        }
+    }
+}
+
+// A field ZMP added to a list of statics that travel (D-116): the mutation test "estaticas_de_jefe" leaves it out of
+// a load (this process keeps its own value), as before.
+extern "C" void Zmp_SaveStateNewField(SaveStateCtx* ctx, void* data, size_t len) {
+    if (ctx->mode == SHIP_SAVESTATE_LOAD && Zmp_TestMutant("estaticas_de_jefe")) {
+        ctx->offset += len;
+        return;
+    }
+    SaveState_Blob(ctx, data, len);
+}

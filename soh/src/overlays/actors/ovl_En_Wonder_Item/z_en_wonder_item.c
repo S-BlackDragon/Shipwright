@@ -7,6 +7,7 @@
 #include "z_en_wonder_item.h"
 #include "vt.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 
 #define FLAGS 0
 
@@ -57,6 +58,13 @@ const ActorInit En_Wonder_Item_InitVars = {
 
 Vec3f sTagPointsFree[9];    // SOH [Randomizer] remove static to use in ShuffleWonderItems
 Vec3f sTagPointsOrdered[9]; // SOH [Randomizer] remove static to use in ShuffleWonderItems
+
+// ZMP (family 1, D-116): each tag of a hidden item writes its point here in its Init and the item reads them every
+// tick: who entered the room after the Inits had its own points (found by the statics hunt in Barinade's room).
+#define EN_WONDER_ITEM_ZMP_NEW_FIELDS(F) \
+    F(sTagPointsFree)                    \
+    F(sTagPointsOrdered)
+ZMP_SAVESTATE_DEFINE(EnWonderItem, ZMP_SAVESTATE_NONE, EN_WONDER_ITEM_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 void EnWonderItem_Destroy(Actor* thisx, PlayState* play) {
     s32 pad;

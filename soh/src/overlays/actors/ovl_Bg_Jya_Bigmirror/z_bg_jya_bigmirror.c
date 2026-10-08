@@ -6,6 +6,7 @@
 
 #include "z_bg_jya_bigmirror.h"
 #include "objects/object_jya_obj/object_jya_obj.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -15,6 +16,10 @@ void BgJyaBigmirror_Update(Actor* thisx, PlayState* play);
 void BgJyaBigmirror_Draw(Actor* thisx, PlayState* play);
 
 static u8 sKankyoIsSpawned = false;
+// ZMP (family 1, INVENTARIO Spirit R4, D-116): whether the room's light effect (Object_Kankyo) was already spawned:
+// who entered had its own, and would spawn a second one when the room loads again.
+#define BG_JYA_BIGMIRROR_ZMP_NEW_FIELDS(F) F(sKankyoIsSpawned)
+ZMP_SAVESTATE_DEFINE(BgJyaBigmirror, ZMP_SAVESTATE_NONE, BG_JYA_BIGMIRROR_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 const ActorInit Bg_Jya_Bigmirror_InitVars = {
     ACTOR_BG_JYA_BIGMIRROR,

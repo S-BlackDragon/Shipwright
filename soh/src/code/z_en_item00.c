@@ -1,4 +1,5 @@
 #include "global.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 #include "overlays/actors/ovl_En_Elf/z_en_elf.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "overlays/effects/ovl_Effect_Ss_Dead_Sound/z_eff_ss_dead_sound.h"
@@ -750,9 +751,20 @@ void func_8001E5C8(EnItem00* this, PlayState* play) {
 }
 
 // The BSS in the function acted weird in the past. It is matching now but might cause issues in the future
+// ZMP (family 1, D-116): the frame in which the first item on the ground looked whether a platform moved, and what it
+// saw (the others of that frame use it). Were statics of EnItem00_Update and did not travel: who entered had its own
+// frame number, which can be the group's (it counted the same ticks elsewhere), and then used its own answer.
+static u32 sItem00BgFrame;
+static s16 sItem00BgMoved[1];
+#define EN_ITEM00_ZMP_NEW_FIELDS(F) \
+    F(sItem00BgFrame)               \
+    F(sItem00BgMoved)
+ZMP_SAVESTATE_DEFINE(EnItem00, ZMP_SAVESTATE_NONE, EN_ITEM00_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
+
 void EnItem00_Update(Actor* thisx, PlayState* play) {
-    static u32 D_80157D90;
-    static s16 D_80157D94[1];
+    // ZMP (family 1, D-116): file statics now (sItem00BgFrame, sItem00BgMoved), so that they travel with the state
+#define D_80157D90 sItem00BgFrame
+#define D_80157D94 sItem00BgMoved
     s16* params;
     Actor* dynaActor;
     s32 getItemId = GI_NONE;
@@ -984,6 +996,8 @@ void EnItem00_Update(Actor* thisx, PlayState* play) {
     this->getItemId = GI_NONE;
     EnItem00_SetupAction(this, func_8001E5C8);
 }
+#undef D_80157D90
+#undef D_80157D94
 
 void EnItem00_Draw(Actor* thisx, PlayState* play) {
     EnItem00* this = (EnItem00*)thisx;

@@ -8,6 +8,7 @@
 #include "objects/object_torch2/object_torch2.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -89,6 +90,30 @@ static u8 sStaggerCount;
 static u8 sStaggerTimer;
 static s8 sLastSwordAnim;
 static u8 sAlpha;
+
+// ZMP (family 1, INVENTARIO A10, D-116): all of Dark Link's AI lives in these statics (its own pad, what it is doing,
+// its counters, where it appeared): who entered the room with the fight going on had its own and diverged at once.
+#define EN_TORCH2_ZMP_NEW_FIELDS(F) \
+    F(sStickTilt)                   \
+    F(sStickAngle)                  \
+    F(sSwordJumpHeight)             \
+    F(sHoldShieldTimer)             \
+    F(sZTargetFlag)                 \
+    F(sDeathFlag)                   \
+    F(sInput)                       \
+    F(sSwordJumpState)              \
+    F(sSpawnPoint)                  \
+    F(sJumpslashTimer)              \
+    F(sJumpslashFlag)               \
+    F(sActionState)                 \
+    F(sSwordJumpTimer)              \
+    F(sCounterState)                \
+    F(sDodgeRollState)              \
+    F(sStaggerCount)                \
+    F(sStaggerTimer)                \
+    F(sLastSwordAnim)               \
+    F(sAlpha)
+ZMP_SAVESTATE_DEFINE(EnTorch2, ZMP_SAVESTATE_NONE, EN_TORCH2_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 static DamageTable sDamageTable = {
     /* Deku nut      */ DMG_ENTRY(0, 0x1),

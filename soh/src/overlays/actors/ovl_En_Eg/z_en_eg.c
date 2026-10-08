@@ -6,6 +6,7 @@
 
 #include "z_en_eg.h"
 #include "vt.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -17,6 +18,9 @@ void EnEg_Draw(Actor* thisx, PlayState* play);
 void func_809FFDC8(EnEg* this, PlayState* play);
 
 static s32 voided = false;
+// ZMP (family 1, INVENTARIO E1, D-116): whether the escape's void out already happened: who entered had its own.
+#define EN_EG_ZMP_NEW_FIELDS(F) F(voided)
+ZMP_SAVESTATE_DEFINE(EnEg, ZMP_SAVESTATE_NONE, EN_EG_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 static EnEgActionFunc sActionFuncs[] = {
     func_809FFDC8,

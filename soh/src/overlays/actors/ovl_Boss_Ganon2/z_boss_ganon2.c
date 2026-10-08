@@ -79,15 +79,18 @@ static s8 D_80910638;
 #define BOSS_GANON2_SHIP_SAVESTATE_FIELDS(F) \
     F(D_8090EB20)                            \
     F(D_80910638)                            \
-    F(sZelda)                                \
-    F(D_8090EB30)                            \
     F(sSeed1)                                \
     F(sSeed2)                                \
     F(sSeed3)                                \
     F(D_809105D8)                            \
     F(D_80910608)                            \
     F(sEffects)
-SHIP_SAVESTATE_DEFINE(BossGanon2, BOSS_GANON2_SHIP_SAVESTATE_FIELDS)
+// ZMP (D-116): Zelda and the actor Ganon looks at travel as references to actors, never as addresses (they used to be
+// in the list above).
+#define BOSS_GANON2_ZMP_ACTOR_REFS(R) \
+    R(sZelda)                         \
+    R(D_8090EB30)
+ZMP_SAVESTATE_DEFINE(BossGanon2, BOSS_GANON2_SHIP_SAVESTATE_FIELDS, ZMP_SAVESTATE_NONE, BOSS_GANON2_ZMP_ACTOR_REFS)
 
 void BossGanon2_InitRand(s32 seedInit0, s32 seedInit1, s32 seedInit2) {
     sSeed1 = seedInit0;

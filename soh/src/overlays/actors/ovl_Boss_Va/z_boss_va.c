@@ -418,7 +418,13 @@ static s8 sPhase4HP;
     F(sPhase2Timer)                      \
     F(sPhase4HP)
 
-SHIP_SAVESTATE_DEFINE(BossVa, BOSS_VA_SHIP_SAVESTATE_FIELDS)
+// ZMP (family 1, B2, D-116): the intro's and the death's camera, moved a little every tick towards its next point and
+// copied to the main camera at the end: who entered during them computed another camera (and since phase 5b the
+// picture decides what is on screen): resynchronisations that did not cure it.
+#define BOSS_VA_ZMP_NEW_FIELDS(F) \
+    F(sSubCamEye) F(sSubCamAt) F(sSubCamEyeNext) F(sSubCamAtNext) F(sSubCamEyeMaxVelFrac) F(sSubCamAtMaxVelFrac)
+
+ZMP_SAVESTATE_DEFINE(BossVa, BOSS_VA_SHIP_SAVESTATE_FIELDS, BOSS_VA_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 void BossVa_SetupAction(BossVa* this, BossVaActionFunc func) {
     this->actionFunc = func;

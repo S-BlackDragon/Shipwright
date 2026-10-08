@@ -1,7 +1,8 @@
 #include "global.h"
-#include "soh/Zmp/Sim/ZmpSim.h"     // ZMP
-#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
-#include "soh/Zmp/Test/Mutants.h"   // ZMP
+#include "soh/Zmp/Sim/ZmpSim.h"                   // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h"               // ZMP
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
+#include "soh/Zmp/Test/Mutants.h"                 // ZMP
 #include "vt.h"
 
 #include "overlays/actors/ovl_Arms_Hook/z_arms_hook.h"
@@ -89,6 +90,11 @@
 
 static CollisionPoly* sCurCeilingPoly;
 static s32 sCurCeilingBgId;
+// ZMP (family 1, D-116): the entity of the last ceiling an actor met. An actor that touched a ceiling earlier and is
+// back on its floor compares its floor's entity with it (func_8002E2AC): who entered had its own value. (The poly is
+// only an output nobody reads: it does not travel, it would be an address.)
+#define ACTOR_CEILING_ZMP_NEW_FIELDS(F) F(sCurCeilingBgId)
+ZMP_SAVESTATE_DEFINE(ActorCeiling, ZMP_SAVESTATE_NONE, ACTOR_CEILING_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 // Used for animating the ice trap on the "Get Item" model.
 f32 iceTrapScale;

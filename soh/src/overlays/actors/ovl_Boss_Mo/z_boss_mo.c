@@ -161,15 +161,18 @@ static s32 sSeed2;
 static s32 sSeed3;
 
 #define BOSS_MO_SHIP_SAVESTATE_FIELDS(F) \
-    F(sMorphaCore)                       \
-    F(sMorphaTent1)                      \
-    F(sMorphaTent2)                      \
     F(sEffects)                          \
     F(sSeed1)                            \
     F(sSeed2)                            \
     F(sSeed3)
+// ZMP (D-116): the core and the tentacles travel as references to actors, never as addresses (they used to be in the
+// list above).
+#define BOSS_MO_ZMP_ACTOR_REFS(R) \
+    R(sMorphaCore)                \
+    R(sMorphaTent1)               \
+    R(sMorphaTent2)
 
-SHIP_SAVESTATE_DEFINE(BossMo, BOSS_MO_SHIP_SAVESTATE_FIELDS)
+ZMP_SAVESTATE_DEFINE(BossMo, BOSS_MO_SHIP_SAVESTATE_FIELDS, ZMP_SAVESTATE_NONE, BOSS_MO_ZMP_ACTOR_REFS)
 
 void BossMo_InitRand(s32 seedInit0, s32 seedInit1, s32 seedInit2) {
     sSeed1 = seedInit0;

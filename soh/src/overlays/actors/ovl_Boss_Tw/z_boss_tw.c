@@ -204,7 +204,39 @@ static BossTwEffect sEffects[150];
     F(sTwInitialized)                    \
     F(sEffects)
 
-SHIP_SAVESTATE_DEFINE(BossTw, BOSS_TW_SHIP_SAVESTATE_FIELDS)
+// ZMP (family 1, INVENTARIO Twinrova row 1, D-116): the rest of the fight's statics (the room's light, the blasts,
+// the mirror shield's charge, the freeze, the beam, the cutscenes' counters) did not travel: who entered in the middle
+// of the fight had its own. The sisters and Twinrova travel as references to actors, never as addresses: who entered
+// had them NULL and the game closed in BossTw_Wait (sKoumePtr->actionFunc).
+#define BOSS_TW_ZMP_NEW_FIELDS(F) \
+    F(sEnvType)                   \
+    F(sGroundBlastType)           \
+    F(sShieldFireCharge)          \
+    F(sShieldIceCharge)           \
+    F(D_8094C854)                 \
+    F(D_8094C858)                 \
+    F(sTwinrovaBlastType)         \
+    F(sFixedBlastType)            \
+    F(sFixedBlatSeq)              \
+    F(sFreezeState)               \
+    F(sShieldHitPos)              \
+    F(sShieldHitYaw)              \
+    F(sBeamDivertTimer)           \
+    F(D_8094C86F)                 \
+    F(D_8094C870)                 \
+    F(D_8094C872)                 \
+    F(D_8094C874)                 \
+    F(D_8094C876)                 \
+    F(D_8094C878)                 \
+    F(D_8094C87A)                 \
+    F(D_8094C87C)                 \
+    F(D_8094C87E)
+#define BOSS_TW_ZMP_ACTOR_REFS(R) \
+    R(sKotakePtr)                 \
+    R(sKoumePtr)                  \
+    R(sTwinrovaPtr)
+
+ZMP_SAVESTATE_DEFINE(BossTw, BOSS_TW_SHIP_SAVESTATE_FIELDS, BOSS_TW_ZMP_NEW_FIELDS, BOSS_TW_ZMP_ACTOR_REFS)
 
 void BossTw_AddDotEffect(PlayState* play, Vec3f* initalPos, Vec3f* initalSpeed, Vec3f* accel, f32 scale, s16 args,
                          s16 countLimit) {

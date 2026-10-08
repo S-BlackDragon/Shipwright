@@ -242,10 +242,10 @@ static Color_RGBA8 sBodyColor = { 255, 255, 255, 255 };
 static Color_RGBA8 sStaticColor = { 0, 0, 0, 255 };
 static s32 sHandState[] = { HAND_WAIT, HAND_WAIT };
 
+// ZMP (family 1, D-116): was a static of BossSst_HandClap; out here so that it can travel with the state.
+static s32 sHandClapDropFlag = false;
+
 #define BOSS_SST_SHIP_SAVESTATE_FIELDS(F) \
-    F(sHead)                              \
-    F(sHands)                             \
-    F(sFloor)                             \
     F(sHandOffsets)                       \
     F(sHandYawOffsets)                    \
     F(sSubCamId)                          \
@@ -253,7 +253,23 @@ static s32 sHandState[] = { HAND_WAIT, HAND_WAIT };
     F(sBodyColor)                         \
     F(sStaticColor)
 
-SHIP_SAVESTATE_DEFINE(BossSst, BOSS_SST_SHIP_SAVESTATE_FIELDS)
+// ZMP (family 1, D-116): the state machine of the hands (the head and both hands decide with it), the camera of the
+// intro and of the death, and the clap's drop: who entered during the fight had them at their own values. The head,
+// the hands and the floor travel as references to actors, not as addresses (they used to be in the list above).
+#define BOSS_SST_ZMP_NEW_FIELDS(F) \
+    F(sHandState)                  \
+    F(sSubCamAt)                   \
+    F(sSubCamEye)                  \
+    F(sSubCamAtVel)                \
+    F(sSubCamEyeVel)               \
+    F(sHandClapDropFlag)
+#define BOSS_SST_ZMP_ACTOR_REFS(R) \
+    R(sHead)                       \
+    R(sHands[0])                   \
+    R(sHands[1])                   \
+    R(sFloor)
+
+ZMP_SAVESTATE_DEFINE(BossSst, BOSS_SST_SHIP_SAVESTATE_FIELDS, BOSS_SST_ZMP_NEW_FIELDS, BOSS_SST_ZMP_ACTOR_REFS)
 
 const ActorInit Boss_Sst_InitVars = {
     ACTOR_BOSS_SST,
@@ -1721,7 +1737,7 @@ void BossSst_HandSetupClap(BossSst* this) {
 }
 
 void BossSst_HandClap(BossSst* this, PlayState* play) {
-    static s32 dropFlag = false;
+#define dropFlag sHandClapDropFlag // ZMP: a file static now (D-116)
     Player* player = GET_PLAYER(play);
 
     SkelAnime_Update(&this->skelAnime);
@@ -1776,6 +1792,7 @@ void BossSst_HandClap(BossSst* this, PlayState* play) {
         player->actor.world.pos = this->actor.world.pos;
     }
 }
+#undef dropFlag
 
 void BossSst_HandSetupEndClap(BossSst* this) {
     this->targetYaw = this->actor.home.rot.y - (this->vParity * 0x1000);
@@ -3306,4 +3323,16 @@ void BossSst_Reset(void) {
     sStaticColor.r = 0;
     sStaticColor.g = 0;
     sStaticColor.b = 0;
+    // ZMP (D-116): what travels now goes back to its first value too, as when the overlay is loaded again
+    sHandState[0] = HAND_WAIT;
+    sHandState[1] = HAND_WAIT;
+    sSubCamAt.x = ROOM_CENTER_X + 50.0f;
+    sSubCamAt.y = ROOM_CENTER_Y + 0.0f;
+    sSubCamAt.z = ROOM_CENTER_Z + 0.0f;
+    sSubCamEye.x = ROOM_CENTER_X + 150.0f;
+    sSubCamEye.y = ROOM_CENTER_Y + 100.0f;
+    sSubCamEye.z = ROOM_CENTER_Z + 0.0f;
+    sSubCamAtVel.x = sSubCamAtVel.y = sSubCamAtVel.z = 0.0f;
+    sSubCamEyeVel.x = sSubCamEyeVel.y = sSubCamEyeVel.z = 0.0f;
+    sHandClapDropFlag = false;
 }

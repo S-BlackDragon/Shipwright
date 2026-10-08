@@ -958,8 +958,10 @@ void EffectSsFireTail_Spawn(PlayState* play, Actor* actor, Vec3f* pos, f32 scale
 
 void EffectSsFireTail_SpawnFlame(PlayState* play, Actor* actor, Vec3f* pos, f32 arg3, s16 bodyPart,
                                  f32 colorIntensity) {
-    static Color_RGBA8 primColor = { 255, 255, 0, 255 };
-    static Color_RGBA8 envColor = { 255, 0, 0, 255 };
+    // ZMP (family 1, D-116): on the stack (they were statics): every call sets r, g and b and alpha never changes, so
+    // nothing is kept between calls; as statics they kept, on each machine, the colour of its last flame.
+    Color_RGBA8 primColor = { 255, 255, 0, 255 };
+    Color_RGBA8 envColor = { 255, 0, 0, 255 };
 
     primColor.g = (s32)(255.0f * colorIntensity);
     primColor.b = 0;

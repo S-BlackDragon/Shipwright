@@ -142,7 +142,9 @@ void func_80B86BC8(ItemShield* this, PlayState* play) {
 }
 
 void func_80B86CA8(ItemShield* this, PlayState* play) {
-    static Vec3f D_80B871F4 = { 0.0f, 0.0f, 0.0f };
+    // ZMP (family 1, D-116): on the stack (it was a static): every flame sets x, y and z before it is used, so nothing
+    // is kept between calls; as a static it kept, on each machine, the point of the last burning shield it saw.
+    Vec3f D_80B871F4 = { 0.0f, 0.0f, 0.0f };
     static f32 D_80B87200[] = { 0.3f, 0.6f,  0.9f, 1.0f,  1.0f, 1.0f,  1.0f, 1.0f,
                                 1.0f, 0.85f, 0.7f, 0.55f, 0.4f, 0.25f, 0.1f, 0.0f };
     static f32 D_80B87240[] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.8f,

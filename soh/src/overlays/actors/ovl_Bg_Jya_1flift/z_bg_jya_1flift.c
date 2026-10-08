@@ -6,6 +6,7 @@
 
 #include "z_bg_jya_1flift.h"
 #include "objects/object_jya_obj/object_jya_obj.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-116)
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -24,6 +25,10 @@ void BgJya1flift_ResetMoveDelay(BgJya1flift* this);
 void BgJya1flift_DelayMove(BgJya1flift* this, PlayState* play);
 
 static u8 sKankyoIsSpawned = false;
+// ZMP (family 1, INVENTARIO Spirit R4, D-116): whether the room's light effect (Object_Kankyo) was already spawned:
+// who entered had its own, and would spawn a second one when the room loads again.
+#define BG_JYA_1FLIFT_ZMP_NEW_FIELDS(F) F(sKankyoIsSpawned)
+ZMP_SAVESTATE_DEFINE(BgJya1flift, ZMP_SAVESTATE_NONE, BG_JYA_1FLIFT_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 const ActorInit Bg_Jya_1flift_InitVars = {
     ACTOR_BG_JYA_1FLIFT,
