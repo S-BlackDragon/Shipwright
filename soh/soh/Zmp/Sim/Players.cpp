@@ -1704,6 +1704,14 @@ extern "C" s32 Zmp_DownedIgnoresCutscene(Player* player) {
     return (Zmp_IsDowned(player) && !Zmp_TestMutant("caido_retenido")) ? 1 : 0;
 }
 
+extern "C" s32 Zmp_SlotOfPlayer(Player* player) {
+    if (!Zmp_MultiActive() || player == nullptr) {
+        return -1;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    return Present(k) ? k : -1;
+}
+
 extern "C" Player* Zmp_SlotPlayer(s32 slot) {
     if (!Zmp_MultiActive() || !Present(slot)) {
         return nullptr;

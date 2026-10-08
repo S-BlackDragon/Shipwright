@@ -94,6 +94,17 @@
 //                          stand on the drum and hangs there with the order to let it go; those on it never bounce
 //   caido_retenido         a downed Link is given the "wait" order of a scripted group cutscene and keeps it when the
 //                          cutscene ends (finding AQ, D-120): it stays "in a cutscene" until it leaves the room
+//   intro_fhg_mas_cercano  Phantom Ganon's intro waits for the player nearest to its horse (under the middle of the
+//                          arena) in the middle and then at the gate (row F2, D-123): with a partner in the middle the
+//                          one at the gate never starts it
+//   rayo_al_del_contexto   the shocks and bursts of Phantom Ganon's lightning hurt only while the Link nearest to them
+//                          is not invincible (row F4, D-124): they go through the others while that one was just hurt
+//   destello_de_todos      the white flash of the burst of Phantom Ganon's ball that hit one Link is drawn on every
+//                          screen (row F4, D-124)
+//   fuera_de_los_barrotes  a Link that comes into Phantom Ganon's room once its bars are up stays outside them, at the
+//                          room's entrance, with no way in (row F3, D-125)
+//   texto_de_uno           the text of the player a group cutscene is about is shown on that player's screen only
+//                          (row F6, D-126): Phantom Ganon's last words were read by one of the six
 
 #ifdef __cplusplus
 extern "C" {

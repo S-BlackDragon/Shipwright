@@ -438,6 +438,10 @@ f32 Zmp_SimFogFar(PlayState* play);
 // this player's HUD. The white flash of a finishing blow is shown to the player who struck.
 void Zmp_RecordCameraInterface(s32 slot, s16 flags);
 void Zmp_OnFinishingBlow(void);
+// D-124: this tick's screen fill is the screen of `slot` only (Present.cpp).
+void Zmp_ScreenFillFor(PlayState* play, s32 slot);
+// The slot of a Link (-1 when it is not a present player's, or outside a group).
+s32 Zmp_SlotOfPlayer(Player* player);
 // Quakes: the player whose update requested it (-1: the world). Whether it shakes the camera being updated.
 s32 Zmp_QuakeOwner(void);
 // Diagnostics (state dumps): the quakes in progress (z_quake.c keeps them in statics of its own).
@@ -593,6 +597,10 @@ int PictureWaterLight(PlayState* play);
 // Present.cpp: local screen state (presentation).
 void PresentReset();
 int LocalLetterbox();
+// (tests, D-124) the last gameplay frame drawn without another player's screen fill (-1 never)
+int FillHiddenFrame();
+// Cameras.cpp: whether the screen of `local` shows the text box of `owner` (D-069, D-126).
+bool ScreenShowsText(PlayState* play, int owner, int local);
 int LocalHudMode();
 // Cameras.cpp helpers: context switch (present slots only) and the local player's picture (NULL: canonical view).
 void SwitchContext(PlayState* play, int slot);

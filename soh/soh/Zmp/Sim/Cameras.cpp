@@ -715,8 +715,7 @@ extern "C" void Zmp_MessageDrawBegin(PlayState* play) {
     // during a cutscene everybody watches (the text of the cutscene).
     int owner = gZmpSim.ctx;
     int local = Zmp::Players::LocalSlot();
-    bool shared = gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE;
-    if (owner == local || local < 0 || (shared && owner == gZmpSim.anchor)) {
+    if (local < 0 || Zmp::Players::ScreenShowsText(play, owner, local)) {
         return;
     }
     GraphicsContext* g = play->state.gfxCtx;
@@ -786,6 +785,21 @@ std::vector<Notice> RecentNotices(double maxAge) {
         }
     }
     return out;
+}
+
+// Whether the screen of `local` shows the text box of `owner`: its own; during a cutscene everybody watches, the
+// anchor's (a scripted cutscene's text) and, D-126 (row F6 of the Forest Temple), the one of the player the group
+// cutscene is about: a boss that speaks in its own cutscene speaks to "the player", which is that player (D-084), and
+// its words were read on one screen only (Phantom Ganon's last words, 0x108E).
+bool ScreenShowsText(PlayState* play, int owner, int local) {
+    if (owner == local) {
+        return true;
+    }
+    bool shared = gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE;
+    if (shared && owner == gZmpSim.anchor) {
+        return true;
+    }
+    return gZmpSim.globalCs && owner == gZmpSim.csTrigger && !Zmp_TestMutant("texto_de_uno");
 }
 
 bool LocalTextHidden() {

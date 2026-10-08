@@ -5,6 +5,8 @@
  */
 
 #include "z_en_fhg_fire.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "objects/object_fhg/object_fhg.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h"
@@ -76,6 +78,17 @@ static ColliderCylinderInit sCylinderInit = {
     },
     { 20, 30, 10, { 0, 0, 0 } },
 };
+
+// ZMP (row F4 of the Forest Temple, D-124): the lightning's shocks and bursts are set to hurt only while "the player"
+// (the nearest to them) is not invincible. With several Links, a shock went through all the others while the nearest
+// one had just been hurt. Each Link's own hurt box is already off while that Link is invincible (z_player.c), so in a
+// group the shock is always armed and hurts whoever it meets.
+static s32 EnFhgFire_ZmpArmed(Player* player) {
+    if (Zmp_MultiActive() && !Zmp_TestMutant("rayo_al_del_contexto")) { // (mutant: as before)
+        return true;
+    }
+    return player->invincibilityTimer == 0;
+}
 
 void EnFhgFire_SetUpdate(EnFhgFire* this, EnFhgFireUpdateFunc updateFunc) {
     this->updateFunc = updateFunc;
@@ -298,7 +311,7 @@ void EnFhgFire_LightningShock(EnFhgFire* this, PlayState* play) {
 
     Actor_MoveXZGravity(&this->actor);
     Collider_UpdateCylinder(&this->actor, &this->collider);
-    if (player->invincibilityTimer == 0) {
+    if (EnFhgFire_ZmpArmed(player)) { // ZMP (F4): armed for every Link
         CollisionCheck_SetAT(play, &play->colChkCtx, &this->collider.base);
     }
 
@@ -312,6 +325,9 @@ void EnFhgFire_LightningBurst(EnFhgFire* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
 
     play->envCtx.fillScreen = true;
+    if (this->work[FHGFIRE_US_2] != 0) { // ZMP (F4, D-124): the white flash of the Link the ball hit is its screen's
+        Zmp_ScreenFillFor(play, this->work[FHGFIRE_US_2] - 1);
+    }
     this->actor.shape.rot.y += 0x1000;
 
     if (this->work[FHGFIRE_FX_TIMER] == 49) {
@@ -344,7 +360,7 @@ void EnFhgFire_LightningBurst(EnFhgFire* this, PlayState* play) {
     Actor_SetScale(&this->actor, this->fwork[FHGFIRE_SCALE]);
     if (this->fwork[FHGFIRE_BURST_SCALE] > 3.0f) {
         Collider_UpdateCylinder(&this->actor, &this->collider);
-        if (player->invincibilityTimer == 0) {
+        if (EnFhgFire_ZmpArmed(player)) { // ZMP (F4): armed for every Link
             CollisionCheck_SetAT(play, &play->colChkCtx, &this->collider.base);
         }
     }
@@ -610,9 +626,14 @@ void EnFhgFire_EnergyBall(EnFhgFire* this, PlayState* play) {
                                                     (s16)(Rand_ZeroOne() * 50.0f) + 100, lightBallColor2);
                 }
                 if (killMode == BALL_BURST) {
-                    Actor_SpawnAsChild(&play->actorCtx, &this->actor, play, ACTOR_EN_FHG_FIRE, this->actor.world.pos.x,
-                                       player->actor.world.pos.y + 20.0f, this->actor.world.pos.z, 0xC8, 0, 0,
-                                       FHGFIRE_LIGHTNING_BURST);
+                    Actor* burst = Actor_SpawnAsChild(&play->actorCtx, &this->actor, play, ACTOR_EN_FHG_FIRE,
+                                                      this->actor.world.pos.x, player->actor.world.pos.y + 20.0f,
+                                                      this->actor.world.pos.z, 0xC8, 0, 0, FHGFIRE_LIGHTNING_BURST);
+
+                    // ZMP (F4, D-124): the burst of the ball that hit this Link flashes this Link's screen only
+                    if (burst != NULL) {
+                        ((EnFhgFire*)burst)->work[FHGFIRE_US_2] = (s16)(Zmp_SlotOfPlayer(player) + 1);
+                    }
                 }
                 bossGnd->flyMode = GND_FLY_NEUTRAL;
                 this->work[FHGFIRE_KILL_TIMER] = 30;

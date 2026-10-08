@@ -55,7 +55,11 @@ struct LocalScreen {
 LocalScreen sL;
 
 int sFlashOwner = -1;
-s32 sDrawnBars = 0; // the black bars the last picture was cut with (tests read it)
+// D-124 (F4): the player whose screen an actor's screen fill is (-1 none) and the frame it was asked for in
+int sFillOwner = -1;
+u32 sFillFrame = 0;
+u32 sFillHiddenFrame = 0xFFFFFFFF; // (tests) the last frame whose picture was drawn without such a fill
+s32 sDrawnBars = 0;                // the black bars the last picture was cut with (tests read it)
 
 bool sBarsSwapped = false;
 s32 sBarsKeep = 0;
@@ -223,6 +227,16 @@ extern "C" void Zmp_RecordCameraInterface(s32 slot, s16 flags) {
     }
 }
 
+// D-124 (F4): an actor fills the screen this tick for one player only (a screen effect of what hit that player: Alex's
+// rule of D-053); the other screens are drawn without it. Presentation: nothing in the simulation reads it.
+extern "C" void Zmp_ScreenFillFor(PlayState* play, s32 slot) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("destello_de_todos")) { // (mutant: every screen, as before)
+        return;
+    }
+    sFillOwner = slot;
+    sFillFrame = play->gameplayFrames;
+}
+
 extern "C" void Zmp_OnFinishingBlow(void) {
     if (Zmp_MultiActive()) {
         sFlashOwner = gZmpSim.ctx;
@@ -268,11 +282,17 @@ extern "C" void Zmp_DrawPresentBegin(PlayState* play) {
     // The white flash of another player's finishing blow, and the black fill of the game over lights of another
     // player's fairy revive in a room with a fixed camera (z_kankyo.c, Environment_FadeInGameOverLights), are not
     // drawn here.
+    // The white flash of a lightning burst that hit another player (Phantom Ganon's energy ball, D-124) neither.
+    bool otherFill = sFillOwner >= 0 && sFillFrame == play->gameplayFrames && sFillOwner != Local();
     if (play->envCtx.fillScreen &&
-        ((play->actorCtx.freezeFlashTimer > 0 && sFlashOwner >= 0 && sFlashOwner != Local()) || otherRevives)) {
+        ((play->actorCtx.freezeFlashTimer > 0 && sFlashOwner >= 0 && sFlashOwner != Local()) || otherRevives ||
+         otherFill)) {
         sFlashKeep = play->envCtx.fillScreen;
         play->envCtx.fillScreen = false;
         sFlashSwapped = true;
+        if (otherFill) {
+            sFillHiddenFrame = play->gameplayFrames;
+        }
     }
 }
 
@@ -329,6 +349,12 @@ int HudHealth() {
 void PresentReset() {
     sL = LocalScreen{};
     sFlashOwner = -1;
+    sFillOwner = -1;
+    sFillHiddenFrame = 0xFFFFFFFF;
+}
+
+int FillHiddenFrame() {
+    return (int)sFillHiddenFrame;
 }
 
 int LocalLetterbox() {
