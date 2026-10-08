@@ -181,6 +181,12 @@ typedef struct BossFd {
     /* 0x1490 */ ColliderJntSph collider;
     /* 0x14B0 */ ColliderJntSphElement elements[19];
     /* 0x1970 */ BossFdEffect effects[180];
-} BossFd; // size = 0x43A0
+    // ZMP (row V2 of the Fire Temple, D-129): ticks before the breath can burn each player again (by slot). The
+    // original has one such wait for its one player (timers[3]).
+    s16 zmpBreathWait[6];
+} BossFd; // size = 0x43A0 (+ the ZMP field)
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls it): a flame of the breath at pos.
+s32 BossFd_ZmpStage(struct PlayState* play, s32 what, Vec3f* pos);
 
 #endif

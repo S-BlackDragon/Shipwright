@@ -4,6 +4,8 @@
  * Description: Volvagia, flying form
  */
 
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "z_boss_fd.h"
 #include "textures/boss_title_cards/object_fd.h"
 #include "objects/object_fd/object_fd.h"
@@ -270,6 +272,29 @@ static Vec3f sCeilingTargets[] = {
     { 0.0f, 900.0f, 243.0f },  { -243.0f, 900.0f, 100.0f }, { -243.0, 900.0f, -100.0f },
 };
 
+// ZMP (row V3 of the Fire Temple, D-128): the intro waits for "the player" in the box at the edge of the arena (|x -
+// 340| < 60, |z| < 80). "The player" of Volvagia is the Link nearest to it, waiting under the middle of the arena: with
+// a partner nearer to the middle, the one at the edge never started the intro. In a group any present Link standing in
+// the box starts it, and the cutscene starts in that Link's context (it is the cutscene's player, put at (380, 100,
+// 0)).
+static Player* BossFd_ZmpIntroPlayer(BossFd* this, PlayState* play, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("intro_fd_mas_cercano")) { // (mutant: the nearest, as before)
+        return player;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && !Zmp_IsDowned(link) && (fabsf(link->actor.world.pos.z) < 80.0f) &&
+            (fabsf(link->actor.world.pos.x - 340.0f) < 60.0f)) {
+            Zmp_SetContext(play, k);
+            return GET_PLAYER(play);
+        }
+    }
+    return player;
+}
+
 void BossFd_Fly(BossFd* this, PlayState* play) {
     u8 sp1CF = false;
     u8 temp_rand;
@@ -315,6 +340,7 @@ void BossFd_Fly(BossFd* this, PlayState* play) {
 
         switch (this->introState) {
             case BFD_CS_WAIT:
+                player2 = BossFd_ZmpIntroPlayer(this, play, player2); // ZMP (V3): any Link at the edge starts it
                 this->fogMode = 3;
                 this->targetPosition.x = 0.0f;
                 this->targetPosition.y = -110.0f;
@@ -1433,6 +1459,48 @@ void BossFd_Update(Actor* thisx, PlayState* play) {
     osSyncPrintf("FD MOVE END 2\n");
 }
 
+// ZMP (row V2 of the Fire Temple, D-129): each flame of the breath (the flying body's and the head's in a hole, which
+// writes into these effects too) was checked against "the player" only, the Link nearest to Volvagia's body, and a hit
+// made the breath harmless for 50 ticks for everybody (timers[3]). The other Links went through the fire unhurt. In a
+// group every present Link that stands in a flame is pushed back, hurt and set on fire, each with its own wait of 50
+// ticks (zmpBreathWait). Returns 0 outside a group (the original check runs).
+static s32 BossFd_ZmpBreathHits(BossFd* this, PlayState* play, BossFdEffect* effect) {
+    s32 k = -1;
+    s16 i;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("aliento_al_del_contexto")) { // (mutant: the nearest only, as before)
+        return 0;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        Vec3f diff;
+
+        if ((link == NULL) || Zmp_IsDowned(link) || (k >= ARRAY_COUNT(this->zmpBreathWait)) ||
+            (this->zmpBreathWait[k] != 0)) {
+            continue;
+        }
+        diff.x = link->actor.world.pos.x - effect->pos.x;
+        diff.y = link->actor.world.pos.y + 30.0f - effect->pos.y;
+        diff.z = link->actor.world.pos.z - effect->pos.z;
+        if (sqrtf(SQ(diff.x) + SQ(diff.y) + SQ(diff.z)) < 20.0f) {
+            this->zmpBreathWait[k] = 50;
+            // (what Actor_SetPlayerKnockbackLarge(play, NULL, 5.0f, kbAngle, 0.0f, 0x30) does to "the player")
+            link->knockbackDamage = 0x30;
+            link->knockbackType = PLAYER_KNOCKBACK_LARGE;
+            link->knockbackRot = effect->kbAngle;
+            link->knockbackSpeed = 5.0f;
+            link->knockbackYVelocity = 0.0f;
+            if (link->bodyIsBurning == false) {
+                for (i = 0; i < ARRAY_COUNT(link->bodyFlameTimers); i++) {
+                    link->bodyFlameTimers[i] = Rand_S16Offset(0, 200);
+                }
+                link->bodyIsBurning = true;
+            }
+        }
+    }
+    return 1;
+}
+
 void BossFd_UpdateEffects(BossFd* this, PlayState* play) {
     BossFdEffect* effect = this->effects;
     Player* player = GET_PLAYER(play);
@@ -1441,6 +1509,11 @@ void BossFd_UpdateEffects(BossFd* this, PlayState* play) {
     s16 i1;
     s16 i2;
 
+    for (i1 = 0; i1 < ARRAY_COUNT(this->zmpBreathWait); i1++) { // ZMP (V2): each player's own wait
+        if (this->zmpBreathWait[i1] != 0) {
+            this->zmpBreathWait[i1]--;
+        }
+    }
     for (i1 = 0; i1 < 180; i1++, effect++) {
         if (effect->type != BFD_FX_NONE) {
             effect->timer1++;
@@ -1480,7 +1553,8 @@ void BossFd_UpdateEffects(BossFd* this, PlayState* play) {
                 diff.x = player->actor.world.pos.x - effect->pos.x;
                 diff.y = player->actor.world.pos.y + 30.0f - effect->pos.y;
                 diff.z = player->actor.world.pos.z - effect->pos.z;
-                if ((this->timers[3] == 0) && (sqrtf(SQ(diff.x) + SQ(diff.y) + SQ(diff.z)) < 20.0f)) {
+                if (BossFd_ZmpBreathHits(this, play, effect)) { // ZMP (V2): every Link in the flame, in a group
+                } else if ((this->timers[3] == 0) && (sqrtf(SQ(diff.x) + SQ(diff.y) + SQ(diff.z)) < 20.0f)) {
                     this->timers[3] = 50;
                     Actor_SetPlayerKnockbackLarge(play, NULL, 5.0f, effect->kbAngle, 0.0f, 0x30);
                     if (player->bodyIsBurning == false) {
@@ -1988,4 +2062,21 @@ void BossFd_DrawBody(PlayState* play, BossFd* this) {
     Matrix_Pop();
     osSyncPrintf("END\n");
     CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// ZMP: phase 6 scenario tests (test harness only; nothing in the game calls this). what 0: one flame of the breath at
+// pos, still (the test puts it where a Link stands: what a flame does to whoever it meets, row V2). Returns 0 when
+// Volvagia is not in the room.
+s32 BossFd_ZmpStage(PlayState* play, s32 what, Vec3f* pos) {
+    Actor* a;
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BOSS].head; a != NULL; a = a->next) {
+        if ((a->id == ACTOR_BOSS_FD) && (what == 0)) {
+            Vec3f still = { 0.0f, 0.0f, 0.0f };
+
+            BossFd_SpawnFireBreath(((BossFd*)a)->effects, pos, &still, &still, 300.0f, 255, 0);
+            return 1;
+        }
+    }
+    return 0;
 }
