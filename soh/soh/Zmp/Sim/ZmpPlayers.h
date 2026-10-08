@@ -407,6 +407,9 @@ void Zmp_HollSettle(PlayState* play, s32 room);
 void Zmp_HollTick(PlayState* play);
 // Present players in slot order: the next one after `after` (-1 to start), or -1.
 s32 Zmp_NextPresentSlot(s32 after);
+// The Link of a present slot (NULL if none): for an actor that has to look at every Link, not only at "the player" of
+// its context (Bongo Bongo's drum bounces whoever stands on it, D-119).
+Player* Zmp_SlotPlayer(s32 slot);
 void Zmp_RoomLoadBegin(PlayState* play, RoomContext* roomCtx);
 void Zmp_RoomLoadEnd(PlayState* play, RoomContext* roomCtx);
 // Room_FinishRoomChange: 1 when handled (multiplayer: unloads only the rooms nobody stands in).

@@ -7,6 +7,8 @@
 #include "z_bg_sst_floor.h"
 #include "objects/object_sst/object_sst.h"
 #include "soh/ResourceManagerHelpers.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -52,6 +54,36 @@ void BgSstFloor_Destroy(BgSstFloor* thisx, PlayState* play) {
     DynaPoly_DeleteBgActor(play, &play->colCtx.dyna, this->dyna.bgId);
 }
 
+// ZMP (finding AO, D-119): what DynaPolyActor_IsPlayerOnTop says of the one player of the original, for one Link:
+// it stood on this drum in its last update. The flag of the drum is set by any Link standing on it, and "the player"
+// of the drum's update is the player in its context (the nearest, or the player of a group cutscene): a Link in the
+// air was bounced up by every beat while others stood on the drum, and those on it were not bounced.
+static s32 BgSstFloor_ZmpOnTop(BgSstFloor* this, Player* player) {
+    return (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) && (player->actor.floorBgId == this->dyna.bgId);
+}
+
+static s32 BgSstFloor_ZmpEveryLink(void) {
+    // (mutant "tambor_al_del_contexto": the drum acts on the player in its context, as before D-119)
+    return Zmp_MultiActive() && !Zmp_TestMutant("tambor_al_del_contexto");
+}
+
+// The bounce of a beat for one Link standing on the drum (the original's, by its distance from the rim).
+static void BgSstFloor_ZmpBounce(BgSstFloor* this, Player* player) {
+    f32 distFromRim;
+
+    if (player->stateFlags1 & (PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE)) {
+        return;
+    }
+    distFromRim = 600.0f - Actor_WorldDistXZToActor(&this->dyna.actor, &player->actor);
+    if (distFromRim > 0.0f) {
+        if (distFromRim > 350.0f) {
+            distFromRim = 350.0f;
+        }
+        player->actor.bgCheckFlags &= ~1;
+        player->actor.velocity.y = 9.0f * distFromRim * (1.0f / 350.0f);
+    }
+}
+
 void BgSstFloor_Update(BgSstFloor* thisx, PlayState* play) {
     s32 pad;
     BgSstFloor* this = (BgSstFloor*)thisx;
@@ -68,7 +100,23 @@ void BgSstFloor_Update(BgSstFloor* thisx, PlayState* play) {
         Camera_RequestSetting(play->cameraPtrs[CAM_ID_MAIN], CAM_SET_DUNGEON0);
     }
 
-    if (DynaPolyActor_IsPlayerOnTop(&this->dyna) && (player->fallDistance > 1000.0f)) {
+    if (BgSstFloor_ZmpEveryLink()) {
+        // ZMP (D-119): a Link that lands on the drum from high up beats it, whoever is "the player"
+        s32 k = -1;
+        s32 landed = false;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* link = Zmp_SlotPlayer(k);
+
+            if ((link != NULL) && BgSstFloor_ZmpOnTop(this, link) && (link->fallDistance > 1000.0f)) {
+                landed = true;
+            }
+        }
+        if (landed) {
+            this->dyna.actor.params = 1;
+            Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EN_SHADEST_TAIKO_HIGH);
+        }
+    } else if (DynaPolyActor_IsPlayerOnTop(&this->dyna) && (player->fallDistance > 1000.0f)) {
         this->dyna.actor.params = 1;
         Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EN_SHADEST_TAIKO_HIGH);
     }
@@ -82,8 +130,19 @@ void BgSstFloor_Update(BgSstFloor* thisx, PlayState* play) {
         this->dyna.actor.params = BONGOFLOOR_REST;
         this->drumPhase = 28;
 
-        if (DynaPolyActor_IsPlayerOnTop(&this->dyna) &&
-            !(player->stateFlags1 & (PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE))) {
+        if (BgSstFloor_ZmpEveryLink()) {
+            // ZMP (D-119): every Link standing on the drum bounces, and only those
+            s32 k = -1;
+
+            while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+                Player* link = Zmp_SlotPlayer(k);
+
+                if ((link != NULL) && BgSstFloor_ZmpOnTop(this, link)) {
+                    BgSstFloor_ZmpBounce(this, link);
+                }
+            }
+        } else if (DynaPolyActor_IsPlayerOnTop(&this->dyna) &&
+                   !(player->stateFlags1 & (PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE))) {
             distFromRim = 600.0f - this->dyna.actor.xzDistToPlayer;
             if (distFromRim > 0.0f) {
                 if (distFromRim > 350.0f) {

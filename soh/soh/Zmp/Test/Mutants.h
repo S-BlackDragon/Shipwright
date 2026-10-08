@@ -89,6 +89,9 @@
 //   esqueleto_ajeno        SoH's list of skeletons to patch (addresses of the skelAnimes this process initialised)
 //                          survives a state load and rewrites a Link's skeleton in multiplayer (finding AN, D-118): the
 //                          founder's adult Link gets the child skeleton on the machines that were child before joining
+//   tambor_al_del_contexto Bongo Bongo's drum bounces "the player" of its context when any Link stands on it (finding
+//                          AO, D-119): the player of the intro, in the air, is kicked up by every beat while the others
+//                          stand on the drum and hangs there with the order to let it go; those on it never bounce
 
 #ifdef __cplusplus
 extern "C" {

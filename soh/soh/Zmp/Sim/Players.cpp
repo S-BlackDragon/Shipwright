@@ -1699,6 +1699,13 @@ extern "C" s32 Zmp_IsDowned(Player* player) {
     return Downed(k) ? 1 : 0;
 }
 
+extern "C" Player* Zmp_SlotPlayer(s32 slot) {
+    if (!Zmp_MultiActive() || !Present(slot)) {
+        return nullptr;
+    }
+    return Slot(slot).player;
+}
+
 extern "C" s32 Zmp_AllowDeathCamera(void) {
     if (!Zmp_MultiActive()) {
         return 1;
