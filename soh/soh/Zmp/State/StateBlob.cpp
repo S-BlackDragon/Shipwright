@@ -120,7 +120,7 @@ namespace {
 bool sKeepSharedSettings = false;
 
 constexpr uint32_t kMagic = 0x53504D5A; // "ZMPS"
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;        // 2: the scene's water boxes (D-118)
 
 enum SectionId : uint32_t {
     SEC_SAVECTX = 1,
@@ -138,6 +138,7 @@ enum SectionId : uint32_t {
     SEC_PADMGR,
     SEC_ZMPSIM,      // multiplayer simulation state (slots, parked cameras, per-player inputs, audio counters)
     SEC_GAMESTATICS, // file statics of the game code that are simulation state (docs/DECISIONES.md D-044)
+    SEC_WATERBOXES,  // the scene's water boxes, written by the game into the scene's collision resource (D-118)
 };
 
 #pragma pack(push, 1)
@@ -494,6 +495,16 @@ void AppendNote(BlobInfo* info, const std::string& s) {
 
 } // namespace
 
+// The water boxes of the scene's collision, as they are now (empty outside a scene).
+static std::vector<WaterBox> WaterBoxesNow() {
+    std::vector<WaterBox> boxes;
+    CollisionHeader* col = gPlayState != nullptr ? gPlayState->colCtx.colHeader : nullptr;
+    if (col != nullptr && col->waterBoxes != nullptr) {
+        boxes.assign(col->waterBoxes, col->waterBoxes + col->numWaterBoxes);
+    }
+    return boxes;
+}
+
 bool Save(std::vector<uint8_t>& out, uint32_t tick, uint64_t hash, std::string* err, BlobInfo* info) {
     auto t0 = std::chrono::steady_clock::now();
     if (!InPlay()) {
@@ -567,6 +578,12 @@ bool Save(std::vector<uint8_t>& out, uint32_t tick, uint64_t hash, std::string* 
         w.Section(SEC_GAMESTATICS, gs, sizeof(gs));
     }
     w.Section(SEC_ZMPSIM, &gZmpSim, sizeof(gZmpSim));
+    {
+        // (D-118, INVENTARIO A3) The game writes water levels into the scene's collision resource (Morpha, the Water
+        // Temple, Jabu-Jabu, the well, Lake Hylia...): it is not in the heap and every process keeps its own copy.
+        auto boxes = WaterBoxesNow();
+        w.Section(SEC_WATERBOXES, boxes.data(), boxes.size() * sizeof(WaterBox));
+    }
     {
         auto ptrs = HeapPointerStatics();
         w.Section(SEC_HEAP_POINTER_STATICS, ptrs.data(), ptrs.size() * sizeof(ptrs[0]));
@@ -925,6 +942,20 @@ bool Load(const std::vector<uint8_t>& blob, std::string* err, BlobInfo* info) {
         size_t m = std::min<size_t>(n, gPlayState->transiActorCtx.numActors);
         for (size_t i = 0; i < m; i++) {
             gPlayState->transiActorCtx.list[i].id = ids[i];
+        }
+    }
+    // (D-118) The scene's water boxes, before anything of the next tick reads them (the players are updated before
+    // the actor that writes the level again). "agua_no_viaja" (mutation test): this process keeps its own, as before.
+    if (sections.count(SEC_WATERBOXES) && !Zmp_TestMutant("agua_no_viaja")) {
+        auto& sec = sections[SEC_WATERBOXES];
+        CollisionHeader* col = gPlayState->colCtx.colHeader;
+        size_t n = sec.second / sizeof(WaterBox);
+        if (col != nullptr && col->waterBoxes != nullptr && n == col->numWaterBoxes) {
+            memcpy(col->waterBoxes, sec.first, n * sizeof(WaterBox));
+        } else if (n > 0 || (col != nullptr && col->numWaterBoxes > 0)) {
+            AppendNote(info, "the scene has another number of water boxes here");
+            Log("zmp: state load: " + std::to_string(n) + " water boxes in the state, " +
+                std::to_string(col != nullptr ? col->numWaterBoxes : -1) + " in this process's scene");
         }
     }
     // Check: every static of the saving process that pointed into the heap must point to the same

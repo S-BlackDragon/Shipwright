@@ -278,6 +278,25 @@ void VisitZmp(Visitor& v) {
         v.S("boss_pass_ticks", gZmpSim.bossPassTicks);
     }
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
+    if (InPlay()) {
+        // (D-118, INVENTARIO A3) The scene's water boxes: the game writes their levels (and Lake Hylia a river's start)
+        // into the scene's collision resource, outside the heap. Field by field: the padding of the struct is not
+        // state. (Here, in lockstep only: the recordings of phase 1 keep their hashes.)
+        const CollisionHeader* col = gPlayState->colCtx.colHeader;
+        int n = col != nullptr && col->waterBoxes != nullptr ? col->numWaterBoxes : 0;
+        v.S("water.count", n);
+        for (int i = 0; i < n; i++) {
+            const WaterBox* w = &col->waterBoxes[i];
+            v.prefix = "zmp.water." + std::to_string(i) + ".";
+            v.S("x_min", w->xMin);
+            v.S("y_surface", w->ySurface);
+            v.S("z_min", w->zMin);
+            v.S("x_length", w->xLength);
+            v.S("z_length", w->zLength);
+            v.U("properties", w->properties);
+        }
+        v.prefix = "zmp.";
+    }
     {
         // D-081: the quakes in progress (they shake the players' pictures, which decide what is "on screen")
         s16 q[64];
