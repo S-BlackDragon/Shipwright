@@ -51,12 +51,17 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
-#include "overlays/actors/ovl_Boss_Dodongo/z_boss_dodongo.h" // ZMP phase 6 scenario tests
-#include "overlays/actors/ovl_Boss_Va/z_boss_va.h"           // ZMP phase 6 scenario tests
-#include "overlays/actors/ovl_En_Ru1/z_en_ru1.h"             // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Dodongo/z_boss_dodongo.h"     // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Va/z_boss_va.h"               // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_En_Ru1/z_en_ru1.h"                 // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h" // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_En_fHG/z_en_fhg.h"                 // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"       // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
+void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
+void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
 extern u8 sAudioExtraFilter;
 extern PlayState* gPlayState;
 void FileChoose_Main(GameState* thisx);
@@ -517,6 +522,47 @@ json ActorsJson(const json& cmd) {
                     list.back()["home"] = Vec3(v->actor.home.pos);
                 }
             }
+            if (a->id == ACTOR_BOSS_GANONDROF) {
+                // Phase 6 scenario tests (Phantom Ganon with six players): the real boss (params 1) and the fakes that
+                // ride out of the other paintings (params 10-15). Its fight lives in its own fields (no statics).
+                const BossGanondrof* g = (const BossGanondrof*)a;
+                list.back()["gnd_health"] = (s8)a->colChkInfo.health;
+                list.back()["gnd_fly_mode"] = g->flyMode;
+                list.back()["gnd_death_state"] = g->deathState;
+                list.back()["gnd_death_camera"] = g->deathCamera;
+                list.back()["gnd_return_count"] = g->returnCount;
+                list.back()["gnd_kill"] = g->killActor;
+                list.back()["gnd_throw_count"] = g->work[GND_THROW_COUNT];
+                list.back()["gnd_invincible"] = g->work[GND_INVINC_TIMER];
+                list.back()["gnd_timer0"] = g->timers[0];
+                list.back()["gnd_targetable"] = (a->flags & ACTOR_FLAG_ATTENTION_ENABLED) ? 1 : 0;
+                list.back()["gnd_action"] = (uint64_t)((uintptr_t)g->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["gnd_body"] = Vec3(g->targetPos);
+                list.back()["gnd_stunned"] = g->actionFunc == BossGanondrof_Stunned ? 1 : 0;
+                list.back()["gnd_charging"] = g->actionFunc == BossGanondrof_Charge ? 1 : 0;
+            }
+            if (a->id == ACTOR_EN_FHG) {
+                // Phantom Ganon's horse: the intro (cutsceneState, INTRO_*) and the paintings it rides between.
+                const EnfHG* h = (const EnfHG*)a;
+                list.back()["fhg_cutscene_state"] = h->cutsceneState;
+                list.back()["fhg_cutscene_camera"] = h->cutsceneCamera;
+                list.back()["fhg_cur_painting"] = h->curPainting;
+                list.back()["fhg_target_painting"] = h->targetPainting;
+                list.back()["fhg_in_painting"] = h->bossGndInPainting;
+                list.back()["fhg_hit_timer"] = h->hitTimer;
+                list.back()["fhg_timer0"] = h->timers[0];
+                list.back()["fhg_action"] = (uint64_t)((uintptr_t)h->actionFunc - (uintptr_t)&__ImageBase);
+            }
+            if (a->id == ACTOR_EN_FHG_FIRE) {
+                // Its lightning, its energy ball (params 50: fire mode 0 towards a player, 1 returned, 2 reflected by
+                // the boss) and its warps.
+                const EnFhgFire* f = (const EnFhgFire*)a;
+                list.back()["fhgf_fire_mode"] = f->work[FHGFIRE_FIRE_MODE];
+                list.back()["fhgf_return_count"] = f->work[FHGFIRE_RETURN_COUNT];
+                list.back()["fhgf_timer"] = f->work[FHGFIRE_TIMER];
+                list.back()["fhgf_kill_timer"] = f->work[FHGFIRE_KILL_TIMER];
+                list.back()["fhgf_speed"] = a->speedXZ;
+            }
         }
     }
     return { { "ok", true }, { "tick", sFrame }, { "count", list.size() }, { "actors", list } };
@@ -887,6 +933,20 @@ void Dispatch(const RequestPtr& req) {
             resp["rupee_debt"] = gZmpSim.rupeeDebt;
             resp["bg_image"] = Zmp::Players::LocalBgImage();
             resp["hud_health"] = Zmp::Players::HudHealth();
+            resp["fill_hidden_frame"] = Zmp::Players::FillHiddenFrame(); // (D-124)
+            {
+                // (D-126) the players whose open text box this screen shows
+                json shown = json::array();
+                int local = Zmp::Players::LocalSlot();
+                for (int k = 0; k < ZMP_MAX_PLAYERS && Zmp_MultiActive(); k++) {
+                    if (Zmp::Players::IsPresent(k) && Zmp::Players::SlotMsgMode(k) != MSGMODE_NONE && local >= 0 &&
+                        Zmp::Players::ScreenShowsText(gPlayState, k, local)) {
+                        shown.push_back(k);
+                    }
+                }
+                resp["texts_shown"] = shown;
+            }
+            resp["gameplay_frames"] = gPlayState->gameplayFrames;
             resp["picture_eye"] = Vec3(Zmp::Players::PictureEye());
             resp["picture_at"] = Vec3(Zmp::Players::PictureAt());
             resp["do_action"] = gPlayState->interfaceCtx.unk_1F0;

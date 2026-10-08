@@ -22,6 +22,9 @@ extern "C" {
 #include "macros.h"
 #include "overlays/actors/ovl_Boss_Dodongo/z_boss_dodongo.h"
 #include "overlays/actors/ovl_Boss_Va/z_boss_va.h"
+#include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h"
+#include "overlays/actors/ovl_En_fHG/z_en_fhg.h"
+#include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"
 extern PlayState* gPlayState;
 s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
 }
@@ -196,6 +199,15 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         for (size_t i = 2; i < w.size(); i++) {
             Item_Give(gPlayState, (u8)Num(w[i]));
         }
+    } else if (op == "quest" && w.size() == 4) {
+        // "zmp_stage quest <mask> <0|1>": quest items (medallions, stones, songs) off or on, for the group. The debug
+        // save has every medallion: a test of a boss's medallion takes it away first (f6_forest.py).
+        u32 mask = (u32)strtoul(w[2].c_str(), nullptr, 0);
+        if (Num(w[3])) {
+            gSaveContext.inventory.questItems |= mask;
+        } else {
+            gSaveContext.inventory.questItems &= ~mask;
+        }
     } else if (op == "upgrade" && w.size() == 4) {
         Inventory_ChangeUpgrade((s16)Num(w[2]), (s16)Num(w[3]));
     } else if (op == "keys" && w.size() == 4) {
@@ -300,6 +312,63 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         if (what < 0 || !BossVa_ZmpStage(gPlayState, what, Num(w[3]))) {
             return Bad(cmd, "Barinade is not in a state where that applies");
         }
+    } else if (op == "ganondrof" && w.size() == 4) {
+        // Phantom Ganon (f6_forest.py), what the bots cannot aim by themselves:
+        // "zmp_stage ganondrof painting_hit 0": what an arrow does to the boss out of its painting (z_boss_ganondrof.c,
+        //   BossGanondrof_CollisionCheck, painting branch): 2 off its health, invincible 10 ticks, its horse hit;
+        // "zmp_stage ganondrof return <n>": its energy ball, returned <n> times, hits it (what EnFhgFire_EnergyBall
+        //   does on impact): it is stunned at its next update.
+        BossGanondrof* g = nullptr;
+        for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BOSS].head; a != nullptr; a = a->next) {
+            if (a->id == ACTOR_BOSS_GANONDROF && a->params == GND_REAL_BOSS) {
+                g = (BossGanondrof*)a;
+            }
+        }
+        if (g == nullptr || g->actor.child == nullptr || g->deathState != NOT_DEAD) {
+            return Bad(cmd, "no Phantom Ganon fighting");
+        }
+        EnfHG* horse = (EnfHG*)g->actor.child;
+        if (w[2] == "painting_hit") {
+            if (g->flyMode != GND_FLY_PAINTING || horse->bossGndInPainting || g->work[GND_INVINC_TIMER] != 0) {
+                return Bad(cmd, "Phantom Ganon is not out of its painting");
+            }
+            g->work[GND_INVINC_TIMER] = 10;
+            g->actor.colChkInfo.health -= 2;
+            horse->hitTimer = 20;
+        } else if (w[2] == "return") {
+            if (g->flyMode == GND_FLY_PAINTING) {
+                return Bad(cmd, "Phantom Ganon is still in the paintings");
+            }
+            g->returnCount = (u8)CLAMP(Num(w[3]), 1, 100);
+        } else {
+            return Bad(cmd, "unknown ganondrof event");
+        }
+    } else if (op == "fhg_burst" && w.size() == 3) {
+        // "zmp_stage fhg_burst <slot>": the lightning burst of Phantom Ganon's energy ball when it hits that Link (what
+        // EnFhgFire_EnergyBall spawns on BALL_BURST, owner included: D-124). Needs the room's object (its arena).
+        int target = Num(w[2]);
+        Player* p = (target >= 0 && target < ZMP_MAX_PLAYERS && gZmpSim.slots[target].present)
+                        ? Zmp::Players::SlotPlayer(target)
+                        : nullptr;
+        if (p == nullptr) {
+            return Bad(cmd, "no such player");
+        }
+        Actor* b = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_EN_FHG_FIRE, p->actor.world.pos.x,
+                               p->actor.world.pos.y + 20.0f, p->actor.world.pos.z, 0xC8, 0, 0, FHGFIRE_LIGHTNING_BURST);
+        if (b == nullptr) {
+            return Bad(cmd, "the burst could not be spawned");
+        }
+        ((EnFhgFire*)b)->work[FHGFIRE_US_2] = (s16)(target + 1);
+    } else if (op == "invincible" && w.size() == 4) {
+        // "zmp_stage invincible <slot> <ticks>": that Link cannot be hurt for <ticks> (as just after a hit).
+        int target = Num(w[2]);
+        Player* p = (target >= 0 && target < ZMP_MAX_PLAYERS && gZmpSim.slots[target].present)
+                        ? Zmp::Players::SlotPlayer(target)
+                        : nullptr;
+        if (p == nullptr) {
+            return Bad(cmd, "no such player");
+        }
+        p->invincibilityTimer = (s8)CLAMP(Num(w[3]), 0, 100);
     } else {
         return Bad(cmd, "unknown or malformed");
     }
