@@ -307,6 +307,29 @@ void RoomWindow::DrawLockstepOverlay(const Lockstep::Status& ls, float y) {
             }
             sSeenDebt = gZmpSim.rupeeDebt;
         }
+        // D-117: the boss door waits for the whole group. Who pushed it reads who is missing; the missing ones read
+        // that they are waited for. (The notice is simulation state; reading it here changes nothing.)
+        {
+            BossDoor::Wait w = BossDoor::Waiting();
+            if (w.by >= 0 && w.by == ls.slot) {
+                std::vector<std::string> names;
+                for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                    if (w.missing & (1 << k)) {
+                        names.push_back(Lockstep::SlotName(k));
+                    }
+                }
+                std::string who;
+                for (size_t i = 0; i < names.size(); i++) {
+                    who += (i == 0 ? "" : (i + 1 == names.size() ? " y " : ", ")) + names[i];
+                }
+                if (who.empty()) {
+                    who = "los demas";
+                }
+                Chat::Post(Category::Players, "Esperando a " + who + " en la puerta del jefe", "bossdoor:" + who, 5.0);
+            } else if (w.by >= 0 && (w.missing & (1 << ls.slot)) != 0) {
+                Chat::Post(Category::Players, "Te esperan en la puerta del jefe", "bossdoor:you", 5.0);
+            }
+        }
         // Phase 4: what the other players got (their text box is not shown here).
         for (auto& n : Players::RecentNotices(5.0)) {
             if (n.slot == ls.slot) {

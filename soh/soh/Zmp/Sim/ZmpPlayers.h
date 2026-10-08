@@ -95,7 +95,10 @@ typedef struct {
     // Finding Y: the light setting of the water this player's camera is under (valid while its main camera has the
     // "eye under water" flag). Each player's own picture is drawn with it; the scene's lights are not touched.
     s16 waterLight;
-    s16 pad8;
+    // D-117: the leader said (lockstep event "zmp_away") that this player's connection dropped: its Link stays, idle,
+    // but it is not waited for at a boss door.
+    u8 away;
+    u8 pad8;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -147,7 +150,11 @@ typedef struct {
     u8 undoSeqId;
     u8 undoNatureId;
     u8 undoHaltAll;
-    u8 pad4[3];
+    // D-117: the boss door waits for the group (BossDoor.cpp). 1 + the slot that pushed it while somebody was missing
+    // (0: nobody), the slots that were missing then, and the ticks that notice still lasts.
+    u8 bossWaitBy;
+    u8 bossWaitMissing;
+    u8 bossWaitTicks;
     // World clock: the server's time adopted at the start of each tick; a time the group set itself (a cutscene) is
     // kept until the server's clock reports it back.
     u16 dayAtTickStart;
@@ -205,7 +212,11 @@ typedef struct {
     // Shared game baseline (SharedGame.cpp): what the other groups and the server already know.
     u8 sharedValid;
     u16 sharedSize;
-    u8 pad5[6];
+    // D-117: the boss door was opened with the whole group at it: the first scene change into the boss's room within
+    // bossPassTicks takes the whole group. bossPassBy: 1 + the slot that opened it (0: no pass).
+    s16 bossPassTicks;
+    u8 bossPassBy;
+    u8 pad5[3];
     u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
@@ -338,6 +349,9 @@ s32 Zmp_PlayerOutsideRoom(Player* player, s32 room);
 // first pass is the door's own context (the only pass outside a ZMP session); the next ones are the other players
 // near the door, each as "the player"; when it returns 0 the door's own context is back. Never leave the loop early.
 s32 Zmp_DoorNextPlayer(PlayState* play, Actor* door, s32* it);
+// D-117 (BossDoor.cpp), z_player.c: `player` pushes the sliding door `door` from its side `doorDirection`. 1: it opens
+// as always; 0: a boss door with somebody of the group not at it (it stays shut and the message box says who).
+s32 Zmp_BossDoorMayOpen(PlayState* play, Player* player, Actor* door, s32 doorDirection);
 // Phase 5b, warp songs (z_player.c): with other players in the scene the song takes only its player (no scripted warp
 // cutscene, which would freeze everybody) and invites the others. Returns 0 when the original warp must run.
 s32 Zmp_WarpSongStart(Player* player, PlayState* play);
@@ -622,6 +636,27 @@ int Anchor();
 // After a portable save state load.
 void AfterStateLoad();
 } // namespace Zmp::Players
+
+namespace Zmp::BossDoor {
+// Every tick without a pending scene change (Zmp_TransitionGate): the notice and the pass run out.
+void Tick();
+// The scene change player k started goes into a boss's room through a door the whole group opened: it takes the group.
+bool TakesGroup(PlayState* play, int k);
+// A new scene: no notice, no pass.
+void OnPlayInit();
+// The notice for the message box (presentation reads it): who pushed (-1: nobody) and who was missing.
+struct Wait {
+    int by = -1;
+    int missing = 0;
+};
+Wait Waiting();
+// Tests (harness "debug.boss_exits"): the exits into a boss's scene found in the scene's collision.
+struct ExitInfo {
+    int x, y, z, entrance, scene, polys;
+};
+std::vector<ExitInfo> Exits(PlayState* play);
+bool IsBossDoorFrom(PlayState* play, Actor* door, int side);
+} // namespace Zmp::BossDoor
 
 namespace Zmp::Pause {
 // Local pad of this tick (before the lockstep replaces it).

@@ -80,6 +80,10 @@
 //                          colours, Ganondorf's windows) and the actor pointers it made references are not loaded:
 //                          this process keeps its own, as before (family 1: whoever enters a boss fight in the middle
 //                          computes something else)
+//   puerta_sin_esperar     the boss door opens for whoever pushes it, as before D-117: that player goes into the
+//                          boss's room alone and sees the intro without the group
+//   puerta_cuenta_al_de_fuera the boss door also waits for the players of the room who play somewhere else (another
+//                          group): it never opens while anybody is away from the dungeon (D-117, case a)
 
 #ifdef __cplusplus
 extern "C" {

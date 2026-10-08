@@ -269,6 +269,14 @@ void VisitZmp(Visitor& v) {
     v.U("shared_valid", gZmpSim.sharedValid);
     v.Bytes("shared_base", gZmpSim.sharedBase, gZmpSim.sharedValid ? gZmpSim.sharedSize : 0);
     v.U("group_defeat", gZmpSim.groupDefeat);
+    if (gZmpSim.bossWaitTicks != 0 || gZmpSim.bossPassTicks != 0) {
+        // D-117: the boss door's notice and pass (hashed only while they run: the recordings keep their hashes)
+        v.U("boss_wait_by", gZmpSim.bossWaitBy);
+        v.U("boss_wait_missing", gZmpSim.bossWaitMissing);
+        v.U("boss_wait_ticks", gZmpSim.bossWaitTicks);
+        v.U("boss_pass_by", gZmpSim.bossPassBy);
+        v.S("boss_pass_ticks", gZmpSim.bossPassTicks);
+    }
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
     {
         // D-081: the quakes in progress (they shake the players' pictures, which decide what is "on screen")
@@ -297,6 +305,9 @@ void VisitZmp(Visitor& v) {
         v.prefix = "zmp.slot" + std::to_string(k) + ".";
         v.U("active", s.active);
         v.U("present", s.present);
+        if (s.away) {
+            v.U("away", s.away); // (D-117; only when set: the recordings keep their hashes)
+        }
         if (!s.present) {
             continue;
         }

@@ -903,6 +903,11 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.inPlay = 1;
     gZmpSim.groupDefeat = 0;
     MsgInitSlots(play); // (Message_Init already ran for this Play)
+    // D-117: the group came in through a boss door it opened together, a downed player among them (it counted as at
+    // the door): it stays down, as everywhere until a partner revives it. Its health stays at zero and its Link falls
+    // again as soon as it can in the boss's room.
+    bool keepDown = gZmpSim.bossPassBy != 0 && gZmpSim.bossPassTicks == -1;
+    Zmp::BossDoor::OnPlayInit();
     // A new scene (group scene change, respawn after the group game over): downed players stand up again with
     // three hearts.
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
@@ -910,7 +915,11 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
         if (!s.active) {
             continue;
         }
-        if (s.downed || s.block.health <= 0) {
+        if (keepDown && s.downed) {
+            s.block.health = 0;
+            s.block.healthAccumulator = 0;
+            Zmp::Log("zmp: D-117: slot " + std::to_string(k) + " came through the boss door downed: it stays down");
+        } else if (s.downed || s.block.health <= 0) {
             s.block.health = MAX(s.block.health, MIN(0x30, gSaveContext.healthCapacity));
             s.block.healthAccumulator = 0;
         }
@@ -1985,6 +1994,7 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         gZmpSim.undoValid = 1;
         gZmpSim.transitionBy = -1;
         gZmpSim.transitionSolo = 0;
+        Zmp::BossDoor::Tick();
         Zmp_HollTick(play);
         // Phase 5b: players put back where they stood before their scene was loaded again in place.
         for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
@@ -2050,6 +2060,12 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
                (solo ||
                 (play->csCtx.state == CS_STATE_IDLE && !gZmpSim.globalCs && gSaveContext.nextCutsceneIndex < 0xFFF0)) &&
                Zmp::Lockstep::SceneGroups();
+    if (own && Zmp::BossDoor::TakesGroup(play, k)) {
+        // D-117: the boss door the whole group opened takes the whole group into the boss's room.
+        Zmp::Log("zmp: D-117: slot " + std::to_string(k) + " goes through the boss door: the whole group goes in");
+        own = false;
+        gZmpSim.bossPassTicks = -1; // (the pass was used: the new scene keeps its downed players down)
+    }
     if (!own) {
         Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));
         return 1;
@@ -2730,6 +2746,7 @@ void Spawn(int slot, const std::string& infoText) {
     }
     s.active = 1;
     s.downed = 0;
+    s.away = 0;
     s.spectate = -1;
     s.reviveProgress = 0;
     s.reviver = -1;
@@ -2847,6 +2864,7 @@ void Despawn(int slot) {
     }
     ZmpPlayerSlot& s = Slot(slot);
     s.active = 0;
+    s.away = 0;
     if (play == nullptr || !Zmp_MultiActive() || !Present(slot)) {
         s.present = 0;
         s.player = nullptr;

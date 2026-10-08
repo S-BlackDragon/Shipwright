@@ -5389,6 +5389,14 @@ s32 Player_ActionHandler_1(Player* this, PlayState* play) {
             if (this->doorType == PLAYER_DOORTYPE_SLIDING) {
                 doorShutter = (DoorShutter*)doorActor;
 
+                // ZMP: a boss door opens only with every player of the group at it; while somebody is missing it
+                // stays shut and the message box says who (D-117). (Not when the player walks out of a door it
+                // arrived by: that is the door's other side.)
+                if ((Player_Action_8084F9A0 != this->actionFunc) &&
+                    !Zmp_BossDoorMayOpen(play, this, doorActor, doorDirection)) {
+                    return 1;
+                }
+
                 this->yaw = doorShutter->dyna.actor.home.rot.y;
                 if (doorDirection > 0) {
                     this->yaw -= 0x8000;

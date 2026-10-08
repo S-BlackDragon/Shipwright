@@ -96,6 +96,7 @@ struct Notice {
     std::chrono::steady_clock::time_point at;
 };
 std::deque<Notice> sNotices;
+int sLastMyScene = -1; // D-117: the scene this player's group was in at the last PLAYER_LIST
 
 // ---- game thread
 Phase sPhase = Phase::Idle;
@@ -480,6 +481,39 @@ bool WholeRoomInGroup() {
         }
     }
     return true;
+}
+
+// D-117: a player whose connection dropped stays in the simulation (its Link waits; the server fills its input with
+// zeros, docs/PROTOCOLO.md) but is not waited for at a boss door. The simulation cannot see connections: the leader of
+// the group says it with a lockstep event, "zmp_away <slot> 1|0", applied at the same tick on every machine. (Once a
+// second at most per player and value: the event takes a few ticks to come back.)
+void ReportAway() {
+    if (!sLeader || !Zmp_MultiActive()) {
+        return;
+    }
+    static Clock::time_point sSentAt[ZMP_MAX_PLAYERS];
+    static int sSentValue[ZMP_MAX_PLAYERS] = { -1, -1, -1, -1, -1, -1 };
+    std::vector<std::pair<int, int>> want;
+    {
+        std::lock_guard<std::mutex> lock(sMutex);
+        for (auto& p : sPlayers) {
+            if (p.group == sGroupId && p.slot >= 0 && p.slot < ZMP_MAX_PLAYERS) {
+                want.push_back({ p.slot, p.state == "disconnected" ? 1 : 0 });
+            }
+        }
+    }
+    auto now = Clock::now();
+    for (auto [k, away] : want) {
+        if (!Players::IsPresent(k) || gZmpSim.slots[k].away == away) {
+            continue;
+        }
+        if (sSentValue[k] == away && now - sSentAt[k] < std::chrono::seconds(1)) {
+            continue;
+        }
+        sSentValue[k] = away;
+        sSentAt[k] = now;
+        SendConsoleEvent("zmp_away " + std::to_string(k) + " " + std::to_string(away));
+    }
 }
 
 void MaybeAutosave(uint32_t tick, uint64_t hash) {
@@ -1117,6 +1151,14 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         }
         return true;
     }
+    if (cmd.rfind("zmp_away ", 0) == 0) {
+        // D-117: the leader saw this player's connection drop (1) or come back (0); see ReportAway.
+        int k = -1, away = 0;
+        if (sscanf(cmd.c_str() + 9, "%d %d", &k, &away) == 2 && k >= 0 && k < ZMP_MAX_PLAYERS) {
+            gZmpSim.slots[k].away = (u8)(away != 0);
+        }
+        return true;
+    }
     if (cmd.rfind("zmp_lock_exits ", 0) == 0) {
         // Tests: scene exits act as walls while set (random play stays in the scene; PLAN.md 1.3.3, a lockstep event).
         gZmpSim.exitsLocked = (u8)(atoi(cmd.c_str() + 15) != 0);
@@ -1309,6 +1351,20 @@ void OnNetMessage(json&& msg) {
     } else if (t == "PLAYER_LIST") {
         sPlayers.clear();
         std::string me = Client::Get().GetStatus().name;
+        // D-117: this player's group moved to another scene (a boss door, a cutscene): the ones who moved with it are
+        // not announced one by one ("P1 ha entrado en ..." five times on arrival).
+        int myScene = -1;
+        uint32_t myGroup = 0;
+        if (msg.contains("players")) {
+            for (auto& p : msg["players"]) {
+                if (p.value("name", std::string()) == me) {
+                    myScene = p.value("scene", -1);
+                    myGroup = p.value("group", 0u);
+                }
+            }
+        }
+        bool groupMoved = myScene >= 0 && myGroup != 0 && sLastMyScene >= 0 && myScene != sLastMyScene;
+        sLastMyScene = myScene;
         if (msg.contains("players")) {
             for (auto& p : msg["players"]) {
                 SlotInfo si;
@@ -1324,7 +1380,8 @@ void OnNetMessage(json&& msg) {
                 // Phase 5: "X ha entrado en Y" when another player's group is in a new scene.
                 if (si.name != me && si.group != 0 && si.scene >= 0) {
                     auto it = sLastScenes.find(si.name);
-                    if (it != sLastScenes.end() && it->second != si.scene) {
+                    if (it != sLastScenes.end() && it->second != si.scene &&
+                        !(groupMoved && si.group == myGroup && si.scene == myScene)) {
                         sNotices.push_back({ si.name, si.scene, std::chrono::steady_clock::now() });
                         while (sNotices.size() > 6) {
                             sNotices.pop_front();
@@ -1762,6 +1819,7 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
             " queue=" + std::to_string(queued) + " players=" + std::to_string(Players::PresentCount()) +
             " stalls=" + std::to_string(sStalls));
     }
+    ReportAway();
     MaybeAutosave(tick, hash);
 }
 
