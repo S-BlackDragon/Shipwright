@@ -14061,12 +14061,15 @@ void func_8084DFAC(PlayState* play, Player* this) {
     this->yaw = this->actor.shape.rot.y;
 }
 
+// ZMP (D-118): file statics, not function statics, so that they travel with the state (Player_SaveState): what the
+// "ask to equip" text of an item being held up will equip, read ticks later by whoever is given the state meanwhile
+static s32 equipItem;
+static bool equipNow;
+
 s32 func_8084DFF4(PlayState* play, Player* this) {
     GetItemEntry giEntry;
     s32 temp1;
     s32 temp2;
-    static s32 equipItem;
-    static bool equipNow;
 
     if (this->getItemId == GI_NONE && this->getItemEntry.objectId == OBJECT_INVALID) {
         return 1;
@@ -16691,6 +16694,8 @@ void Player_StartTalking(PlayState* play, Actor* actor) {
     F(sWorldYawToTouchedWall)           \
     F(sFloorShapePitch)                 \
     F(sUseHeldItem)                     \
-    F(sHeldItemButtonIsHeldDown)
+    F(sHeldItemButtonIsHeldDown)        \
+    F(equipItem) /* ZMP (D-118) */      \
+    F(equipNow)  /* ZMP (D-118) */
 
 SHIP_SAVESTATE_DEFINE(Player, PLAYER_SHIP_SAVESTATE_FIELDS)
