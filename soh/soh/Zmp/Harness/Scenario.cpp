@@ -113,6 +113,22 @@ void HpInContext(void* p) {
     gSaveContext.healthAccumulator = 0;
 }
 
+struct RoomArg {
+    int room;
+};
+
+// D-117 tests: the player in context walks into a room as through a door (the room loads for it if nobody is there).
+void RoomInContext(void* p) {
+    Room_RequestNewRoom(gPlayState, &gPlayState->roomCtx, ((RoomArg*)p)->room);
+}
+
+// D-117 tests: what a door does once its player is through (the rooms nobody stands in go, the doors of the rooms that
+// stay are spawned).
+void RoomDoneInContext(void* p) {
+    (void)p;
+    Room_FinishRoomChange(gPlayState, &gPlayState->roomCtx);
+}
+
 bool SceneFlag(int scene, const std::string& type, int flag) {
     if (scene < 0 || scene >= (int)ARRAY_COUNT(gSaveContext.sceneFlags) || flag < 0 || flag > 31) {
         return false;
@@ -219,6 +235,31 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         }
         HpArg a{ Num(w[3]) };
         Zmp::Players::RunInContext(target, HpInContext, &a);
+    } else if (op == "room" && w.size() == 4) {
+        // D-117 tests: "zmp_stage room <slot> <room>": that player is in room <room> from now on, as if it had come
+        // through a door (the room loads for it); a teleport then puts it there. (A boss door far from the entrance
+        // that leads to it: Jabu-Jabu's, the Water Temple's.)
+        int target = Num(w[2]);
+        int room = Num(w[3]);
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        if (room < 0 || room >= gPlayState->numRooms) {
+            return Bad(cmd, "no such room");
+        }
+        RoomArg a{ room };
+        Zmp::Players::RunInContext(target, RoomInContext, &a);
+    } else if (op == "room_done" && w.size() == 3) {
+        // D-117 tests: "zmp_stage room_done <slot>", after "room": the room change ends as when a door closes behind
+        // that player (its doors appear).
+        int target = Num(w[2]);
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        if (gPlayState->roomCtx.status != 0) {
+            return Bad(cmd, "a room is still loading");
+        }
+        Zmp::Players::RunInContext(target, RoomDoneInContext, nullptr);
     } else if (op == "actor_hp" && w.size() == 5) {
         int id = Num(w[2]);
         int params = Num(w[3]);

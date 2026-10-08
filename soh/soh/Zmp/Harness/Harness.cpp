@@ -374,6 +374,7 @@ json PlayerJson(Player* player, int slot = 0) {
         { "cur_room", gPlayState->roomCtx.curRoom.num },
         { "age", gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult" },
         { "downed", downed },
+        { "away", multi && slot >= 0 && slot < ZMP_MAX_PLAYERS ? gZmpSim.slots[slot].away != 0 : false }, // D-117
         { "camera",
           { { "eye", Vec3(cam->eye) }, { "at", Vec3(cam->at) }, { "setting", cam->setting }, { "mode", cam->mode } } },
         { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
@@ -742,6 +743,52 @@ void Dispatch(const RequestPtr& req) {
             req->Reply({ { "ok", false }, { "error", "not in play" } });
         } else {
             req->Reply(ActorsJson(cmd));
+        }
+    } else if (name == "query.transitions") {
+        // D-117 tests: every door between two rooms of the scene (loaded or not): the boss door of each dungeon.
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json list = json::array();
+            for (int i = 0; i < gPlayState->transiActorCtx.numActors; i++) {
+                const TransitionActorEntry& t = gPlayState->transiActorCtx.list[i];
+                list.push_back({ { "index", i },
+                                 { "id", t.id < 0 ? -t.id : t.id },
+                                 { "spawned", t.id < 0 },
+                                 { "params", (u16)t.params },
+                                 { "pos", { t.pos.x, t.pos.y, t.pos.z } },
+                                 { "rot_y", t.rotY },
+                                 { "front_room", t.sides[0].room },
+                                 { "back_room", t.sides[1].room } });
+            }
+            req->Reply({ { "ok", true }, { "transitions", list } });
+        }
+    } else if (name == "debug.boss_exits") {
+        // D-117 tests: the exits into a boss's scene found in this scene's collision, and the doors (spawned
+        // transition actors) that are boss doors from their +z side (1) or their -z side (-1).
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json exits = json::array();
+            for (const auto& e : Zmp::BossDoor::Exits(gPlayState)) {
+                exits.push_back({ { "pos", { e.x, e.y, e.z } },
+                                  { "entrance", e.entrance },
+                                  { "scene", e.scene },
+                                  { "polys", e.polys } });
+            }
+            json doors = json::array();
+            for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_DOOR].head; a != nullptr; a = a->next) {
+                bool plus = Zmp::BossDoor::IsBossDoorFrom(gPlayState, a, 1);
+                bool minus = Zmp::BossDoor::IsBossDoorFrom(gPlayState, a, -1);
+                if (plus || minus) {
+                    doors.push_back({ { "id", a->id },
+                                      { "params", (u16)a->params },
+                                      { "pos", Vec3(a->world.pos) },
+                                      { "rot_y", a->shape.rot.y },
+                                      { "side", plus ? 1 : -1 } });
+                }
+            }
+            req->Reply({ { "ok", true }, { "exits", exits }, { "doors", doors } });
         }
     } else if (name == "query.state") {
         auto st = Sim::GetStatus();
