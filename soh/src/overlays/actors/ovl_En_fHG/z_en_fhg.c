@@ -10,6 +10,8 @@
 #include "overlays/actors/ovl_Door_Shutter/z_door_shutter.h"
 #include "overlays/actors/ovl_Boss_Ganondrof/z_boss_ganondrof.h"
 #include "overlays/actors/ovl_En_Fhg_Fire/z_en_fhg_fire.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -108,10 +110,49 @@ void EnfHG_SetupIntro(EnfHG* this, PlayState* play) {
     this->actor.world.pos.z = GND_BOSSROOM_CENTER_Z;
 }
 
+// ZMP (row F2 of the Forest Temple, D-123): the intro waits for ANY present Link first in the middle of the arena and
+// then at the gate, as it waits for the one player of the original, and the one at the gate is the intro's player
+// (its slot + 1 in unk_1CE[0], from the tick it is seen there to the start of the cutscene). "The player" of the
+// horse is the nearest to it, under the middle of the floor: with a partner standing in the middle the one at the
+// gate never was, and the intro did not start until nobody stood in the middle.
+static Player* EnfHG_ZmpIntroPlayer(EnfHG* this, PlayState* play, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("intro_fhg_mas_cercano")) { // (mutant: the nearest, as before)
+        return player;
+    }
+    if ((this->cutsceneState == INTRO_WAIT) || (this->cutsceneState == INTRO_READY)) {
+        f32 boxZ = GND_BOSSROOM_CENTER_Z + ((this->cutsceneState == INTRO_WAIT) ? 0.0f : 315.0f);
+        f32 half = (this->cutsceneState == INTRO_WAIT) ? 150.0f : 100.0f;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* link = Zmp_SlotPlayer(k);
+
+            if ((link != NULL) && !Zmp_IsDowned(link) &&
+                (fabsf(link->actor.world.pos.x - (GND_BOSSROOM_CENTER_X + 0.0f)) < half) &&
+                (fabsf(link->actor.world.pos.z - boxZ) < half)) {
+                if (this->cutsceneState == INTRO_READY) {
+                    this->unk_1CE[0] = (char)(k + 1);
+                }
+                return link;
+            }
+        }
+    } else if ((this->cutsceneState == INTRO_START) && (this->unk_1CE[0] != 0)) {
+        k = this->unk_1CE[0] - 1;
+        this->unk_1CE[0] = 0;
+        if ((Zmp_SlotPlayer(k) != NULL) && !Zmp_IsDowned(Zmp_SlotPlayer(k))) {
+            // (the cutscene starts in that player's context: it is the cutscene's player, and the one put at the bars)
+            Zmp_SetContext(play, k);
+            return GET_PLAYER(play);
+        }
+    }
+    return player;
+}
+
 void EnfHG_Intro(EnfHG* this, PlayState* play) {
     static Vec3f audioVec = { 0.0f, 0.0f, 50.0f };
     s32 pad64;
-    Player* player = GET_PLAYER(play);
+    Player* player = EnfHG_ZmpIntroPlayer(this, play, GET_PLAYER(play)); // ZMP (F2): any Link starts the intro
     BossGanondrof* bossGnd = (BossGanondrof*)this->actor.parent;
     s32 pad58;
     s32 pad54;
