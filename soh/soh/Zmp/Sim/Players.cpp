@@ -364,6 +364,20 @@ int ContextSlot(const Actor* actor) {
             return k;
         }
     }
+    // Family T1 of reports/fase6/INVENTARIO.md (D-134): what holds a Link acts on that Link while it holds it. An actor
+    // that grabs a player marks it as the player's parent (Morpha's tentacle, a Like Like, Bongo Bongo's hands, a
+    // Moblin, a rider's horse): until it lets go it acts on that player, whoever stands nearer. Before, the nearest
+    // player was asked for again on every tick: a partner next to Morpha's tentacle was dragged to its tip and shaken
+    // in place of the grabbed one, who kept the tentacle as its parent and could never be grabbed again. A downed Link
+    // counts too (it is still held). Actors that grab without marking the parent keep the slot in a field of their
+    // own and call Zmp_HeldPlayer.
+    if (!Zmp_TestMutant("agarre_al_mas_cercano")) { // (mutant: the nearest player, as before D-134)
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (Present(j) && Slot(j).player->actor.parent == actor) {
+                return j;
+            }
+        }
+    }
     // Phase 5b, one text box per player: whoever a player is talking with runs with that player's text box (and
     // attends nobody else meanwhile), whoever is nearer.
     for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
@@ -1702,6 +1716,18 @@ extern "C" s32 Zmp_IsDowned(Player* player) {
 extern "C" s32 Zmp_DownedIgnoresCutscene(Player* player) {
     // (mutant "caido_retenido": a downed Link is held by a group cutscene, as before D-120)
     return (Zmp_IsDowned(player) && !Zmp_TestMutant("caido_retenido")) ? 1 : 0;
+}
+
+// Family T1 (D-134): an actor that holds a Link without marking itself as that Link's parent keeps the Link's slot in a
+// field of its own (never its address) and calls this at the start of its update: the player in context becomes that
+// Link, and it is returned. nullptr when that slot is not present any more (it left the group: the actor lets go) or
+// outside a group.
+extern "C" Player* Zmp_HeldPlayer(PlayState* play, s32 slot) {
+    if (!Zmp_MultiActive() || !Present(slot)) {
+        return nullptr;
+    }
+    SwitchTo(play, slot);
+    return Slot(slot).player;
 }
 
 extern "C" s32 Zmp_SlotOfPlayer(Player* player) {
