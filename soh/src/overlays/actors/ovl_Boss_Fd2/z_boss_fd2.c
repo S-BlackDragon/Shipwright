@@ -235,6 +235,34 @@ void BossFd2_SetupEmerge(BossFd2* this, PlayState* play) {
     }
 }
 
+// ZMP (row V4 of the Fire Temple, D-132): when the head bursts out of its hole it pushes "the player" back and hurts it
+// if that Link stands within 120 of it. "The player" is the Link nearest to the head: another Link within 120 was left
+// where it stood unless the head's arms happened to swing over it (measured: a Link 115 behind the head, untouched). In
+// a group every present Link within 120 is pushed back and hurt the same way. Returns 0 outside a group (the original
+// push runs).
+static s32 BossFd2_ZmpEmergePush(BossFd2* this, PlayState* play) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("salida_al_mas_cercano")) { // (mutant: the nearest only, as before)
+        return 0;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link == NULL) || Zmp_IsDowned(link) || (Actor_WorldDistXZToActor(&this->actor, &link->actor) >= 120.0f)) {
+            continue;
+        }
+        // (what Actor_SetPlayerKnockbackLarge(play, &this->actor, 3.0f, yaw to it, 2.0f, 0x20) does to "the player")
+        link->knockbackDamage = 0x20;
+        link->knockbackType = PLAYER_KNOCKBACK_LARGE;
+        link->knockbackRot = Actor_WorldYawTowardActor(&this->actor, &link->actor);
+        link->knockbackSpeed = 3.0f;
+        link->knockbackYVelocity = 2.0f;
+        Audio_PlayActorSound2(&link->actor, NA_SE_PL_BODY_HIT);
+    }
+    return 1;
+}
+
 void BossFd2_Emerge(BossFd2* this, PlayState* play) {
     s8 health;
     BossFd* bossFd = (BossFd*)this->actor.parent;
@@ -305,7 +333,8 @@ void BossFd2_Emerge(BossFd2* this, PlayState* play) {
             break;
         case 2:
             Math_ApproachS(&this->actor.shape.rot.y, this->actor.yawTowardsPlayer, 3, 0x7D0);
-            if ((this->timers[0] == 1) && (this->actor.xzDistToPlayer < 120.0f)) {
+            if ((this->timers[0] == 1) && BossFd2_ZmpEmergePush(this, play)) { // ZMP (V4): every Link within 120
+            } else if ((this->timers[0] == 1) && (this->actor.xzDistToPlayer < 120.0f)) {
                 Actor_SetPlayerKnockbackLarge(play, &this->actor, 3.0f, this->actor.yawTowardsPlayer, 2.0f, 0x20);
                 Audio_PlayActorSound2(&player->actor, NA_SE_PL_BODY_HIT);
             }

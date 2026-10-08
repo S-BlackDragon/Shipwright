@@ -111,6 +111,9 @@
 //                          the fire harmless for everybody for 50 ticks (row V2, D-129)
 //   portal_al_alcance_fd   Volvagia's blue warp appears over the middle hole with a Link in its reach, left there by
 //                          the death cutscene's arc (row V1, D-130): that Link leaves without stepping in
+//   salida_al_mas_cercano  Volvagia's head bursting out of its hole pushes back and hurts only the nearest Link within
+//   120
+//                          (row V4, D-132): a Link behind the head is left untouched
 //   calavera_tapada        in Volvagia's death cutscene its player faces wherever it faced, and the arc of the others
 //                          leaves two of them between the camera and the falling skull (D-131): every screen sees a
 //                          back
