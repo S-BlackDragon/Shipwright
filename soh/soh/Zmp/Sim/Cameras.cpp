@@ -185,6 +185,26 @@ Vec3f ArcCentre(PlayState* play, Player* t) {
     return Zmp::Players::GroundBelow(play, t->actor.world.pos);
 }
 
+// D-138 (finding BI): a blue warp may appear while a group cutscene still holds everybody (Morpha's, 60 ticks before
+// its death cutscene ends); when its player is moved out of the warp's reach the arc follows it and was laid out again
+// with a spot 35 from the warp, which takes whoever stands there without stepping in. No arc spot within 90 of a blue
+// warp.
+bool NearBlueWarp(PlayState* play, const Vec3f& pos) {
+    if (Zmp_TestMutant("arco_en_el_portal")) { // (mutant: the arc of before)
+        return false;
+    }
+    for (Actor* a = play->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_DOOR_WARP1) {
+            f32 dx = a->world.pos.x - pos.x;
+            f32 dz = a->world.pos.z - pos.z;
+            if (sqrtf(dx * dx + dz * dz) < 90.0f && fabsf(a->world.pos.y - pos.y) < 100.0f) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void PlaceInArc(PlayState* play, int trigger, u8 mask) {
     Player* t = Zmp::Players::SlotPlayer(trigger);
     if (t == nullptr) {
@@ -232,7 +252,7 @@ void PlaceInArc(PlayState* play, int trigger, u8 mask) {
                 f32 dz = taken[n].z - pos.z;
                 free = sqrtf(dx * dx + dz * dz) >= 40.0f || fabsf(taken[n].y - centre.y) >= 60.0f;
             }
-            if (!free || !Zmp::Players::ArcSpotOk(play, centre, pos)) {
+            if (!free || NearBlueWarp(play, pos) || !Zmp::Players::ArcSpotOk(play, centre, pos)) {
                 continue;
             }
             used[c] = true;
