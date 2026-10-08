@@ -1,4 +1,5 @@
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 /*
  * File: z_door_shutter.c
  * Overlay: ovl_Door_Shutter
@@ -672,6 +673,36 @@ void DoorShutter_GohmaBlockBounce(DoorShutter* this, PlayState* play) {
     }
 }
 
+// ZMP (row F3 of the Forest Temple, D-125): the bars of Phantom Ganon's arena never lower (the blue warp is the way
+// out), and the boss door brings whoever comes in to the room's entrance, below the arena and outside them. With one
+// player nobody can come in once they are up; with several, a Link that comes back through the boss door, or joins the
+// game, during the fight or after it was left outside with no way in, not even to the blue warp. While they are up,
+// any Link below the arena's floor is brought inside them, next to the gate, facing the arena (spread by slot).
+#define ZMP_PG_FLOOR_Y -33.0f
+#define ZMP_PG_INSIDE_Z -3130.0f
+static void DoorShutter_ZmpBringInside(DoorShutter* this, PlayState* play) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || gZmpSim.globalCs || Zmp_TestMutant("fuera_de_los_barrotes")) {
+        return; // (during a group cutscene its arc places everybody, D-111)
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        Vec3f pos;
+
+        if ((link == NULL) || (link->actor.world.pos.y > ZMP_PG_FLOOR_Y - 60.0f)) {
+            continue;
+        }
+        pos.x = this->dyna.actor.world.pos.x + (f32)(k * 2 - 5) * 20.0f;
+        pos.y = ZMP_PG_FLOOR_Y + 5.0f;
+        pos.z = ZMP_PG_INSIDE_Z;
+        link->actor.world.pos = link->actor.prevPos = link->actor.home.pos = pos;
+        link->actor.shape.rot.y = link->actor.world.rot.y = link->yaw = 0x8000;
+        link->actor.speedXZ = 0.0f;
+        link->actor.velocity.y = 0.0f;
+    }
+}
+
 void DoorShutter_PhantomGanonBarsRaise(DoorShutter* this, PlayState* play) {
     f32 phi_f0;
 
@@ -688,6 +719,9 @@ void DoorShutter_Update(Actor* thisx, PlayState* play) {
     DoorShutter* this = (DoorShutter*)thisx;
     Player* player = GET_PLAYER(play);
 
+    if (this->actionFunc == DoorShutter_PhantomGanonBarsRaise) {
+        DoorShutter_ZmpBringInside(this, play); // ZMP (F3): nobody is left outside the bars, whoever is nearest
+    }
     if (!(player->stateFlags1 &
           (PLAYER_STATE1_TALKING | PLAYER_STATE1_DEAD | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_ITEM_CS)) ||
         (this->actionFunc == DoorShutter_SetupType)) {
