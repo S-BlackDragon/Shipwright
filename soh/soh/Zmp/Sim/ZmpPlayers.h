@@ -308,6 +308,9 @@ void Zmp_UpdateHealthAccumulators(PlayState* play);
 s32 Zmp_OnPlayerDeath(PlayState* play, Player* player);
 // True for a downed player (enemies ignore it, it is not "the nearest player").
 s32 Zmp_IsDowned(Player* player);
+// Player_UpdateCommon: a downed Link is not given the "wait" order of a scripted cutscene (it could never carry it
+// out lying down, and it stayed pending after the cutscene: finding AQ, D-120).
+s32 Zmp_DownedIgnoresCutscene(Player* player);
 // OnePointCutscene on death / fairy revive: 0 in multiplayer (a personal camera must not take everybody's view).
 s32 Zmp_AllowDeathCamera(void);
 // Pause menu: the multiplayer simulation never opens it (it is local to each client, ZmpPause.cpp).

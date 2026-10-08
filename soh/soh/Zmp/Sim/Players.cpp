@@ -1699,6 +1699,11 @@ extern "C" s32 Zmp_IsDowned(Player* player) {
     return Downed(k) ? 1 : 0;
 }
 
+extern "C" s32 Zmp_DownedIgnoresCutscene(Player* player) {
+    // (mutant "caido_retenido": a downed Link is held by a group cutscene, as before D-120)
+    return (Zmp_IsDowned(player) && !Zmp_TestMutant("caido_retenido")) ? 1 : 0;
+}
+
 extern "C" Player* Zmp_SlotPlayer(s32 slot) {
     if (!Zmp_MultiActive() || !Present(slot)) {
         return nullptr;

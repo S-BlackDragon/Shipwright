@@ -92,6 +92,8 @@
 //   tambor_al_del_contexto Bongo Bongo's drum bounces "the player" of its context when any Link stands on it (finding
 //                          AO, D-119): the player of the intro, in the air, is kicked up by every beat while the others
 //                          stand on the drum and hangs there with the order to let it go; those on it never bounce
+//   caido_retenido         a downed Link is given the "wait" order of a scripted group cutscene and keeps it when the
+//                          cutscene ends (finding AQ, D-120): it stays "in a cutscene" until it leaves the room
 
 #ifdef __cplusplus
 extern "C" {

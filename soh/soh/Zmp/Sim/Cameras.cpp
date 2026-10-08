@@ -324,6 +324,30 @@ bool AnyGlobalActive(PlayState* play, int* creator) {
     return false;
 }
 
+// D-120 (finding AQ): a Link that lies downed when a group cutscene ends is left down and out of it: an order of the
+// cutscene it could not carry out lying down (the "wait" every player gets, or the scene's own if it was its player
+// and fell during it) does not outlive the cutscene. Before, a Link downed during King Dodongo's death stayed "in a
+// cutscene" until it left the room: revived, it went into that order instead of standing up free. It stays down
+// (D-036, D-117: nobody is revived for free); a partner revives it as always.
+void ReleaseDowned() {
+    if (Zmp_TestMutant("caido_retenido")) { // (mutant: the downed Link keeps the order, as before D-120)
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp::Players::SlotPlayer(k);
+        if (p == nullptr || !Zmp::Players::SlotDowned(k)) {
+            continue;
+        }
+        if (p->csAction != 0 || (p->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE)) {
+            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " lies downed: its cutscene order " +
+                     std::to_string(p->csAction) + " is dropped");
+            p->csAction = 0;
+            p->unk_6AD = 0;
+            p->stateFlags1 &= ~PLAYER_STATE1_IN_CUTSCENE;
+        }
+    }
+}
+
 void UpdateGlobalCutscene(PlayState* play) {
     // Skip request of the host (the anchor): START during a scripted cutscene. It stays until the cutscene ends, so a
     // press while the cutscene's own commands are not running (a text box) is not lost.
@@ -359,6 +383,7 @@ void UpdateGlobalCutscene(PlayState* play) {
         gZmpSim.csArcPlaced = 0;
         Camera_ZmpResetInterface(1);
         Zmp::Log("zmp: global cutscene ends");
+        ReleaseDowned();
     }
     if (active && gZmpSim.globalCs) {
         MaintainArc(play);
