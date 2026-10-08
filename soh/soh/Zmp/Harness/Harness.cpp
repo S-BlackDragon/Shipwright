@@ -837,7 +837,11 @@ void Dispatch(const RequestPtr& req) {
                                 { "per_slot", active },
                                 { "sub", subs },
                                 { "global_cs", Zmp::Players::GlobalCutscene() },
-                                { "cs_trigger", Zmp::Players::CutsceneTrigger() } };
+                                { "cs_trigger", Zmp::Players::CutsceneTrigger() },
+                                // (D-121, finding AR: the arc of the group cutscene, D-111, is judged from its centre)
+                                { "arc_centre", json::array({ gZmpSim.csArcCentre[0], gZmpSim.csArcCentre[1],
+                                                              gZmpSim.csArcCentre[2] }) },
+                                { "arc_placed", gZmpSim.csArcPlaced } };
             resp["cs_state"] = gPlayState->csCtx.state;
             resp["cs_frames"] = gPlayState->csCtx.frames;
             // Phase 5b: one text box per player. The text box of this instance's player (the anchor's during a
