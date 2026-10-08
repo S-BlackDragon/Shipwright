@@ -11,6 +11,7 @@
 #include <chrono>
 #include <thread>
 #include <deque>
+#include <map>
 #include <filesystem>
 #include <string>
 
@@ -40,6 +41,7 @@
 #include "soh/Zmp/Ui/ChatBox.h"
 #include "soh/Zmp/ZmpCVars.h"
 #include "soh/Zmp/State/StateBlob.h"
+#include "soh/Zmp/State/ResourceSlots.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
@@ -559,6 +561,7 @@ json LockstepJson() {
              { "max_stall_ms", ls.maxStallMs },
              { "resyncs", ls.resyncs },
              { "resyncs_seen", ls.resyncsSeen },
+             { "load_mismatches", ls.loadMismatches },
              { "last_resync_tick", ls.lastResyncTick },
              { "leader", ls.leader },
              { "group_tick", ls.groupTick },
@@ -1247,6 +1250,105 @@ void Dispatch(const RequestPtr& req) {
                         { "pad_inputs_size", sizeof(gPadMgr.inputs) } };
         req->Reply(
             { { "ok", ok }, { "path", path }, { "sections", sections }, { "tick", sFrame }, { "layout", layout } });
+    } else if (name == "debug.dump_resources") {
+        // Desync hunting (D-118): the parsed game resources live in fixed slots, at the same address in every process
+        // (D-017), and the state carries only their list, not their contents. The game writes into some of them
+        // (the water levels of a scene's collision, A3). Per slot: its index, path, base, size and a hash of every
+        // 256 bytes, to compare two instances at the same tick; debug.read_resource gives the bytes of a block.
+        std::string path = std::filesystem::absolute(cmd.value("path", std::string("resources.bin"))).string();
+        FILE* f = fopen(path.c_str(), "wb");
+        uint32_t count = 0;
+        uint64_t bytes = 0;
+        if (f != nullptr) {
+            for (auto& sl : ResSlots::ListSlots()) {
+                uint16_t len = (uint16_t)sl.path.size();
+                fwrite(&sl.index, 4, 1, f);
+                fwrite(&len, 2, 1, f);
+                fwrite(sl.path.data(), 1, len, f);
+                fwrite(&sl.base, 8, 1, f);
+                fwrite(&sl.used, 8, 1, f);
+                const uint8_t* p = (const uint8_t*)(uintptr_t)sl.base;
+                for (uint64_t o = 0; o < sl.used; o += 256) {
+                    uint64_t h = 0xCBF29CE484222325ULL;
+                    for (uint64_t k = o; k < sl.used && k < o + 256; k++) {
+                        h ^= p[k];
+                        h *= 0x100000001B3ULL;
+                    }
+                    fwrite(&h, 8, 1, f);
+                }
+                count++;
+                bytes += sl.used;
+            }
+            fclose(f);
+        }
+        req->Reply({ { "ok", f != nullptr }, { "path", path }, { "slots", count }, { "bytes", bytes } });
+    } else if (name == "debug.read_resource") {
+        // The bytes of blocks of resource slots (debug.dump_resources), in hex: "blocks": [[index, offset, length]...]
+        std::map<uint32_t, ResSlots::SlotInfo> slots;
+        for (auto& sl : ResSlots::ListSlots()) {
+            slots[sl.index] = sl;
+        }
+        static const char* digits = "0123456789abcdef";
+        json out = json::array();
+        for (auto& b : cmd.value("blocks", json::array())) {
+            uint32_t index = b[0].get<uint32_t>();
+            uint64_t off = b[1].get<uint64_t>();
+            uint64_t len = std::min<uint64_t>(b[2].get<uint64_t>(), 65536);
+            std::string hex;
+            auto it = slots.find(index);
+            if (it != slots.end()) {
+                const uint8_t* p = (const uint8_t*)(uintptr_t)it->second.base;
+                for (uint64_t k = off; k < it->second.used && k < off + len; k++) {
+                    hex += digits[p[k] >> 4];
+                    hex += digits[p[k] & 15];
+                }
+            }
+            out.push_back(hex);
+        }
+        req->Reply({ { "ok", true }, { "hex", out } });
+    } else if (name == "debug.skeletons") {
+        // (D-118, finding AN) The resource each player's Link draws with (its skeleton places the body parts, the head
+        // and the colliders the simulation reads): the path of the resource slot its skelAnime points into.
+        json out = json::array();
+        if (InPlay() && Zmp_MultiActive()) {
+            auto slots = ResSlots::ListSlots();
+            auto pathOf = [&](const void* p) -> std::string {
+                uint64_t a = (uint64_t)(uintptr_t)p;
+                for (auto& sl : slots) {
+                    if (a >= sl.base && a < sl.base + sl.used) {
+                        return sl.path;
+                    }
+                }
+                return p == nullptr ? "" : "?";
+            };
+            for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                Player* pl = Zmp::Players::SlotPlayer(k);
+                if (pl == nullptr) {
+                    continue;
+                }
+                out.push_back({ { "slot", k },
+                                { "skeleton", pathOf(pl->skelAnime.skeleton) },
+                                { "upper", pathOf(pl->upperSkelAnime.skeleton) } });
+            }
+        }
+        req->Reply({ { "ok", InPlay() }, { "links", out }, { "tick", sFrame } });
+    } else if (name == "debug.water") {
+        // The scene's water boxes (D-118): what the state now carries and hashes.
+        json out = json::array();
+        if (InPlay() && gPlayState->colCtx.colHeader != nullptr &&
+            gPlayState->colCtx.colHeader->waterBoxes != nullptr) {
+            CollisionHeader* col = gPlayState->colCtx.colHeader;
+            for (int i = 0; i < col->numWaterBoxes; i++) {
+                const WaterBox* w = &col->waterBoxes[i];
+                out.push_back({ { "x_min", w->xMin },
+                                { "y_surface", w->ySurface },
+                                { "z_min", w->zMin },
+                                { "x_length", w->xLength },
+                                { "z_length", w->zLength },
+                                { "properties", w->properties } });
+            }
+        }
+        req->Reply({ { "ok", InPlay() }, { "boxes", out }, { "tick", sFrame } });
     } else if (name == "debug.floor") {
         // Exploration tool (not simulation): floor heights under a list of points, [[x, y, z], ...].
         if (!InPlay()) {

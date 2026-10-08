@@ -45,8 +45,9 @@ struct Status {
     std::string waitingFor; // names from the server's WAIT message
     uint32_t stalls = 0;    // waits over 250 ms
     uint32_t maxStallMs = 0;
-    uint32_t resyncs = 0;     // RESYNC messages that targeted this client
-    uint32_t resyncsSeen = 0; // RESYNC messages received
+    uint32_t resyncs = 0;        // RESYNC messages that targeted this client
+    uint32_t resyncsSeen = 0;    // RESYNC messages received
+    uint32_t loadMismatches = 0; // states loaded whose hash is not the sender's (D-118: what the state does not carry)
     uint32_t lastResyncTick = 0;
     bool leader = false;
     uint32_t groupTick = 0; // last tick emitted by the server

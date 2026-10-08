@@ -124,6 +124,7 @@ uint32_t sMaxStallMs = 0;
 uint32_t sGateWaitMax = 0; // longest wait at the tick gate since GateWaitMs() was last read
 uint32_t sResyncs = 0;
 uint32_t sResyncsSeen = 0;
+uint32_t sLoadMismatches = 0;
 uint32_t sLastResyncTick = 0;
 bool sLeader = false;
 uint32_t sDumpTicks[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
@@ -763,6 +764,9 @@ void HandleControl(json& msg) {
                     std::filesystem::copy_file("logs/tickdump-" + std::to_string(i) + ".txt",
                                                dir + "/" + std::to_string(t) + ".txt",
                                                std::filesystem::copy_options::overwrite_existing, ec);
+                    std::filesystem::copy_file("logs/tickblob-" + std::to_string(i) + ".zmps",
+                                               dir + "/" + std::to_string(t) + ".zmps",
+                                               std::filesystem::copy_options::overwrite_existing, ec);
                 }
             }
         }
@@ -1012,6 +1016,9 @@ void LoadPendingBlob() {
         // The loaded state must be exactly the sender's at the end of the previous tick (same hash).
         uint64_t h = Sim::HashState(info.tick - 1);
         if (h != info.hash) {
+            if (info.tick > 0) { // (the state of tick 0 is hashed by the sender with another tick number)
+                sLoadMismatches++;
+            }
             Log("net: state loaded for tick " + std::to_string(info.tick) + " hashes " + Hex(h) + ", the sender had " +
                 Hex(info.hash) + " (the load differs)");
         }
@@ -1801,6 +1808,13 @@ void OnTickEnd(uint32_t tick, uint64_t hash) {
             fclose(f);
         }
         sTickDumpTicks[tick % 64] = tick;
+        // (D-118) and the whole state at the end of the tick: two machines whose hashes still match can differ in
+        // what the hash does not cover (a draw's output in the heap, a slot's targeting context); comparing the heaps
+        // of the blobs tick by tick finds the first byte that differs
+        std::vector<uint8_t> blob;
+        if (State::Save(blob, tick + 1, hash, &err)) {
+            State::WriteFile("logs/tickblob-" + std::to_string(tick % 64) + ".zmps", blob, &err);
+        }
     }
     if (tick % 20 == 0) {
         // Readable dump of every hashed tick (4 rotating files): a RESYNC names the tick whose hash
@@ -2049,6 +2063,7 @@ Status GetStatus() {
     s.maxStallMs = sMaxStallMs;
     s.resyncs = sResyncs;
     s.resyncsSeen = sResyncsSeen;
+    s.loadMismatches = sLoadMismatches;
     s.lastResyncTick = sLastResyncTick;
     s.leader = sLeader;
     s.lastError = sLastError;
