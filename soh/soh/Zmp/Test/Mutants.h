@@ -127,6 +127,8 @@
 //                          warp appears before its death cutscene ends and takes that Link without stepping in
 //   postura_inclinada      Morpha's tentacles level the body of the player in context only (D-140): a Link thrown by
 //                          the shake stays tilted on its side for the rest of the fight
+//   gancho_del_contexto    a fired hookshot binds itself to the player in its context (D-141): fired as a group
+//                          cutscene begins, it is bound to the cutscene's player and killed; its Link waits for ever
 //   aviso_del_agua_abierto Navi's warning about Morpha's water stays open over the intro when it is not the intro
 //                          player's (D-136): it covers the intro on every screen
 //   nucleo_esconde_por_uno Morpha's core hides while the Link nearest to it is deep in the water (row A5, D-137): one

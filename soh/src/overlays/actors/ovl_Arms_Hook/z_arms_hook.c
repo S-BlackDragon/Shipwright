@@ -3,6 +3,8 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -73,6 +75,7 @@ void ArmsHook_Init(Actor* thisx, PlayState* play) {
     Collider_SetQuad(play, &this->collider, &this->actor, &sQuadInit);
     ArmsHook_SetupAction(this, ArmsHook_Wait);
     this->unk_1E8 = this->actor.world.pos;
+    this->zmpOwner = (s8)Zmp_SlotOfPlayer(GET_PLAYER(play)); // ZMP (D-141): spawned in its Link's update
 }
 
 void ArmsHook_Destroy(Actor* thisx, PlayState* play) {
@@ -84,16 +87,39 @@ void ArmsHook_Destroy(Actor* thisx, PlayState* play) {
     Collider_DestroyQuad(play, &this->collider);
 }
 
+// ZMP (D-141, finding BK): when its Link fires, the hook is let go (no parent) and binds itself to "the player" in its
+// next update. In a group that was the player in the hook's context: the nearest one, or during a group cutscene the
+// cutscene's player (D-084). A Link that fired as a cutscene began (its held C button let go: the cutscene holds its
+// input) had its hook bound to another Link, which held no hookshot: the hook was killed and that Link waited for it
+// for ever, unable to move, even after the cutscene. In a group the hook binds itself to the Link that drew it.
+static Player* ArmsHook_ZmpOwner(ArmsHook* this, PlayState* play) {
+    Player* owner;
+
+    if (!Zmp_MultiActive() || (this->zmpOwner < 0) || Zmp_TestMutant("gancho_del_contexto")) { // (mutant: as before)
+        return GET_PLAYER(play);
+    }
+    owner = Zmp_HeldPlayer(play, this->zmpOwner); // (its context, as the hook acts for it from now on)
+    return owner;
+}
+
 void ArmsHook_Wait(ArmsHook* this, PlayState* play) {
+    if ((this->actor.parent != NULL) && (this->actor.parent->id == ACTOR_PLAYER) && Zmp_MultiActive()) { // ZMP (D-141)
+        this->zmpOwner = (s8)Zmp_SlotOfPlayer((Player*)this->actor.parent);
+    }
     if (this->actor.parent == NULL) {
-        Player* player = GET_PLAYER(play);
+        Player* player = ArmsHook_ZmpOwner(this, play); // ZMP (D-141): the Link that drew it
+
+        if (player == NULL) { // ZMP (D-141): that Link left the group
+            Actor_Kill(&this->actor);
+            return;
+        }
         // get correct timer length for hookshot or longshot
         s32 length = ((player->heldItemAction == PLAYER_IA_HOOKSHOT) ? 13 : 26) *
                      CVarGetFloat(CVAR_CHEAT("HookshotReachMultiplier"), 1.0f);
 
         ArmsHook_SetupAction(this, ArmsHook_Shoot);
         Actor_SetProjectileSpeed(&this->actor, 20.0f);
-        this->actor.parent = &GET_PLAYER(play)->actor;
+        this->actor.parent = &player->actor; // ZMP (D-141): was GET_PLAYER(play), the same Link outside a group
         this->timer = length;
     }
 }

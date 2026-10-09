@@ -18,6 +18,8 @@ typedef struct ArmsHook {
     /* 0x0204 */ Vec3f grabbedDistDiff;
     /* 0x0210 */ s16 timer;
     /* 0x0214 */ ArmsHookActionFunc actionFunc;
-} ArmsHook; // size = 0x0218
+    // ZMP (D-141): the slot of the Link whose hookshot this is (-1 unknown). A slot, never an address.
+    s8 zmpOwner;
+} ArmsHook; // size = 0x0218 (+ the ZMP field)
 
 #endif
