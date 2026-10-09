@@ -418,6 +418,32 @@ static Player* BossMo_ZmpHeldPlayer(BossMo* this, PlayState* play, Player* playe
     return player;
 }
 
+// ZMP (D-140, finding BJ, seen by Alex): the shake puts its Link's body at the tentacle's tilt (shape.rot.x and z), and
+// every tick each tentacle levels "the player" back (the player's own code only resets rot.x when its action changes,
+// never rot.z). With one player that is the Link it threw. In a group it was the Link in the tentacle's context: once
+// the thrown one was let go and its camera closed, the nearest Link to the tentacle, so the thrown one stood in the
+// water tilted on its side (up to 45 degrees) for the rest of the fight. In a group every present Link is levelled,
+// except one another tentacle holds (that tentacle sets its pose).
+static void BossMo_ZmpLevelLinks(BossMo* this, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("postura_inclinada")) { // (mutant: only the player in context, as before)
+        Math_ApproachS(&player->actor.shape.rot.x, 0, 5, 0x3E8);
+        Math_ApproachS(&player->actor.shape.rot.z, 0, 5, 0x3E8);
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link == NULL) || ((link->actor.parent != NULL) && (link->actor.parent != &this->actor) &&
+                               (link->actor.parent->id == ACTOR_BOSS_MO))) {
+            continue;
+        }
+        Math_ApproachS(&link->actor.shape.rot.x, 0, 5, 0x3E8);
+        Math_ApproachS(&link->actor.shape.rot.z, 0, 5, 0x3E8);
+    }
+}
+
 // ZMP (row A4 of the Water Temple, D-136): the intro starts when "the player" stands on one of the four platforms.
 // "The player" of the core is the Link nearest to it, and it waits far away at x 1000, beyond the door: with partners
 // by the door, the one on a platform never started it. In a group any present Link standing on a platform starts it,
@@ -2526,8 +2552,7 @@ void BossMo_UpdateTent(Actor* thisx, PlayState* play) {
     SkinMatrix_Vec3fMtxFMultXYZW(&play->viewProjectionMtxF, &this->tentPos[40], &this->tentTipPos,
                                  &this->actor.projectedW);
     osSyncPrintf("MO : Move mode = <%d>\n", this->work[MO_TENT_ACTION_STATE]);
-    Math_ApproachS(&player->actor.shape.rot.x, 0, 5, 0x3E8);
-    Math_ApproachS(&player->actor.shape.rot.z, 0, 5, 0x3E8);
+    BossMo_ZmpLevelLinks(this, player); // ZMP (D-140): every Link in a group, not only the player in context
     this->work[MO_TENT_VAR_TIMER]++;
     this->sfxTimer++;
     this->work[MO_TENT_MOVE_TIMER]++;

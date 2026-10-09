@@ -125,6 +125,8 @@
 //                          D-136): with partners by the door, the one on a platform never starts it
 //   arco_en_el_portal      the arc of a group cutscene may put a Link within a blue warp's reach (D-138): Morpha's
 //                          warp appears before its death cutscene ends and takes that Link without stepping in
+//   postura_inclinada      Morpha's tentacles level the body of the player in context only (D-140): a Link thrown by
+//                          the shake stays tilted on its side for the rest of the fight
 //   aviso_del_agua_abierto Navi's warning about Morpha's water stays open over the intro when it is not the intro
 //                          player's (D-136): it covers the intro on every screen
 //   nucleo_esconde_por_uno Morpha's core hides while the Link nearest to it is deep in the water (row A5, D-137): one
