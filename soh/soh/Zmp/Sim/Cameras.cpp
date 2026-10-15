@@ -376,6 +376,30 @@ void ReleaseDowned() {
     }
 }
 
+// D-157 (finding BP, the family of D-120): the "wait" order (cs action 0x31) every player gets during a scripted
+// cutscene is carried out by the player's cutscene action, which a Link only enters from the actions that look for an
+// order: one hanging from a ledge, climbing it or on a ladder never does. Its order stayed pending when the cutscene
+// ended and the Link was "in a cutscene" until it climbed or let go (Morpha's death, a Link hanging from the edge of
+// the floor). When a group cutscene ends, a wait order that never started (the Link is not in its cutscene action:
+// no PLAYER_STATE1_IN_CUTSCENE) is dropped; the Link goes on hanging or climbing, free.
+void ReleaseUnstartedWait() {
+    if (Zmp_TestMutant("colgado_retenido")) { // (mutant: the hanging Link keeps the order, as before D-157)
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp::Players::SlotPlayer(k);
+        if (p == nullptr || Zmp::Players::SlotDowned(k)) {
+            continue;
+        }
+        if (p->csAction == 0x31 && !(p->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE)) {
+            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " never started its wait order (flags " +
+                     std::to_string(p->stateFlags1) + "): it is dropped");
+            p->csAction = 0;
+            p->unk_6AD = 0;
+        }
+    }
+}
+
 void UpdateGlobalCutscene(PlayState* play) {
     // Skip request of the host (the anchor): START during a scripted cutscene. It stays until the cutscene ends, so a
     // press while the cutscene's own commands are not running (a text box) is not lost.
@@ -412,6 +436,7 @@ void UpdateGlobalCutscene(PlayState* play) {
         Camera_ZmpResetInterface(1);
         Zmp::Log("zmp: global cutscene ends");
         ReleaseDowned();
+        ReleaseUnstartedWait();
     }
     if (active && gZmpSim.globalCs) {
         MaintainArc(play);
