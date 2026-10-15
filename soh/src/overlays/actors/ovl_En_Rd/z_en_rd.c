@@ -330,6 +330,7 @@ static s32 EnRd_ZmpScream(EnRd* this, PlayState* play, s16 maxYaw, f32 reach, s3
     s32 n = 0;
     s32 i;
     s32 k = -1;
+    u8 skipped = 0;
 
     *anyInReach = false;
     *contextGaveUp = false;
@@ -357,6 +358,7 @@ static s32 EnRd_ZmpScream(EnRd* this, PlayState* play, s16 maxYaw, f32 reach, s3
             if (link == context) {
                 *contextGaveUp = true;
             }
+            skipped |= (u8)(1 << k);
             continue;
         }
         frozen[n++] = k;
@@ -371,6 +373,23 @@ static s32 EnRd_ZmpScream(EnRd* this, PlayState* play, s16 maxYaw, f32 reach, s3
         }
         Zmp_SetContext(play, back);
         Rumble_Request(this->actor.xzDistToPlayer, 0xFF, 0x14, 0x96);
+        // (D-158: what the harness reads of this scream)
+        this->zmpScreams++;
+        this->zmpScreamFrame = play->gameplayFrames;
+        this->zmpScreamKind = reachXZ ? 2 : 1;
+        this->zmpScreamFacing = this->actor.shape.rot.y + this->headYRotation + this->upperBodyYRotation;
+        this->zmpScreamFrozen = 0;
+        for (i = 0; i < n; i++) {
+            this->zmpScreamFrozen |= (u8)(1 << frozen[i]);
+        }
+        this->zmpScreamSkipped = skipped;
+        this->zmpScreamFrom = this->actor.world.pos;
+        k = -1;
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            if ((k < ARRAY_COUNT(this->zmpScreamLinks)) && (Zmp_SlotPlayer(k) != NULL)) {
+                this->zmpScreamLinks[k] = Zmp_SlotPlayer(k)->actor.world.pos;
+            }
+        }
     }
     return 1;
 }

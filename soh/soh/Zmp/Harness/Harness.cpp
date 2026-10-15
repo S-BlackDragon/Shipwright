@@ -60,6 +60,7 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"               // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"               // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_En_Rd/z_en_rd.h"                   // ZMP phase 6 scenario tests (D-158)
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Bg_Haka_Megane/z_bg_haka_megane.h" // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
@@ -638,6 +639,28 @@ json ActorsJson(const json& cmd) {
                 list.back()["megane_bg_flags"] = (m->dyna.bgId >= 0 && m->dyna.bgId < BG_ACTOR_MAX)
                                                      ? (int)gPlayState->colCtx.dyna.bgActorFlags[m->dyna.bgId]
                                                      : -1;
+            }
+            if (a->id == ACTOR_EN_RD) {
+                // A ReDead or Gibdo (row B13, D-158): its action, timers, head and upper body, and its last group
+                // scream as the game saw it (z_en_rd.c, EnRd_ZmpScream): the test judges who was in reach from these.
+                const EnRd* r = (const EnRd*)a;
+                list.back()["home"] = Vec3(a->home.pos);
+                list.back()["rd_action"] = r->action;
+                list.back()["rd_stun_wait"] = r->playerStunWaitTimer;
+                list.back()["rd_head_yaw"] = r->headYRotation;
+                list.back()["rd_body_yaw"] = r->upperBodyYRotation;
+                list.back()["rd_screams"] = r->zmpScreams;
+                list.back()["rd_scream_frame"] = r->zmpScreamFrame;
+                list.back()["rd_scream_kind"] = r->zmpScreamKind;
+                list.back()["rd_scream_facing"] = r->zmpScreamFacing;
+                list.back()["rd_scream_frozen"] = r->zmpScreamFrozen;
+                list.back()["rd_scream_skipped"] = r->zmpScreamSkipped;
+                list.back()["rd_scream_from"] = Vec3(r->zmpScreamFrom);
+                json links = json::array();
+                for (int k = 0; k < 6; k++) {
+                    links.push_back(Vec3(r->zmpScreamLinks[k]));
+                }
+                list.back()["rd_scream_links"] = links;
             }
             if (a->id == ACTOR_BOSS_SST) {
                 // Bongo Bongo (f6_shadow.py): the head (params -1) or a hand (0 left, 1 right), what it does (the name

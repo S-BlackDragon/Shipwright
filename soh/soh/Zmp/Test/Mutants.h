@@ -160,6 +160,11 @@
 //                          the thrown Link stays leaning on its side
 //   portal_al_alcance_sst  Bongo Bongo's blue warp appears in the middle of the drum with a Link in its reach (row B4,
 //                          D-155): that Link leaves without stepping in
+//   lluvia_del_juego       the rain is drawn with the simulation's random numbers (finding BY, D-156): each screen
+//   takes
+//                          as many as its camera asks for, and the Graveyard after Bongo Bongo desynchronizes
+//   colgado_retenido       a Link hanging from a ledge when a group cutscene ends keeps the cutscene's wait order
+//                          (finding BP, D-157): it stays "in a cutscene" until it climbs or lets go
 
 #ifdef __cplusplus
 extern "C" {

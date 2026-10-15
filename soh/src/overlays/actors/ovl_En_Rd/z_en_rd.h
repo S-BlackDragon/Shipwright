@@ -32,6 +32,18 @@ typedef struct EnRd {
     /* 0x031C */ u8 damageReaction;
     /* 0x031D */ u8 unk_31D;
     /* 0x0320 */ ColliderCylinder collider;
-} EnRd; // size = 0x036C
+    // ZMP (D-158): the last group scream, as the game saw it, for the harness (row B13): how many so far, the frame,
+    // which (1 walking: 30 degrees, 150 in 3D; 2 waking: 45 degrees, 150 flat), the yaw it screamed toward (body,
+    // upper body and head), where it and each Link stood, the Links it froze and the ones in reach it could not
+    // (the original's exceptions: hanging, jumping, held...). Nothing in the game reads them.
+    s16 zmpScreams;
+    s16 zmpScreamFacing;
+    s32 zmpScreamFrame;
+    u8 zmpScreamKind;
+    u8 zmpScreamFrozen;
+    u8 zmpScreamSkipped;
+    Vec3f zmpScreamFrom;
+    Vec3f zmpScreamLinks[6];
+} EnRd;
 
 #endif
