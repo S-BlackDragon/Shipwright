@@ -2970,6 +2970,33 @@ void Actor_DrawLensOverlay(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
+void Actor_DrawLensActors(PlayState* play, s32 numInvisibleActors, Actor** invisibleActors);
+
+// ZMP (T3, D-146): the actors that react to the lens are drawn the lens way while somebody has it on (their draws run
+// the same on every machine); this screen shows them through the lens only if its own player has it on. Without it,
+// what the lens reveals is not shown (its pictures are dropped) and what it hides (a false wall) is drawn as usual.
+void Actor_ZmpDrawLensActors(PlayState* play, s32 numInvisibleActors, Actor** invisibleActors) {
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    s32 i;
+
+    if (Zmp_LensLocal(play)) {
+        Actor_DrawLensActors(play, numInvisibleActors, invisibleActors);
+    } else if (play->roomCtx.curRoom.lensMode == LENS_MODE_HIDE_ACTORS) {
+        Gfx* opa = gfxCtx->polyOpa.p;
+        Gfx* xlu = gfxCtx->polyXlu.p;
+        Gfx* ovl = gfxCtx->overlay.p;
+        Gfx* work = gfxCtx->work.p;
+        Actor_DrawLensActors(play, numInvisibleActors, invisibleActors);
+        gfxCtx->polyOpa.p = opa;
+        gfxCtx->polyXlu.p = xlu;
+        gfxCtx->overlay.p = ovl;
+        gfxCtx->work.p = work;
+    } else {
+        for (i = 0; i < numInvisibleActors; i++) {
+            Actor_Draw(play, invisibleActors[i]);
+        }
+    }
+}
 void Actor_DrawLensActors(PlayState* play, s32 numInvisibleActors, Actor** invisibleActors) {
     Actor** invisibleActor;
     GraphicsContext* gfxCtx;
@@ -3218,7 +3245,8 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
                      shipShouldDraw || Zmp_DrawAllActors())) { // ZMP: draw side effects must not depend on the camera
                     // #endregion
                     if ((actor->flags & ACTOR_FLAG_REACT_TO_LENS) &&
-                        ((play->roomCtx.curRoom.lensMode == LENS_MODE_HIDE_ACTORS) || play->actorCtx.lensActive ||
+                        ((play->roomCtx.curRoom.lensMode == LENS_MODE_HIDE_ACTORS) ||
+                         Zmp_LensDrawn(play) || // ZMP (T3, D-146): somebody's lens, the same on every machine
                          (actor->room != play->roomCtx.curRoom.num))) {
                         assert(invisibleActorCounter < INVISIBLE_ACTOR_MAX);
                         invisibleActors[invisibleActorCounter] = actor;
@@ -3248,11 +3276,9 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
     }
 
     if ((HREG(64) != 1) || (HREG(72) != 0)) {
-        if (play->actorCtx.lensActive) {
-            Actor_DrawLensActors(play, invisibleActorCounter, invisibleActors);
-            if ((play->csCtx.state != CS_STATE_IDLE) || Player_InCsMode(play)) {
-                Actor_DisableLens(play);
-            }
+        if (Zmp_LensDrawn(play)) { // ZMP (T3, D-146): each player's lens
+            Actor_ZmpDrawLensActors(play, invisibleActorCounter, invisibleActors);
+            Zmp_LensCutsceneOff(play); // ZMP: the lens of each player in a cutscene, not only the anchor's
         }
     }
 

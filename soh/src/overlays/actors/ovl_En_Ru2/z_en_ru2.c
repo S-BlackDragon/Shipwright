@@ -8,6 +8,7 @@
 #include "objects/object_ru2/object_ru2.h"
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "vt.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
@@ -765,6 +766,7 @@ s32 EnRu2_IsPlayerInRangeForEncounter(EnRu2* this, PlayState* play) {
  */
 void EnRu2_CheckRangeToStartEncounter(EnRu2* this, PlayState* play) {
     if (EnRu2_IsPlayerInRangeForEncounter(this, play) && !Play_InCsMode(play)) {
+        this->zmpReader = Zmp_ContextSlotTag(); // ZMP (A15, D-145): the encounter is this player's
         this->action = ENRU2_WATER_TEMPLE_ENCOUNTER_BEGINNING;
         this->subCamId = OnePointCutscene_Init(play, 3130, -99, &this->actor, CAM_ID_MAIN);
     }
@@ -774,6 +776,7 @@ void EnRu2_CheckRangeToStartEncounter(EnRu2* this, PlayState* play) {
  * Triggers the encounter cutscene in the Water Temple, unconditionally. Appears to be unused.
  */
 void EnRu2_StartEncounter(EnRu2* this, PlayState* play) {
+    this->zmpReader = Zmp_ContextSlotTag(); // ZMP (A15, D-145)
     this->action = ENRU2_WATER_TEMPLE_ENCOUNTER_BEGINNING;
     this->subCamId = OnePointCutscene_Init(play, 3130, -99, &this->actor, CAM_ID_MAIN);
 }

@@ -1791,6 +1791,21 @@ void func_80084BF4(PlayState* play, u16 flag) {
     }
 }
 
+// ZMP (U1, D-142): the item buttons of a player other than the anchor, with the same rules (func_80083108 in that
+// player's context: its Link, its environmental hazard, its text box, its buttons). What it also changes of the HUD's
+// fade (the anchor's in the save context) is put back: each screen fades its own HUD (soh/soh/Zmp/Sim/Present.cpp).
+void Interface_ZmpUpdateButtons(PlayState* play) {
+    u16 mode = gSaveContext.hudVisibilityMode;
+    u16 next = gSaveContext.nextHudVisibilityMode;
+    u16 timer = gSaveContext.hudVisibilityModeTimer;
+    u8 rising = gSaveContext.forceRisingButtonAlphas;
+    func_80083108(play);
+    gSaveContext.hudVisibilityMode = mode;
+    gSaveContext.nextHudVisibilityMode = next;
+    gSaveContext.hudVisibilityModeTimer = timer;
+    gSaveContext.forceRisingButtonAlphas = rising;
+}
+
 // Gameplay stat tracking: Update time the item was acquired
 // (special cases for some duplicate items)
 void GameplayStats_SetTimestamp(PlayState* play, u8 item) {

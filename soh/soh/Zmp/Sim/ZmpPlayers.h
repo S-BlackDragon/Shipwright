@@ -44,7 +44,10 @@ typedef struct {
     s8 ammo[16];
     u8 bottles[4]; // contents of SLOT_BOTTLE_1..4 (having a bottle is shared: a new one appears for everybody)
     u8 buttonStatus[9];
-    u8 pad1[3];
+    u8 pad1;
+    // T3 (D-146): ticks to this player's next unit of magic for its Lens of Truth (the original's
+    // interfaceCtx.unk_230, live there while it is the context; one timer for all made one player pay for all)
+    s16 lensTimer;
 } ZmpPlayerBlock;
 
 // Downed state (PLAN.md 2.8).
@@ -98,7 +101,8 @@ typedef struct {
     // D-117: the leader said (lockstep event "zmp_away") that this player's connection dropped: its Link stays, idle,
     // but it is not waited for at a boss door.
     u8 away;
-    u8 pad8;
+    // T3 (D-146): this player's Lens of Truth is on (play->actorCtx.lensActive while it is the context).
+    u8 lensActive;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -216,7 +220,10 @@ typedef struct {
     // bossPassTicks takes the whole group. bossPassBy: 1 + the slot that opened it (0: no pass).
     s16 bossPassTicks;
     u8 bossPassBy;
-    u8 pad5[3];
+    // A8 (D-143): 1 + the player whose ocarina the Water Temple's triforce left paused for the water (0: nobody). The
+    // water closes that player's text box when it stops, whoever stands nearer to it.
+    u8 waterSongBy;
+    u8 pad5[2];
     u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
@@ -233,7 +240,19 @@ extern s32 gZmpCameraInterfaceMuted;
 // True while the multiplayer simulation runs in a Play state.
 s32 Zmp_MultiActive(void);
 
-// Play_Init / Play_Destroy
+// 1 + the slot of the player in context (0: outside a session). For an actor that keeps "whose this is" in a field
+// where zero must mean nobody (A15, D-145).
+s8 Zmp_ContextSlotTag(void); // T3 (D-146): the Lens of Truth of each player. Actor_DrawAll draws the actors that react
+                             // to it the lens way when
+// some player has it on (the same on every machine); this screen shows them only if its own player has it on.
+s32 Zmp_LensDrawn(PlayState* play);
+s32 Zmp_LensLocal(PlayState* play);
+// The draw turns off the lens of the players in a cutscene (each its own; everybody's in a global one).
+void Zmp_LensCutsceneOff(PlayState* play); // A8 (D-143): the Water Temple's triforce paused the text box of the player
+                                           // in context for the water
+// (z_en_okarina_tag.c); the water closes it when it stops (z_bg_mizu_water.c). Outside a session: the original.
+void Zmp_WaterSongPaused(PlayState* play);
+void Zmp_WaterSongClose(PlayState* play); // Play_Init / Play_Destroy
 void Zmp_PlayInitBegin(PlayState* play);
 void Zmp_PlayInitPlayers(PlayState* play, s32 startBgCamIndex);
 void Zmp_PlayDestroy(PlayState* play);
@@ -421,6 +440,9 @@ void Zmp_RoomLoadEnd(PlayState* play, RoomContext* roomCtx);
 s32 Zmp_RoomFinish(PlayState* play, RoomContext* roomCtx);
 // Kept loaded besides curRoom / prevRoom.
 s32 Zmp_RoomKept(s32 room);
+// A14 (D-144): what the original asks with "curRoom is this actor's room" (the room the player is in): in multiplayer
+// curRoom is the room of the player in context (the nearest), not the group's; an actor that runs is in a loaded room.
+s32 Zmp_ActorRoomIsCur(PlayState* play, Actor* actor);
 // Actor_Spawn: room of a new actor (its spawner's room in multiplayer).
 s8 Zmp_SpawnRoom(PlayState* play);
 // Actor_UpdateAll: spawning the actor list of a room that just loaded.
@@ -628,6 +650,7 @@ std::vector<Notice> RecentNotices(double maxAge);
 bool LocalTextHidden();
 // Phase 5b: msgMode of the text box of a slot (MSGMODE_NONE: closed).
 int SlotMsgMode(int slot);
+bool SlotLens(int slot); // T3 (D-146): this player's Lens of Truth is on
 // Phase 5b: the last picture ignored the light effect of another player (its fairy, its spin attack charge).
 bool LightEffectHidden();
 bool LightEffectDrawn();

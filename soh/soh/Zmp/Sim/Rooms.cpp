@@ -14,6 +14,7 @@
 // Everything here is simulation state (gZmpSim travels in the portable state and is hashed).
 
 #include "ZmpPlayers.h"
+#include "soh/Zmp/Test/Mutants.h"
 
 #include <algorithm>
 #include <cstring>
@@ -369,6 +370,12 @@ extern "C" s32 Zmp_RoomFinish(PlayState* play, RoomContext* rc) {
     return 1;
 }
 
+extern "C" s32 Zmp_ActorRoomIsCur(PlayState* play, Actor* actor) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("bloque_sala_del_contexto")) {
+        return play->roomCtx.curRoom.num == actor->room;
+    }
+    return 1;
+}
 extern "C" s32 Zmp_RoomKept(s32 room) {
     if (!Zmp_MultiActive() || room < 0) {
         return 0;

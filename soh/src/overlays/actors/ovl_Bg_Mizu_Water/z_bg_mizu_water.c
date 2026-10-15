@@ -5,6 +5,7 @@
  */
 
 #include "z_bg_mizu_water.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "objects/object_mizu_objects/object_mizu_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
@@ -239,7 +240,7 @@ void BgMizuWater_ChangeWaterLevel(BgMizuWater* this, PlayState* play) {
             if (Math_StepToF(&this->actor.world.pos.y, this->targetY, speed)) {
                 play->roomCtx.unk_74[0] = 0;
                 this->actionFunc = BgMizuWater_WaitForAction;
-                Message_CloseTextbox(play);
+                Zmp_WaterSongClose(play); // ZMP (A8, D-143): the box of who played the triforce, kept by the sim
             }
             BgMizuWater_SetWaterBoxesHeight(play->colCtx.colHeader->waterBoxes, this->actor.world.pos.y);
             break;

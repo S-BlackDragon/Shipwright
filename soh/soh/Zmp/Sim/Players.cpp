@@ -20,8 +20,10 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+#include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
+void Interface_ZmpUpdateButtons(PlayState* play);
 void Player_SetEquipmentData(PlayState* play, Player* player);
 void Player_SetBootData(PlayState* play, Player* player);
 void Player_ZmpRevive(PlayState* play, Player* player);
@@ -169,6 +171,10 @@ void Park(PlayState* play, int k) {
     ZmpPlayerSlot& s = Slot(k);
     memcpy(&s.camera, &play->mainCamera, sizeof(Camera));
     memcpy(&s.target, &play->actorCtx.targetCtx, sizeof(TargetContext));
+    if (!Zmp_TestMutant("lente_compartida")) { // (mutant: one lens for everybody, as before D-146)
+        s.lensActive = play->actorCtx.lensActive ? 1 : 0;
+        s.block.lensTimer = play->interfaceCtx.unk_230;
+    }
     u8 before[4];
     memcpy(before, s.block.bottles, sizeof(before));
     SaveToBlock(s.block);
@@ -281,6 +287,10 @@ void Load(PlayState* play, int k) {
     memcpy(&play->mainCamera, &s.camera, sizeof(Camera));
     memcpy(&play->actorCtx.targetCtx, &s.target, sizeof(TargetContext));
     LoadFromBlock(s.block);
+    if (!Zmp_TestMutant("lente_compartida")) {
+        play->actorCtx.lensActive = s.lensActive != 0;
+        play->interfaceCtx.unk_230 = s.block.lensTimer;
+    }
     play->state.input[0] = s.input;
     play->activeCamera = s.activeCam;
     gZmpCtxPlayer = s.player;
@@ -310,7 +320,37 @@ int LowestActive() {
     return -1;
 }
 
+// T3 (D-146): each player has its own Lens of Truth (play->actorCtx.lensActive is the one of the player in context:
+// its Link turns it on and off, its magic pays for it, its cutscene puts it away). What the lens shows or lets through
+// in the world (a false wall, a hidden platform, an invisible enemy) is there for everybody while somebody in that
+// room has it on: while an actor other than a Link runs, the flag says so (sLensShared), and the player's own is put
+// back before anything else reads or parks it.
+bool sLensShared = false;
+
+void LensOwn(PlayState* play) {
+    if (sLensShared) {
+        sLensShared = false;
+        if (Valid(gZmpSim.ctx)) {
+            play->actorCtx.lensActive = Slot(gZmpSim.ctx).lensActive != 0;
+        }
+    }
+}
+
+void LensShare(PlayState* play, const Actor* actor) {
+    if (actor->id == ACTOR_PLAYER || !Valid(gZmpSim.ctx) || Zmp_TestMutant("lente_compartida")) {
+        return;
+    }
+    Slot(gZmpSim.ctx).lensActive = play->actorCtx.lensActive ? 1 : 0;
+    bool on = false;
+    for (int j = 0; j < ZMP_MAX_PLAYERS && !on; j++) {
+        on = Present(j) && Slot(j).lensActive && (actor->room < 0 || Slot(j).room == actor->room);
+    }
+    play->actorCtx.lensActive = on;
+    sLensShared = true;
+}
+
 void SwitchTo(PlayState* play, int k) {
+    LensOwn(play);
     if (!Valid(k) || k == gZmpSim.ctx) {
         return;
     }
@@ -357,6 +397,25 @@ int ContextSlot(const Actor* actor) {
     if (actor->id == ACTOR_EN_RU1 && actor->child != nullptr && actor->child->id == ACTOR_DOOR_WARP1 &&
         Present(gZmpSim.warpOwner) && !Zmp_TestMutant("ruto_al_mas_cercano")) {
         return gZmpSim.warpOwner;
+    }
+    // A8 (D-143): the Water Temple's water, moved by the Lullaby on a triforce, is the song's: its camera shows the
+    // water to the player who played (and holds that player while it moves, as the original holds its Link), and
+    // it closes that player's text box when it stops. Before, it did both to the player nearest to it: a partner by
+    // the water actor was frozen for 100 frames under a camera, and the one who played stayed frozen with the ocarina.
+    if (actor->id == ACTOR_BG_MIZU_WATER && gZmpSim.waterSongBy != 0 && !Zmp_TestMutant("agua_al_mas_cercano")) {
+        int w = gZmpSim.waterSongBy - 1;
+        if (Present(w)) {
+            return w;
+        }
+    } // A15 (D-145): Ruto's encounter in the Water Temple is the player's who started it: her camera was made for that
+    // player and held it, but her text boxes and their wait were read from the nearest player's on every tick (a
+    // partner by her side: she waited for ever for a close in the wrong box, and the one held by her camera was left
+    // waiting with it).
+    if (actor->id == ACTOR_EN_RU2 && !Zmp_TestMutant("ruto_lector_mas_cercano")) {
+        int r = ((const EnRu2*)actor)->zmpReader - 1;
+        if (Present(r)) {
+            return r;
+        }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
         k = Zmp::Players::SlotOf(actor->parent);
@@ -905,6 +964,10 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.undoValid = 0;
     gZmpSim.warpOwner = -1;
     gZmpSim.transitionSolo = 0;
+    for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+        Slot(j).lensActive = 0; // T3 (D-146): a new scene starts with every lens off (Actor_InitContext's)
+    }
+    gZmpSim.waterSongBy = 0;
     gZmpSim.inviteBy = -1;
     gZmpSim.inviteTicks = 0;
     gZmpSim.titleFor = -1;
@@ -1080,6 +1143,7 @@ extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
     sTraceActor = actor;
     sTracePhase = 'U';
     int k = ContextSlot(actor);
+    LensOwn(play);
     if (Present(k)) {
         SwitchTo(play, k);
         if ((Actor*)Slot(k).player == actor) {
@@ -1089,6 +1153,7 @@ extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
             Player_SetBootData(play, Slot(k).player);
         }
     }
+    LensShare(play, actor);
     return (Player*)gZmpCtxPlayer;
 }
 
@@ -1609,8 +1674,91 @@ void UpdateDowned(PlayState* play) {
     }
 }
 
+// U1 (D-142): the item buttons of a player out of context, with the conditions Interface_Update calls their rules with
+// for the anchor (no pause, no text box of its own, no game over).
+void ButtonsInContext(void* p) {
+    PlayState* play = (PlayState*)p;
+    if (play->pauseCtx.state != 0 || play->pauseCtx.debugState != 0 || play->gameOverCtx.state != GAMEOVER_INACTIVE) {
+        return;
+    }
+    if (!((gSaveContext.minigameState == 1) || (gSaveContext.sceneLayer < 4) ||
+          ((play->sceneNum == SCENE_LON_LON_RANCH) && (gSaveContext.sceneLayer == 4)))) {
+        return;
+    }
+    if (play->msgCtx.msgMode != MSGMODE_NONE && play->sceneNum != SCENE_BOMBCHU_BOWLING_ALLEY) {
+        return;
+    }
+    Interface_ZmpUpdateButtons(play);
+}
 } // namespace
 
+extern "C" s32 Zmp_LensDrawn(PlayState* play) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("lente_compartida")) {
+        return play->actorCtx.lensActive;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && Zmp::Players::SlotLens(k)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+extern "C" s32 Zmp_LensLocal(PlayState* play) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("lente_compartida")) {
+        return play->actorCtx.lensActive;
+    }
+    return Zmp::Players::SlotLens(sLocalSlot);
+}
+
+namespace {
+void LensCutsceneOffInContext(void* p) {
+    PlayState* play = (PlayState*)p;
+    if ((play->csCtx.state != CS_STATE_IDLE) || Player_InCsMode(play)) {
+        Actor_DisableLens(play);
+    }
+}
+} // namespace
+
+extern "C" void Zmp_LensCutsceneOff(PlayState* play) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("lente_compartida")) {
+        LensCutsceneOffInContext(play);
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && Zmp::Players::SlotLens(k)) {
+            Zmp::Players::RunInContext(k, LensCutsceneOffInContext, play);
+        }
+    }
+}
+extern "C" s8 Zmp_ContextSlotTag(void) {
+    return (s8)(Zmp_MultiActive() && Valid(gZmpSim.ctx) ? gZmpSim.ctx + 1 : 0);
+}
+extern "C" void Zmp_WaterSongPaused(PlayState* play) {
+    if (Zmp_MultiActive() && Valid(gZmpSim.ctx)) {
+        gZmpSim.waterSongBy = (u8)(gZmpSim.ctx + 1);
+    }
+}
+
+namespace {
+void CloseTextboxInContext(void* p) {
+    Message_CloseTextbox((PlayState*)p);
+}
+} // namespace
+
+extern "C" void Zmp_WaterSongClose(PlayState* play) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("agua_al_mas_cercano")) {
+        Message_CloseTextbox(play); // (mutant: the box of the player nearest to the water, as before D-143)
+        return;
+    }
+    // The box of the player who played; nobody's if that player is gone (it was the only one paused). Another
+    // player's box is never closed here: the one nearest to the water could be reading something of its own.
+    int k = gZmpSim.waterSongBy - 1;
+    gZmpSim.waterSongBy = 0;
+    if (Present(k)) {
+        Zmp::Players::RunInContext(k, CloseTextboxInContext, play);
+    }
+}
 extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
     if (!Zmp_MultiActive()) {
         return;
@@ -1663,6 +1811,15 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         if (Present(k)) {
             Zmp::Players::RunInContext(k, HazardInContext, play);
+        }
+    }
+    // U1 (D-142): the item buttons of each player follow its own Link (Interface_Update only ran them for the anchor;
+    // the others kept the buttons they were given when they appeared, the anchor's of that moment).
+    if (!Zmp_TestMutant("botones_del_otro")) {
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (Present(k) && k != gZmpSim.anchor) {
+                Zmp::Players::RunInContext(k, ButtonsInContext, play);
+            }
         }
     }
     UpdateDowned(play);
@@ -2389,6 +2546,8 @@ extern "C" void Zmp_DrawActorContext(PlayState* play, Actor* actor) {
     if (Present(k)) {
         SwitchTo(play, k);
     }
+    LensOwn(play);
+    LensShare(play, actor); // T3 (D-146): what an actor draws through the lens, by its room's players
 }
 
 extern "C" void Zmp_DrawEndView(PlayState* play) {
@@ -3195,6 +3354,16 @@ const MessageContext* SlotMessage(int slot) {
 
 int Anchor() {
     return gZmpSim.anchor;
+}
+
+bool SlotLens(int slot) {
+    if (!Valid(slot)) {
+        return false;
+    }
+    if (slot == gZmpSim.ctx && gZmpSim.inPlay && gPlayState != nullptr && !sLensShared) {
+        return gPlayState->actorCtx.lensActive;
+    }
+    return Slot(slot).lensActive != 0;
 }
 
 int SlotMsgMode(int slot) {

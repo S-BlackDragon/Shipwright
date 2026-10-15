@@ -277,6 +277,10 @@ void VisitZmp(Visitor& v) {
         v.U("boss_pass_by", gZmpSim.bossPassBy);
         v.S("boss_pass_ticks", gZmpSim.bossPassTicks);
     }
+    if (gZmpSim.waterSongBy != 0) {
+        v.U("water_song_by",
+            gZmpSim.waterSongBy); // A8, D-143 (hashed only while set: the recordings keep their hashes)
+    }
     v.S("effect_ss_search", EffectSs_ZmpGetSearchIndex()); // D-044
     if (InPlay()) {
         // (D-118, INVENTARIO A3) The scene's water boxes: the game writes their levels (and Lake Hylia a river's start)
@@ -345,6 +349,10 @@ void VisitZmp(Visitor& v) {
         v.Bytes("ammo", b.ammo, sizeof(b.ammo));
         v.Bytes("bottles", b.bottles, sizeof(b.bottles));
         v.Bytes("button_status", b.buttonStatus, sizeof(b.buttonStatus));
+        if (Zmp::Players::SlotLens(k)) {
+            v.U("lens", 1); // T3, D-146 (only when on: the recordings keep their hashes)
+            v.S("lens_timer", live && gPlayState != nullptr ? gPlayState->interfaceCtx.unk_230 : b.lensTimer);
+        }
         v.U("downed", s.downed);
         v.S("spectate", s.spectate);
         v.S("revive_progress", s.reviveProgress);

@@ -51,6 +51,8 @@ struct LocalScreen {
     u16 alphas[kAlphaCount] = {};
     u32 frame = 0xFFFFFFFF;
     bool wasEvent = false;
+    u8 buttons[9] = {};
+    bool buttonsValid = false;
 };
 LocalScreen sL;
 
@@ -154,6 +156,14 @@ void StepLocal(PlayState* play) {
     memcpy(keepButtons, gSaveContext.buttonStatus, sizeof(keepButtons));
     ZmpPlayerBlock b = Zmp::Players::SlotBlock(Local());
     memcpy(gSaveContext.buttonStatus, b.buttonStatus, sizeof(keepButtons));
+    // U1 (D-142): the local player's buttons went on or off: its HUD fades them again, as func_80083108 does for the
+    // anchor's (hudVisibilityMode 0, then HUD_VISIBILITY_ALL)
+    if (sL.buttonsValid && memcmp(sL.buttons, b.buttonStatus, sizeof(sL.buttons)) != 0 && !event) {
+        sL.hudMode = 0;
+        LocalHudMode(HUD_VISIBILITY_ALL);
+    }
+    memcpy(sL.buttons, b.buttonStatus, sizeof(sL.buttons));
+    sL.buttonsValid = true;
     gSaveContext.hudVisibilityMode = sL.hudMode;
     gSaveContext.nextHudVisibilityMode = sL.nextHudMode;
     gSaveContext.hudVisibilityModeTimer = sL.hudTimer;

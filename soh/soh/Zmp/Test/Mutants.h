@@ -134,7 +134,17 @@
 //   nucleo_esconde_por_uno Morpha's core hides while the Link nearest to it is deep in the water (row A5, D-137): one
 //                          partner on the bottom stops the fight for everybody above
 //   portal_al_alcance_mo   Morpha's blue warp appears on the bottom of the pool with a Link in its reach (row A7,
-//                          D-138): that Link leaves without stepping in
+//                          D-138): that Link leaves without stepping in//   botones_del_otro       the item buttons
+//                          follow the anchor's rules only (U1, D-142): the others keep the ones they appeared with
+//                          (greyed for ever after the Water Temple's entrance) and never lose them under the water
+//   agua_al_mas_cercano    the Water Temple's water closes the text box of the player nearest to it (A8, D-143): the
+//                          one who played the Lullaby stays frozen with the ocarina
+//   bloque_sala_del_contexto  a platform of the Water Temple moves its hookshot block only when the player in its
+//                          context stands in its room (A14, D-144): the block stays behind
+//   ruto_lector_mas_cercano  Ruto's encounter in the Water Temple reads the text box of the player nearest to her (A15,
+//                          D-145): with a partner by her she never swims up
+//   lente_compartida       one Lens of Truth for everybody (T3, D-146): a second player's lens turns the first one's
+//                          off
 
 #ifdef __cplusplus
 extern "C" {

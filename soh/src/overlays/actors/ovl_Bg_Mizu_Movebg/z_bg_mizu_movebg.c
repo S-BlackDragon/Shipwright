@@ -7,6 +7,7 @@
 #include "z_bg_mizu_movebg.h"
 #include "overlays/actors/ovl_Bg_Mizu_Water/z_bg_mizu_water.h"
 #include "objects/object_mizu_objects/object_mizu_objects.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -306,7 +307,8 @@ void BgMizuMovebg_UpdateMain(BgMizuMovebg* this, PlayState* play) {
         case 4:
         case 5:
         case 6:
-            if (play->roomCtx.curRoom.num == this->dyna.actor.room) {
+            // ZMP (A14, D-144): the block follows its platform whatever room the player in context stands in
+            if (Zmp_ActorRoomIsCur(play, &this->dyna.actor) && this->dyna.actor.child != NULL) {
                 Matrix_RotateY(this->dyna.actor.world.rot.y * (M_PI / 32768), MTXMODE_NEW);
                 Matrix_MultVec3f(&D_8089EBAC, &sp28);
                 this->dyna.actor.child->world.pos.x = this->dyna.actor.world.pos.x + sp28.x;

@@ -353,6 +353,7 @@ json PlayerJson(Player* player, int slot = 0) {
         for (int i = 0; i < 4; i++) {
             blk.bottles[i] = gSaveContext.inventory.items[SLOT_BOTTLE_1 + i];
         }
+        memcpy(blk.buttonStatus, gSaveContext.buttonStatus, sizeof(blk.buttonStatus));
     }
     json eq = json::object();
     eq["button_items"] = json::array();
@@ -429,6 +430,10 @@ json PlayerJson(Player* player, int slot = 0) {
         { "sim_stick", json::array({ multi ? (int)gZmpSim.slots[slot].input.cur.stick_x : 0,
                                      multi ? (int)gZmpSim.slots[slot].input.cur.stick_y : 0 }) },
         { "cs_action", player->csAction },
+        // (U1, D-142: this player's item buttons, 0 on and 0xFF off: B, C-left, C-down, C-right, A, D-pad)
+        { "button_status", json(std::vector<int>(blk.buttonStatus, blk.buttonStatus + 9)) },
+        // (T3, D-146: this player's Lens of Truth is on)
+        { "lens_active", multi ? Zmp::Players::SlotLens(slot) : (bool)gPlayState->actorCtx.lensActive },
         // (diagnosis, finding AG: where this Link's action and its animation are)
         { "anim",
           { { "frame", player->skelAnime.curFrame },
@@ -1241,6 +1246,8 @@ void Dispatch(const RequestPtr& req) {
               { "gs_tokens", gSaveContext.inventory.gsTokens },
               { "items", json(std::vector<int>(gSaveContext.inventory.items, gSaveContext.inventory.items + 24)) },
               { "upgrades", gSaveContext.inventory.upgrades },
+              // (block 1: what equipment the group owns, the shared inventory's; what each one wears is query.player)
+              { "equipment", gSaveContext.inventory.equipment },
               { "quest_items", gSaveContext.inventory.questItems },
               { "event_chk_inf", ev },
               { "scene", scene },

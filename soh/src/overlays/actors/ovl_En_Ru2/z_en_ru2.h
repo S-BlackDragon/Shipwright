@@ -28,6 +28,9 @@ typedef struct EnRu2 {
     /* 0x02C4 */ f32 encounterTimer;
     /* 0x02C8 */ ColliderCylinder collider;
     /* 0x02C8 */ s16 subCamId;
-} EnRu2; // size = 0x0314
+    // ZMP (A15, D-145): 1 + the slot of the player whose encounter this is (0: none yet). The encounter (her camera,
+    // her text boxes, the move of its third box) is that player's until she leaves. A slot, never an address.
+    s8 zmpReader;
+} EnRu2; // size = 0x0314 (+ the ZMP field)
 
 #endif
