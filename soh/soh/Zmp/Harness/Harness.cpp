@@ -63,6 +63,9 @@ extern "C" {
 #include "overlays/actors/ovl_En_Rd/z_en_rd.h"                   // ZMP phase 6 scenario tests (D-158)
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Bg_Haka_Megane/z_bg_haka_megane.h" // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"         // ZMP phase 6 scenario tests (f6_ganon.py)
+#include "overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h"       // ZMP phase 6 scenario tests (f6_ganon.py)
+#include "overlays/actors/ovl_Obj_Syokudai/z_obj_syokudai.h"     // ZMP phase 6 (f6_castle_rooms.py)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
@@ -456,6 +459,9 @@ json PlayerJson(Player* player, int slot = 0) {
         { "invincible", player->invincibilityTimer },
         { "zmp_room", multi ? Zmp::Players::SlotRoom(slot) : gPlayState->roomCtx.curRoom.num },
         { "timer_state", gSaveContext.timerState },
+        // (E1, D-164: the countdown of the escape; shared, the same for every slot)
+        { "sub_timer_seconds", gSaveContext.subTimerSeconds },
+        { "sub_timer_state", gSaveContext.subTimerState },
         { "tick", sFrame },
     };
 }
@@ -563,6 +569,33 @@ json ActorsJson(const json& cmd) {
                     list.back()["va_y_offset"] = v->actor.shape.yOffset;
                     list.back()["home"] = Vec3(v->actor.home.pos);
                 }
+            }
+            if (a->id == ACTOR_BOSS_GANON && a->params < 0x64) {
+                // f6_ganon.py: Ganondorf. What he does (BossGanon_ZmpAction), his cutscene and the ball's state.
+                const BossGanon* g = (const BossGanon*)a;
+                list.back()["gdf_action"] = BossGanon_ZmpAction(a);
+                list.back()["gdf_cs_state"] = g->csState;
+                list.back()["gdf_ball_state"] = g->unk_1C2;
+                list.back()["gdf_health"] = (s8)a->colChkInfo.health;
+            }
+            if (a->id == ACTOR_BOSS_GANON2) {
+                // f6_ganon.py: Ganon (BossGanon2_ZmpInfo): his cutscene, what he does, Zelda's sword, his head.
+                s32 info[6];
+                Vec3f head;
+                Vec3f sword;
+                BossGanon2_ZmpInfo(a, info, &head, &sword);
+                list.back()["ganon_cs_state"] = info[0];
+                list.back()["ganon_action"] = info[1];
+                list.back()["ganon_health"] = info[2];
+                list.back()["ganon_sword"] = info[3];
+                list.back()["ganon_sword_slot"] = info[4];
+                list.back()["ganon_ring"] = info[5];
+                list.back()["ganon_head"] = Vec3(head);
+                list.back()["ganon_sword_pos"] = Vec3(sword);
+            }
+            if (a->id == ACTOR_OBJ_SYOKUDAI) {
+                // f6_castle_rooms.py: a torch is lit while its timer is not 0 (negative: lit for good).
+                list.back()["torch_lit"] = ((const ObjSyokudai*)a)->litTimer != 0 ? 1 : 0;
             }
             if (a->id == ACTOR_BOSS_GANONDROF) {
                 // Phase 6 scenario tests (Phantom Ganon with six players): the real boss (params 1) and the fakes that

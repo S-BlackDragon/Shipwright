@@ -4,7 +4,6 @@
 #include <libultraship/libultra.h>
 #include "global.h"
 
-
 typedef struct {
     /* 0x00 */ u8 type;
     /* 0x01 */ u8 unk_01;
@@ -106,6 +105,12 @@ typedef struct BossGanon2 {
     /* 0x0444 */ ColliderJntSph unk_444;
     /* 0x0464 */ ColliderJntSphElement unk_464[16];
     /* 0x0864 */ ColliderJntSphElement unk_864[2];
-} BossGanon2; // size = 0x08E4
+    s8 zmpSwordSlot;  // ZMP (G5, D-167): 1 + the slot of the Link that picked Zelda's sword up (0 nobody yet)
+    s8 zmpFinishSlot; // ZMP (f6_ganon.py): 1 + the slot the harness says strikes the final blow (0 none)
+} BossGanon2;         // size = 0x08E4 (+ ZMP)
+
+// ZMP (f6_ganon.py): harness events and what the harness reads (z_boss_ganon2.c).
+s32 BossGanon2_ZmpStage(struct PlayState* play, s32 what, s32 slot);
+s32 BossGanon2_ZmpInfo(Actor* thisx, s32* out, Vec3f* head, Vec3f* sword);
 
 #endif

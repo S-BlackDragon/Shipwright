@@ -31,6 +31,9 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"
 #include "overlays/actors/ovl_Bg_Haka_Gate/z_bg_haka_gate.h"
+#include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"   // ZMP phase 6 scenario tests (f6_ganon.py)
+#include "overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h" // ZMP phase 6 scenario tests (f6_ganon.py)
+#include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h" // ZMP phase 6 scenario tests (f6_castle_rooms.py)
 extern PlayState* gPlayState;
 s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
 }
@@ -148,6 +151,18 @@ void BongoInContext(void* p) {
 void TwinrovaInContext(void* p) {
     MorphaArg* a = (MorphaArg*)p;
     a->done = BossTw_ZmpStage(gPlayState, a->what);
+}
+
+// Ganondorf (f6_ganon.py): BossGanon_ZmpStage in the context of a player.
+void GanondorfInContext(void* p) {
+    MorphaArg* a = (MorphaArg*)p;
+    a->done = BossGanon_ZmpStage(gPlayState, a->what);
+}
+
+// Ganon (f6_ganon.py): BossGanon2_ZmpStage in the context of a player.
+void GanonInContext(void* p) {
+    MorphaArg* a = (MorphaArg*)p;
+    a->done = BossGanon2_ZmpStage(gPlayState, a->what, a->slot);
 }
 
 // D-117 tests: the player in context walks into a room as through a door (the room loads for it if nobody is there).
@@ -451,6 +466,66 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         if (!a.done) {
             return Bad(cmd, "Twinrova is not in a state where that applies");
         }
+    } else if ((op == "ganondorf" || op == "ganon") && w.size() == 4) {
+        // Ganondorf and Ganon (f6_ganon.py), what the bots cannot aim:
+        // "zmp_stage ganondorf ball <slot>": the energy ball sent back reaches Ganondorf (he hangs stunned);
+        // "zmp_stage ganondorf light|stun <slot>": a light arrow of that Link reaches him while stunned (he falls, open
+        //  to the sword; from the tennis it does the ball first);
+        // "zmp_stage ganon hit <slot>": Ganon's tail hit by that Link's sword (2 off his health, as the original);
+        // "zmp_stage ganon sword <slot>": Zelda's sword, lying where it fell, moved under that Link (its pickup, G5);
+        // "zmp_stage ganon finish <slot>": while Ganon lies waiting for it, that Link deals the final blow (G6).
+        int what = -1;
+        if (op == "ganondorf") {
+            what = w[2] == "ball" ? 0 : ((w[2] == "light" || w[2] == "stun") ? 1 : -1);
+        } else {
+            what = w[2] == "sword" ? 0 : (w[2] == "finish" ? 1 : (w[2] == "hit" ? 2 : -1));
+        }
+        int target = Num(w[3]);
+        if (what < 0) {
+            return Bad(cmd, "unknown ganondorf / ganon event");
+        }
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        MorphaArg a{ what, target, 0 };
+        Zmp::Players::RunInContext(target, op == "ganondorf" ? GanondorfInContext : GanonInContext, &a);
+        if (!a.done) {
+            return Bad(cmd, "Ganondorf / Ganon is not in a state where that applies");
+        }
+    } else if (op == "kekkai" && w.size() == 4 && w[2] == "hit") {
+        // "zmp_stage kekkai hit <slot>": the trial barrier nearest to that Link is hit as by its light arrow (the hit
+        // its collider reports; the barrier's own update does the rest at its next update, row T1).
+        int target = Num(w[3]);
+        Player* p = (target >= 0 && target < ZMP_MAX_PLAYERS && gZmpSim.slots[target].present)
+                        ? Zmp::Players::SlotPlayer(target)
+                        : nullptr;
+        if (p == nullptr) {
+            return Bad(cmd, "no such player");
+        }
+        DemoKekkai* best = nullptr;
+        f32 bestDist = 0.0f;
+        for (int cat = 0; cat < ACTORCAT_MAX; cat++) {
+            for (Actor* a = gPlayState->actorCtx.actorLists[cat].head; a != nullptr; a = a->next) {
+                if (a->id != ACTOR_DEMO_KEKKAI || a->params < 1 || a->params > 6) {
+                    continue;
+                }
+                f32 d = Actor_WorldDistXZToActor(a, &p->actor);
+                if (best == nullptr || d < bestDist) {
+                    best = (DemoKekkai*)a;
+                    bestDist = d;
+                }
+            }
+        }
+        if (best == nullptr) {
+            return Bad(cmd, "no trial barrier in the scene");
+        }
+        best->collider2.base.acFlags |= AC_HIT;
+    } else if (op == "subtimer" && w.size() == 3) {
+        // "zmp_stage subtimer <seconds>": the countdown that runs (the escape's, E1) jumps to <seconds>.
+        if (gSaveContext.subTimerState == SUBTIMER_STATE_OFF) {
+            return Bad(cmd, "no countdown running");
+        }
+        gSaveContext.subTimerSeconds = (s16)CLAMP(Num(w[2]), 1, 999);
     } else if (op == "haka_gate" && w.size() == 5 && w[2] == "turn") {
         // "zmp_stage haka_gate turn <slot> <1|-1>": the statue of the Shadow Temple's truth spinner turns one step
         // (60 degrees) that way, as when that Link pushes it (row B7). Only while it waits for a push.

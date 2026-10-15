@@ -1921,6 +1921,28 @@ extern "C" s32 Zmp_SlotOfPlayer(Player* player) {
     return Present(k) ? k : -1;
 }
 
+// G3 (D-166): what a group cutscene gives "the player" (a full heart and magic refill before Ganondorf, during the
+// escape) it gives every Link standing in the group: each one in its own context, then back to the context it was
+// called in. A downed Link stays down (D-120). Out of a group, just the player.
+extern "C" void Zmp_ForEachStanding(PlayState* play, void (*fn)(PlayState*, void*), void* arg) {
+    if (!Zmp_MultiActive()) {
+        fn(play, arg);
+        return;
+    }
+    int back = gZmpSim.ctx;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && !Slot(k).downed) {
+            SwitchTo(play, k);
+            fn(play, arg);
+        }
+    }
+    if (Present(back)) {
+        SwitchTo(play, back);
+    } else {
+        Zmp_RestoreAnchor(play);
+    }
+}
+
 extern "C" Player* Zmp_SlotPlayer(s32 slot) {
     if (!Zmp_MultiActive() || !Present(slot)) {
         return nullptr;
@@ -2199,6 +2221,18 @@ extern "C" void Zmp_NoteTransitionBy(Player* player) {
         gZmpSim.transitionBy = (s8)k;
     }
 }
+// D-165 (INVENTARIO E2): the escape from Ganon's tower (its exterior, the tower inside and the castle) is one way down
+// with one countdown for everybody (E1, D-164) and Zelda opening the bars ahead. An exit taken there by one Link takes
+// the whole group: split, each part would carry on with its own Zelda and reach Ganon on its own. (The original's
+// rule for the scene change; nothing else changes: who is down stays down only through the boss door, D-117.)
+static bool EscapeTakesGroup(PlayState* play) {
+    if (Zmp_TestMutant("huida_salida_propia")) { // (mutant: as before, the exit takes only its Link)
+        return false;
+    }
+    return play->sceneNum == SCENE_GANONS_TOWER_COLLAPSE_EXTERIOR ||
+           play->sceneNum == SCENE_GANONS_TOWER_COLLAPSE_INTERIOR ||
+           play->sceneNum == SCENE_INSIDE_GANONS_CASTLE_COLLAPSE;
+}
 
 // Phase 5 (PLAN.md 2.11, docs/DECISIONES.md D-062): no countdown. A scene change started by one player's own action
 // (walking into an exit, a void, Farore's Wind) takes only that player: on its machine the transition goes on and the
@@ -2294,6 +2328,11 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         Zmp::Log("zmp: D-117: slot " + std::to_string(k) + " goes through the boss door: the whole group goes in");
         own = false;
         gZmpSim.bossPassTicks = -1; // (the pass was used: the new scene keeps its downed players down)
+    }
+    if (own && !solo && EscapeTakesGroup(play)) {
+        // D-165 (E2): in the escape from Ganon's tower an exit taken by one Link takes the whole group.
+        Zmp::Log("zmp: D-165: slot " + std::to_string(k) + " takes an exit of the escape: the whole group goes");
+        own = false;
     }
     if (!own) {
         Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));

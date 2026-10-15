@@ -14,6 +14,8 @@
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include <libultraship/bridge/resourcebridge.h>
 
 #include <string.h>
@@ -499,6 +501,25 @@ void BossGanon_Destroy(Actor* thisx, PlayState* play) {
     }
 }
 
+// ZMP (G3, D-166): the intro's refill and the full health and magic of the tower's scene were given to "the player"
+// (the one in context): with a group, every Link standing gets them.
+static void BossGanon_ZmpRefillHealth(PlayState* play, void* arg) {
+    gSaveContext.healthAccumulator = MAX_HEALTH;
+}
+
+static void BossGanon_ZmpFull(PlayState* play, void* arg) {
+    gSaveContext.magic = gSaveContext.magicCapacity;
+    gSaveContext.health = gSaveContext.healthCapacity;
+}
+
+static void BossGanon_ZmpGive(PlayState* play, void (*fn)(PlayState*, void*)) {
+    if (Zmp_TestMutant("cura_solo_contexto")) { // (mutant: only the player of context, as before)
+        fn(play, NULL);
+    } else {
+        Zmp_ForEachStanding(play, fn, NULL);
+    }
+}
+
 void BossGanon_SetupIntroCutscene(BossGanon* this, PlayState* play) {
     s32 pad;
     s32 animBankIndex = Object_GetIndex(&play->objectCtx, OBJECT_GANON_ANIME2);
@@ -603,7 +624,7 @@ void BossGanon_IntroCutscene(BossGanon* this, PlayState* play) {
                 this->unk_198 = 2;
                 this->timers[2] = 110;
                 if (GameInteractor_Should(VB_GANON_HEAL_BEFORE_FIGHT, true)) {
-                    gSaveContext.healthAccumulator = MAX_HEALTH;
+                    BossGanon_ZmpGive(play, BossGanon_ZmpRefillHealth); // ZMP (G3, D-166)
                 }
                 Audio_QueueSeqCmd(NA_BGM_STOP);
             } else {
@@ -819,7 +840,7 @@ void BossGanon_IntroCutscene(BossGanon* this, PlayState* play) {
             }
 
             if (this->csTimer == 25) {
-                gSaveContext.healthAccumulator = MAX_HEALTH;
+                BossGanon_ZmpGive(play, BossGanon_ZmpRefillHealth); // ZMP (G3, D-166)
             }
 
             if (this->csTimer == 100) {
@@ -1236,8 +1257,7 @@ void BossGanon_SetupTowerCutscene(BossGanon* this, PlayState* play) {
         this->csTimer = 0;
         this->csState = 100;
         this->unk_198 = 1;
-        gSaveContext.magic = gSaveContext.magicCapacity;
-        gSaveContext.health = gSaveContext.healthCapacity;
+        BossGanon_ZmpGive(play, BossGanon_ZmpFull); // ZMP (G3, D-166)
     } else {
         this->actionFunc = BossGanon_SetupTowerCutscene;
     }
@@ -2846,6 +2866,66 @@ void BossGanon_UpdateDamage(BossGanon* this, PlayState* play) {
             }
         }
     }
+}
+
+// ZMP phase 6 scenario tests (f6_ganon.py): what the bots cannot aim. In the context of the player the event names
+// (Scenario.cpp):
+//   what 0, "ball": the energy ball sent back reaches Ganondorf (what BossGanon_LightBall_Update does on that hit: he
+//           hangs stunned, waiting for a light arrow; the balls in flight go), while he waits, charges or plays tennis;
+//   what 1, "light" (and "stun"): a light arrow reaches him while the ball or his big magic has him stunned: he falls,
+//           open to the sword (what BossGanon_UpdateDamage does); from the tennis, the floor pound or his block it does
+//           the ball first.
+s32 BossGanon_ZmpStage(PlayState* play, s32 what) {
+    BossGanon* g = sGanondorf;
+    Actor* a;
+    s32 cat;
+
+    if ((g == NULL) || (g->actor.update == NULL) || (what < 0) || (what > 1)) {
+        return 0;
+    }
+    if ((g->actionFunc == BossGanon_Wait) || (g->actionFunc == BossGanon_ChargeLightBall) ||
+        (g->actionFunc == BossGanon_PlayTennis) ||
+        ((what == 1) && ((g->actionFunc == BossGanon_PoundFloor) || (g->actionFunc == BossGanon_Block)))) {
+        for (cat = 0; cat < ACTORCAT_MAX; cat++) {
+            for (a = play->actorCtx.actorLists[cat].head; a != NULL; a = a->next) {
+                if ((a->id == ACTOR_BOSS_GANON) && (a->params >= 0x64) && (a->params < 0xC8)) {
+                    Actor_Kill(a);
+                }
+            }
+        }
+        BossGanon_SetupHitByLightBall(g, play);
+        if (what == 0) {
+            return 1;
+        }
+    }
+    if ((what == 1) && ((g->actionFunc == BossGanon_HitByLightBall) || (g->actionFunc == BossGanon_ChargeBigMagic))) {
+        BossGanon_SetupVulnerable(g, play);
+        g->timers[2] = 0;
+        g->unk_1A6 = 15;
+        return 1;
+    }
+    return 0;
+}
+
+// ZMP (f6_ganon.py): for the harness, what Ganondorf (the main actor) is doing: 0 intro, 1 death and tower scene,
+// 2 waits, 3 charges the ball, 4 tennis, 5 pounds the floor, 6 big magic, 7 blocks, 8 hit by the ball, 9 open to the
+// sword, 10 hurt, -1 anything else.
+s32 BossGanon_ZmpAction(Actor* thisx) {
+    BossGanon* g = (BossGanon*)thisx;
+    BossGanonActionFunc f = g->actionFunc;
+
+    return f == BossGanon_IntroCutscene           ? 0
+           : f == BossGanon_DeathAndTowerCutscene ? 1
+           : f == BossGanon_Wait                  ? 2
+           : f == BossGanon_ChargeLightBall       ? 3
+           : f == BossGanon_PlayTennis            ? 4
+           : f == BossGanon_PoundFloor            ? 5
+           : f == BossGanon_ChargeBigMagic        ? 6
+           : f == BossGanon_Block                 ? 7
+           : f == BossGanon_HitByLightBall        ? 8
+           : f == BossGanon_Vulnerable            ? 9
+           : f == BossGanon_Damaged               ? 10
+                                                  : -1;
 }
 
 static f32 D_808E4D44[] = {

@@ -173,6 +173,14 @@
 //                          shown on that Link's screen only (D-163): Twinrova's sisters' last words
 //   colgado_retenido       a Link hanging from a ledge when a group cutscene ends keeps the cutscene's wait order
 //                          (finding BP, D-157): it stays "in a cutscene" until it climbs or lets go
+//   cuenta_al_dibujar      the timers (the escape's countdown) count while drawing the HUD, in the context of each
+//                          machine's own player and once per drawn frame (E1, D-164): the machines differ
+//   huida_salida_propia    an exit of the escape from Ganon's tower takes only the Link that crosses it (E2, D-165)
+//   cura_solo_contexto     the refills of Ganondorf's intro and of the escape go to the player of context only (G3,
+//                          D-166)
+//   espada_al_mas_cercano  only the Link nearest to Ganon can pick Zelda's sword up (G5, D-167)
+//   golpe_final_al_mas_cercano  only the Link nearest to Ganon's body can deal the final blow (G6, D-167)
+//   anillo_al_mas_cercano  Ganon's ring of fire burns and throws back only the Link nearest to Ganon (G6, D-167)
 
 #ifdef __cplusplus
 extern "C" {

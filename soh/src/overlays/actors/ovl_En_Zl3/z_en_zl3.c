@@ -13,6 +13,22 @@
 #include "objects/object_zl2_anime2/object_zl2_anime2.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
+
+// ZMP (G3, D-166): the refill Zelda gives as the escape starts (hearts and magic) goes to every Link standing.
+static void EnZl3_ZmpRefill(PlayState* play, void* arg) {
+    gSaveContext.healthAccumulator = 320;
+    Magic_Fill(play);
+}
+
+static void EnZl3_ZmpGiveRefill(PlayState* play) {
+    if (Zmp_TestMutant("cura_solo_contexto")) { // (mutant: only the player of context, as before)
+        EnZl3_ZmpRefill(play, NULL);
+    } else {
+        Zmp_ForEachStanding(play, EnZl3_ZmpRefill, NULL);
+    }
+}
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -2546,8 +2562,7 @@ void func_80B59828(EnZl3* this, PlayState* play) {
     if (func_80B59698(this, play) != 0) {
         Interface_SetSubTimer(180);
         func_80B53468();
-        gSaveContext.healthAccumulator = 320;
-        Magic_Fill(play);
+        EnZl3_ZmpGiveRefill(play); // ZMP (G3, D-166): every Link standing
         if (Flags_GetSwitch(play, 0x20)) {
             Flags_UnsetSwitch(play, 0x20);
             Actor_Spawn(&play->actorCtx, play, ACTOR_BG_ZG, -144.0f, 3544.0f, -43.0f, 0, 0x2000, 0, 0x2000);
@@ -2595,8 +2610,7 @@ void func_80B59AD0(EnZl3* this, PlayState* play) {
     func_80B53614(this, play);
     Flags_UnsetEventChkInf(EVENTCHKINF_WATCHED_GANONS_CASTLE_COLLAPSE_CAUGHT_BY_GERUDO);
     func_80B56F10(this, play);
-    gSaveContext.healthAccumulator = 320;
-    Magic_Fill(play);
+    EnZl3_ZmpGiveRefill(play); // ZMP (G3, D-166): every Link standing
     this->action = 27;
     this->drawConfig = 1;
 }

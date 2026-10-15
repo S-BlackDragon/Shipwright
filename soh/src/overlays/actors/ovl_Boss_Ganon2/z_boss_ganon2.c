@@ -11,6 +11,8 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #include <string.h>
 
@@ -41,6 +43,7 @@ void BossGanon2_UpdateEffects(BossGanon2* this, PlayState* play);
 void BossGanon2_DrawEffects(PlayState* play);
 void BossGanon2_GenShadowTexture(void* shadowTexture, BossGanon2* this, PlayState* play);
 void BossGanon2_DrawShadowTexture(void* shadowTexture, BossGanon2* this, PlayState* play);
+static Player* BossGanon2_ZmpFinalBlow(BossGanon2* this, PlayState* play, Player* player); // ZMP (G6)
 
 const ActorInit Boss_Ganon2_InitVars = {
     ACTOR_BOSS_GANON2,
@@ -1415,6 +1418,13 @@ void func_80900890(BossGanon2* this, PlayState* play) {
             }
             break;
         case 10:
+            if (this->zmpSwordSlot != 0) { // ZMP (G5, D-167): the cutscene is about the Link that took the sword
+                Player* taker = Zmp_HeldPlayer(play, this->zmpSwordSlot - 1);
+
+                if (taker != NULL) {
+                    player = taker;
+                }
+            }
             func_80064520(play, &play->csCtx);
             this->subCamId = Play_CreateSubCamera(play);
             Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
@@ -1706,8 +1716,9 @@ void func_8090120C(BossGanon2* this, PlayState* play) {
             temp_f14 = this->unk_1B8.x - player->actor.world.pos.x;
             temp_f12 = this->unk_1B8.z - player->actor.world.pos.z;
             temp_a0_2 = Math_Atan2S(temp_f12, temp_f14) - player->actor.shape.rot.y;
-            if ((ABS(temp_a0_2) < 0x2000) && (sqrtf(SQ(temp_f14) + SQ(temp_f12)) < 70.0f) &&
-                (player->meleeWeaponState != 0) && (player->heldItemAction == PLAYER_IA_SWORD_MASTER)) {
+            // ZMP (G6, D-167): any Link that strikes the head with the Master Sword (the original's test, per Link)
+            if (BossGanon2_ZmpFinalBlow(this, play, player) != NULL) {
+                player = GET_PLAYER(play);
                 func_80064520(play, &play->csCtx);
                 GameInteractor_ExecuteOnBossDefeat(&this->actor);
                 if (GameInteractor_Should(VB_SLAY_GANON, true)) {
@@ -1906,6 +1917,24 @@ void func_8090120C(BossGanon2* this, PlayState* play) {
     }
 }
 
+// ZMP (G6, D-167): the ring's test and its push for the Link in context (the original's, per Link).
+static void BossGanon2_ZmpRing(PlayState* play, void* arg) {
+    BossGanon2* this = (BossGanon2*)arg;
+    Player* player = GET_PLAYER(play);
+    f32 dx = -200.0f - player->actor.world.pos.x;
+    f32 dz = -200.0f - player->actor.world.pos.z;
+    s16 j;
+
+    if (sqrtf(SQ(dx) + SQ(dz)) > 784.0f) {
+        for (j = 0; j < ARRAY_COUNT(player->bodyFlameTimers); j++) {
+            player->bodyFlameTimers[j] = Rand_S16Offset(0, 200);
+        }
+        player->bodyIsBurning = true;
+        Actor_SetPlayerKnockbackLarge(play, &this->actor, 10.0f, Math_Atan2S(dz, dx), 0.0f, 0x10);
+        sZelda->unk_3C8 = 8;
+    }
+}
+
 void func_80902348(BossGanon2* this, PlayState* play) {
     Player* player;
     f32 temp_f2;
@@ -1936,7 +1965,11 @@ void func_80902348(BossGanon2* this, PlayState* play) {
         }
     }
 
-    if (this->unk_324 > 0.0f) {
+    if ((this->unk_324 > 0.0f) && Zmp_MultiActive() && !Zmp_TestMutant("anillo_al_mas_cercano")) {
+        // ZMP (G6, D-167): the ring of fire burns and throws back every Link standing outside it, not only the one
+        // nearest to Ganon (the others walked through it, to Zelda's sword among other places)
+        Zmp_ForEachStanding(play, BossGanon2_ZmpRing, this);
+    } else if (this->unk_324 > 0.0f) {
         player = GET_PLAYER(play);
         temp_f2 = -200.0f - player->actor.world.pos.x;
         temp_f12 = -200.0f - player->actor.world.pos.z;
@@ -2894,6 +2927,74 @@ void BossGanon2_Draw(Actor* thisx, PlayState* play) {
     BossGanon2_DrawEffects(play);
 }
 
+// ZMP (G5, D-167): Zelda's sword was picked up by "the player" of Ganon's update, the Link nearest to Ganon, and the
+// one who goes for it is usually far from him: no Link could take it. Any Link standing within 25 of it takes it (the
+// first in slot order that tick), and the cutscene that gives it back is about that Link.
+static s32 BossGanon2_ZmpSwordTaken(BossGanon2* this, PlayState* play, Player* player, Vec3f* pos) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("espada_al_mas_cercano")) { // (mutant: as before)
+        return (SQ(player->actor.world.pos.x - pos->x) + SQ(player->actor.world.pos.z - pos->z)) < SQ(25.0f);
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && !Zmp_IsDowned(link) &&
+            ((SQ(link->actor.world.pos.x - pos->x) + SQ(link->actor.world.pos.z - pos->z)) < SQ(25.0f))) {
+            this->zmpSwordSlot = k + 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// ZMP (G6, D-167): the final blow was looked for only in "the player" of Ganon's update (the Link nearest to his body):
+// any Link standing that strikes his head with the Master Sword deals it (the first in slot order that tick) and the
+// final cutscene is about that Link. Returns that Link, made the player in context, or NULL.
+static Player* BossGanon2_ZmpFinalBlow(BossGanon2* this, PlayState* play, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("golpe_final_al_mas_cercano")) { // (mutant: as before)
+        k = Zmp_SlotOfPlayer(player);
+        if ((this->zmpFinishSlot != 0) && (k == this->zmpFinishSlot - 1)) {
+            return player;
+        }
+    } else {
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* link = Zmp_SlotPlayer(k);
+            f32 dx;
+            f32 dz;
+            s16 yaw;
+
+            if ((link == NULL) || Zmp_IsDowned(link)) {
+                continue;
+            }
+            if (this->zmpFinishSlot == k + 1) {
+                return Zmp_HeldPlayer(play, k);
+            }
+            dx = this->unk_1B8.x - link->actor.world.pos.x;
+            dz = this->unk_1B8.z - link->actor.world.pos.z;
+            yaw = Math_Atan2S(dz, dx) - link->actor.shape.rot.y;
+            if ((ABS(yaw) < 0x2000) && (sqrtf(SQ(dx) + SQ(dz)) < 70.0f) && (link->meleeWeaponState != 0) &&
+                (link->heldItemAction == PLAYER_IA_SWORD_MASTER)) {
+                return Zmp_HeldPlayer(play, k);
+            }
+        }
+        return NULL;
+    }
+    {
+        f32 dx = this->unk_1B8.x - player->actor.world.pos.x;
+        f32 dz = this->unk_1B8.z - player->actor.world.pos.z;
+        s16 yaw = Math_Atan2S(dz, dx) - player->actor.shape.rot.y;
+
+        if ((ABS(yaw) < 0x2000) && (sqrtf(SQ(dx) + SQ(dz)) < 70.0f) && (player->meleeWeaponState != 0) &&
+            (player->heldItemAction == PLAYER_IA_SWORD_MASTER)) {
+            return player;
+        }
+    }
+    return NULL;
+}
+
 void BossGanon2_UpdateEffects(BossGanon2* this, PlayState* play) {
     s32 pad[5];
     Player* player = GET_PLAYER(play);
@@ -2932,8 +3033,7 @@ void BossGanon2_UpdateEffects(BossGanon2* this, PlayState* play) {
                         }
                         effect->velocity.y = 0.0f;
                     }
-                    if ((SQ(player->actor.world.pos.x - effect->position.x) +
-                         SQ(player->actor.world.pos.z - effect->position.z)) < SQ(25.0f)) {
+                    if (BossGanon2_ZmpSwordTaken(this, play, player, &effect->position)) { // ZMP (G5, D-167)
                         effect->type = 0;
                         this->csState = 10;
                     }
@@ -3162,6 +3262,86 @@ void BossGanon2_DrawShadowTexture(void* shadowTexture, BossGanon2* this, PlaySta
     gSPDisplayList(POLY_OPA_DISP++, gGanonShadowModelDL);
 
     CLOSE_DISPS(gfxCtx);
+}
+
+// ZMP phase 6 scenario tests (f6_ganon.py): what the bots cannot aim. In the context of the player the event names
+// (Scenario.cpp), on the Ganon of the room:
+//   what 0, "sword <slot>": Zelda's sword, lying where it fell, is moved under that Link's feet (its own pickup test
+//           does the rest at Ganon's next update, G5);
+//   what 1, "finish <slot>": while Ganon lies waiting for the final blow, that Link deals it (G6);
+//   what 2, "hit <slot>": his tail is hit as by that Link's sword (what BossGanon2_CollisionCheck does with it), while
+//           he fights and can be hurt.
+s32 BossGanon2_ZmpStage(PlayState* play, s32 what, s32 slot) {
+    BossGanon2* g = NULL;
+    Actor* a;
+    Player* link = Zmp_SlotPlayer(slot);
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BOSS].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_BOSS_GANON2) {
+            g = (BossGanon2*)a;
+        }
+    }
+    if ((g == NULL) || (link == NULL)) {
+        return 0;
+    }
+    if (what == 0) {
+        BossGanon2Effect* effect = play->specialEffects;
+
+        if ((effect == NULL) || (effect->type != 1) || (effect->unk_2E == 0) || (effect->velocity.y != 0.0f)) {
+            return 0;
+        }
+        effect->position.x = link->actor.world.pos.x;
+        effect->position.z = link->actor.world.pos.z;
+        return 1;
+    }
+    if (what == 1) {
+        if ((g->actionFunc != func_8090120C) || (g->csState != 6)) {
+            return 0;
+        }
+        g->zmpFinishSlot = slot + 1;
+        return 1;
+    }
+    if (what == 2) {
+        if ((g->unk_316 != 0) || (g->actionFunc == func_808FD5F4) || (g->actionFunc == func_80900890) ||
+            (g->actionFunc == func_8090120C) || (g->actionFunc == func_808FFDB0)) {
+            return 0;
+        }
+        g->unk_316 = 60;
+        g->unk_344 = 0x32;
+        g->unk_342 = 5;
+        g->actor.colChkInfo.health -= 2;
+        if (((s8)g->actor.colChkInfo.health < 0x15) && (g->unk_334 == 0)) {
+            func_80900818(g, play);
+        } else if ((s8)g->actor.colChkInfo.health <= 0) {
+            func_80901020(g, play);
+        } else {
+            func_80900210(g, play);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+// ZMP (f6_ganon.py): for the harness. out: [0] csState, [1] what he does (0 the intro, 1 fights, 2 the cutscene of the
+// sword (down, Zelda speaks, the sword given back), 3 the final cutscene, 4 stunned), [2] health, [3] Zelda's sword (0
+// none, 1 flying, 2 lying), [4] the slot that took it (-1 nobody), [5] the ring of fire's strength (0 off, 255 full).
+s32 BossGanon2_ZmpInfo(Actor* thisx, s32* out, Vec3f* head, Vec3f* sword) {
+    BossGanon2* g = (BossGanon2*)thisx;
+    BossGanon2Effect* effect = sEffects;
+
+    out[0] = g->csState;
+    out[1] = g->actionFunc == func_808FD5F4   ? 0
+             : g->actionFunc == func_80900890 ? 2
+             : g->actionFunc == func_8090120C ? 3
+             : g->actionFunc == func_80900104 ? 4
+                                              : 1;
+    out[2] = (s8)g->actor.colChkInfo.health;
+    out[3] = (effect->type != 1) ? 0 : ((effect->unk_2E != 0) && (effect->velocity.y == 0.0f)) ? 2 : 1;
+    out[4] = g->zmpSwordSlot - 1;
+    out[5] = (s32)g->unk_324;
+    *head = g->unk_1B8;
+    *sword = effect->position;
+    return 1;
 }
 
 void BossGanon2_Reset(void) {
