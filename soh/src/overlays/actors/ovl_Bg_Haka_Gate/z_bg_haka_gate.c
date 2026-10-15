@@ -7,6 +7,7 @@
 #include "z_bg_haka_gate.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_haka_objects/object_haka_objects.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-148)
 
 #define FLAGS 0
 
@@ -52,6 +53,13 @@ static u8 sBgPoEventPuzzleState = 1;
 static f32 sStatueDistToPlayer = 0;
 
 static s16 sStatueRotY;
+
+// ZMP (row B7 of the Shadow Temple, D-148): which skull is the true one (chosen at random when the room loads), how
+// many tries the puzzle has had, and the statue's turn. Who entered later (late join, reconnection, a respawn of its
+// own) had its own values: the floor would open on one machine and not on another.
+#define BG_HAKA_GATE_ZMP_NEW_FIELDS(F) \
+    F(sSkullOfTruthRotY) F(sBgPoEventPuzzleState) F(sStatueDistToPlayer) F(sStatueRotY)
+ZMP_SAVESTATE_DEFINE(BgHakaGate, ZMP_SAVESTATE_NONE, BG_HAKA_GATE_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 const ActorInit Bg_Haka_Gate_InitVars = {
     ACTOR_BG_HAKA_GATE,
@@ -374,4 +382,24 @@ void BgHakaGate_Draw(Actor* thisx, PlayState* play) {
 
 void BgHakaGate_Reset(void) {
     sStatueRotY = 0;
+}
+
+// ZMP phase 6 scenario tests (f6_shadow_rooms.py, row B7): the statue of the truth spinner turned by one step (60
+// degrees) in a direction (1 or -1), as a Link pushing or pulling it turns it (BgHakaGate_StatueIdle), with no Link
+// carried around. Only while it waits for a push.
+s32 BgHakaGate_ZmpTurn(PlayState* play, s32 direction) {
+    Actor* a = play->actorCtx.actorLists[ACTORCAT_PROP].head;
+
+    while ((a != NULL) && ((a->id != ACTOR_BG_HAKA_GATE) || (a->params != BGHAKAGATE_STATUE))) {
+        a = a->next;
+    }
+    if ((a == NULL) || (((BgHakaGate*)a)->actionFunc != BgHakaGate_StatueIdle) || (((BgHakaGate*)a)->vTimer != 0)) {
+        return 0;
+    }
+    BgHakaGate* this = (BgHakaGate*)a;
+    this->vInitTurnAngle = this->dyna.actor.shape.rot.y - this->dyna.actor.yawTowardsPlayer;
+    sStatueDistToPlayer = 0.0f;
+    this->vTurnDirection = (direction >= 0) ? 1 : -1;
+    this->actionFunc = BgHakaGate_StatueTurn;
+    return 1;
 }

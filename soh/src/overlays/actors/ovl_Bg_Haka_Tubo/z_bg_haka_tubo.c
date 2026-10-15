@@ -5,6 +5,7 @@
  */
 
 #include "z_bg_haka_tubo.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-148)
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_haka_objects/object_haka_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -74,6 +75,11 @@ static ColliderCylinderInit sFlamesColliderInit = {
 };
 
 static s32 sPotsDestroyed = 0;
+
+// ZMP (Shadow Temple, D-148): how many of the spinning pots are broken (the third one drops the item). Who entered
+// later had its own count.
+#define BG_HAKA_TUBO_ZMP_NEW_FIELDS(F) F(sPotsDestroyed)
+ZMP_SAVESTATE_DEFINE(BgHakaTubo, ZMP_SAVESTATE_NONE, BG_HAKA_TUBO_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 static InitChainEntry sInitChain[] = {
     ICHAIN_VEC3F_DIV1000(scale, 100, ICHAIN_STOP),

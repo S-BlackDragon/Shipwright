@@ -27,6 +27,12 @@ typedef struct BgHakaTrap {
     /* 0x0178 */ ColliderCylinder colliderCylinder;
     /* 0x01C4 */ ColliderTris colliderSpikes;
     /* 0x01E4 */ ColliderTrisElement colliderSpikesItem[2];
+    // ZMP (rows B8 and B11 of the Shadow Temple, D-149): the blade and the spikes put their body cylinder next to
+    // "the player" only. In a group each other present player gets its own copy of it (by slot), and the walls
+    // crush the players between them one per tick (bits by slot).
+    ColliderCylinder zmpCylinders[6];
+    u8 zmpCylinderAt;
+    u8 zmpCrushMask;
 } BgHakaTrap; // size = 0x029C
 
 #endif

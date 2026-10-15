@@ -62,6 +62,8 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(BgDdanKd)                  \
     X(BgDodoago)                 \
     X(BgHakaTrap)                \
+    X(BgHakaGate)                \
+    X(BgHakaTubo)                \
     X(BgHidanRock)               \
     X(BgMenkuriEye)              \
     X(BgMoriHineri)              \

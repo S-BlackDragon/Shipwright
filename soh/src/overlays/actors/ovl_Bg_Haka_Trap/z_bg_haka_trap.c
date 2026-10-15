@@ -5,6 +5,8 @@
  */
 
 #include "z_bg_haka_trap.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "objects/object_haka_objects/object_haka_objects.h"
 #include "soh/Enhancements/savestate_serialize.h"
 
@@ -114,7 +116,14 @@ static UNK_TYPE sSpikedCrusherFlip = 0;
     F(sIsSpikeWallBurning)                    \
     F(sSpikedCrusherFlip)
 
-SHIP_SAVESTATE_DEFINE(BgHakaTrap, BG_HAKA_TRAP_SHIP_SAVESTATE_FIELDS)
+static UNK_TYPE sSpikedWallFlags =
+    0; // ZMP: declared here (was before BgHakaTrap_SpikedWall_CloseIn) for the list below
+
+// ZMP (row B8 of the Shadow Temple, D-148): which spiked walls are home (4: they met and crushed). Who came back to
+// the room after being crushed had 0: its walls met again on its machine and crushed a second player there only.
+#define BG_HAKA_TRAP_ZMP_NEW_FIELDS(F) F(sSpikedWallFlags)
+
+ZMP_SAVESTATE_DEFINE(BgHakaTrap, BG_HAKA_TRAP_SHIP_SAVESTATE_FIELDS, BG_HAKA_TRAP_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 void BgHakaTrap_Init(Actor* thisx, PlayState* play) {
     BgHakaTrap* this = (BgHakaTrap*)thisx;
@@ -184,6 +193,13 @@ void BgHakaTrap_Init(Actor* thisx, PlayState* play) {
 
             this->dyna.bgId = DynaPoly_SetBgActor(play, &play->colCtx.dyna, thisx, colHeader);
         }
+        // ZMP (D-149): each player's copy of the body cylinder, the same shape
+        for (s32 k = 0; k < ARRAY_COUNT(this->zmpCylinders); k++) {
+            Collider_InitCylinder(play, &this->zmpCylinders[k]);
+            Collider_SetCylinder(play, &this->zmpCylinders[k], thisx, &sCylinderInit);
+            this->zmpCylinders[k].dim = this->colliderCylinder.dim;
+            this->zmpCylinders[k].info.toucherFlags = this->colliderCylinder.info.toucherFlags;
+        }
     } else {
         this->timer = 40;
         this->actionFunc = BgHakaTrap_FanBlade_Idle;
@@ -206,17 +222,26 @@ void BgHakaTrap_Destroy(Actor* thisx, PlayState* play) {
         }
 
         Collider_DestroyCylinder(play, &this->colliderCylinder);
+        for (s32 k = 0; k < ARRAY_COUNT(this->zmpCylinders); k++) { // ZMP (D-149)
+            Collider_DestroyCylinder(play, &this->zmpCylinders[k]);
+        }
     }
 
     Audio_StopSfxByPos(&this->chainLiftSfxPos);
 }
 
+// ZMP (D-149): the original placement of the body cylinder, for any player and any copy of the cylinder.
+static void BgHakaTrap_PlaceCylinder(BgHakaTrap* this, ColliderCylinder* cylinder, Player* player);
+
 void BgHakaTrap_UpdateBodyColliderPos(BgHakaTrap* this, PlayState* play) {
+    BgHakaTrap_PlaceCylinder(this, &this->colliderCylinder, GET_PLAYER(play));
+}
+
+static void BgHakaTrap_PlaceCylinder(BgHakaTrap* this, ColliderCylinder* cylinder, Player* player) {
     f32 cosine;
     Vec3f sp28;
     f32 sine;
     f32 zNonNegative;
-    Player* player = GET_PLAYER(play);
 
     Actor_WorldToActorCoords(&this->dyna.actor, &sp28, &player->actor.world.pos);
 
@@ -232,11 +257,107 @@ void BgHakaTrap_UpdateBodyColliderPos(BgHakaTrap* this, PlayState* play) {
         sp28.z = zNonNegative * 15.0f;
     }
 
-    this->colliderCylinder.dim.pos.x = this->dyna.actor.world.pos.x + sp28.x * cosine + sp28.z * sine;
-    this->colliderCylinder.dim.pos.z = this->dyna.actor.world.pos.z + sp28.x * sine + sp28.z * cosine;
+    cylinder->dim.pos.x = this->dyna.actor.world.pos.x + sp28.x * cosine + sp28.z * sine;
+    cylinder->dim.pos.z = this->dyna.actor.world.pos.z + sp28.x * sine + sp28.z * cosine;
 }
 
-static UNK_TYPE sSpikedWallFlags = 0;
+// ZMP (row B8 of the Shadow Temple, D-149): when both spiked walls are home the original crushes "the player" (the
+// Link of the wall's context, the nearest), wherever it stands; a second Link between the walls stayed there. In a
+// group every present Link between the two walls is crushed, one per tick (a scene change takes one player per tick:
+// two in the same tick and the second one's void out was lost). Returns 0 outside a group (the original crush).
+static s32 BgHakaTrap_ZmpCrushBetween(BgHakaTrap* this, PlayState* play) {
+    Actor* other = play->actorCtx.actorLists[ACTORCAT_BG].head;
+    f32 xMin;
+    f32 xMax;
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("muros_al_del_contexto")) { // (mutant: the nearest only, as before)
+        return 0;
+    }
+    while ((other != NULL) &&
+           ((other->id != ACTOR_BG_HAKA_TRAP) || (other == &this->dyna.actor) ||
+            ((other->params != HAKA_TRAP_SPIKED_WALL) && (other->params != HAKA_TRAP_SPIKED_WALL_2)))) {
+        other = other->next;
+    }
+    if (other == NULL) {
+        return 0;
+    }
+    xMin = MIN(this->dyna.actor.world.pos.x, other->world.pos.x);
+    xMax = MAX(this->dyna.actor.world.pos.x, other->world.pos.x);
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        Vec3f local;
+
+        if (link == NULL) {
+            continue;
+        }
+        Actor_WorldToActorCoords(&this->dyna.actor, &local, &link->actor.world.pos);
+        if ((link->actor.world.pos.x > xMin) && (link->actor.world.pos.x < xMax) && (fabsf(local.x) < 170.0f) &&
+            (fabsf(link->actor.world.pos.y - this->dyna.actor.world.pos.y) < 150.0f)) {
+            this->zmpCrushMask |= 1 << k;
+        }
+    }
+    return 1;
+}
+
+static void BgHakaTrap_ZmpCrushNext(BgHakaTrap* this, PlayState* play) {
+    s32 k;
+
+    for (k = 0; k < 8; k++) {
+        if (this->zmpCrushMask & (1 << k)) {
+            Player* link = Zmp_SlotPlayer(k);
+
+            this->zmpCrushMask &= ~(1 << k);
+            if (link != NULL) {
+                link->actor.bgCheckFlags |= 0x100;
+                return;
+            }
+        }
+    }
+}
+
+// ZMP (rows B8 and B11 of the Shadow Temple, D-149): the guillotine's blade and the spiked walls put their body
+// cylinder next to "the player" only (the Link of the trap's context): the blade cut and blocked only that Link, and
+// the spikes hurt only it. In a group every other present Link gets its own copy of the cylinder, put the same way next
+// to it, with the same hits (the blade's push stays the original's).
+static void BgHakaTrap_ZmpOtherCylinders(BgHakaTrap* this, PlayState* play) {
+    Player* context = GET_PLAYER(play);
+    s32 guillotine = (this->dyna.actor.params == HAKA_TRAP_GUILLOTINE_SLOW);
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("trampa_al_del_contexto")) { // (mutant: the nearest only, as before)
+        return;
+    }
+    if (!guillotine && (this->dyna.actor.params != HAKA_TRAP_SPIKED_WALL) &&
+        (this->dyna.actor.params != HAKA_TRAP_SPIKED_WALL_2)) {
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        ColliderCylinder* cylinder;
+
+        if ((link == NULL) || (link == context) || (k >= ARRAY_COUNT(this->zmpCylinders))) {
+            continue;
+        }
+        cylinder = &this->zmpCylinders[k];
+        cylinder->dim.radius = this->colliderCylinder.dim.radius;
+        cylinder->dim.height = this->colliderCylinder.dim.height;
+        cylinder->dim.yShift = this->colliderCylinder.dim.yShift;
+        cylinder->dim.pos.y = this->colliderCylinder.dim.pos.y;
+        BgHakaTrap_PlaceCylinder(this, cylinder, link);
+        if (guillotine) {
+            // (only its cut: the blade's push (OC) stays the original's, next to "the player". Pushed by every copy, a
+            // Link next to another under the blade was pushed twice as far, out of the blade's reach, and nobody was
+            // ever cut: tanda1 of block 2.)
+            if (this->zmpCylinderAt) {
+                CollisionCheck_SetAT(play, &play->colChkCtx, &cylinder->base);
+            }
+        } else {
+            CollisionCheck_SetAT(play, &play->colChkCtx, &cylinder->base);
+        }
+    }
+}
+
 void BgHakaTrap_SpikedWall_CloseIn(BgHakaTrap* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
 
@@ -258,7 +379,12 @@ void BgHakaTrap_SpikedWall_CloseIn(BgHakaTrap* this, PlayState* play) {
         this->actionFunc = BgHakaTrap_SpikedWall_Burn;
     } else if (sSpikedWallFlags == 3) {
         sSpikedWallFlags = 4;
-        player->actor.bgCheckFlags |= 0x100;
+        if (!BgHakaTrap_ZmpCrushBetween(this, play)) { // ZMP (B8, D-149): everybody between the walls in a group
+            player->actor.bgCheckFlags |= 0x100;
+        }
+    }
+    if (this->zmpCrushMask != 0) { // ZMP (B8, D-149): one per tick
+        BgHakaTrap_ZmpCrushNext(this, play);
     }
 }
 
@@ -325,6 +451,7 @@ void BgHakaTrap_Guillotine_Fall(BgHakaTrap* this, PlayState* play) {
 
     if (sp24 == 0) {
         CollisionCheck_SetAT(play, &play->colChkCtx, &this->colliderCylinder.base);
+        this->zmpCylinderAt = true; // ZMP (D-149): the copies of the other players hit too
     }
 }
 
@@ -492,6 +619,7 @@ void BgHakaTrap_Update(Actor* thisx, PlayState* play) {
     BgHakaTrap* this = (BgHakaTrap*)thisx;
     Vec3f* actorPos = &this->dyna.actor.world.pos;
 
+    this->zmpCylinderAt = false; // ZMP (D-149)
     this->actionFunc(this, play);
 
     if ((this->dyna.actor.params != HAKA_TRAP_PROPELLER) && (thisx->params != HAKA_TRAP_SPIKED_BOX)) {
@@ -507,6 +635,7 @@ void BgHakaTrap_Update(Actor* thisx, PlayState* play) {
 
             CollisionCheck_SetAT(play, &play->colChkCtx, &this->colliderCylinder.base);
         }
+        BgHakaTrap_ZmpOtherCylinders(this, play); // ZMP (B8, B11, D-149)
     }
 }
 

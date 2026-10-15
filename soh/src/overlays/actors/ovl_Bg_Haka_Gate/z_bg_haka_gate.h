@@ -19,6 +19,9 @@ typedef struct BgHakaGate {
     /* 0x0172 */ s16 actionVar5;
 } BgHakaGate; // size = 0x0174
 
+// ZMP phase 6 scenario tests (f6_shadow_rooms.py, row B7): the statue turned by one step, as a push turns it.
+s32 BgHakaGate_ZmpTurn(struct PlayState* play, s32 direction);
+
 typedef enum {
     BGHAKAGATE_STATUE,
     BGHAKAGATE_FLOOR,
