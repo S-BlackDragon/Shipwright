@@ -1,5 +1,6 @@
 #include "global.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include <libultraship/libultra.h>
 #include "vt.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
@@ -75,7 +76,15 @@ u16 gTimeSpeed = 0;
 extern u8 D_8011FDCC;
 extern u8 D_8011FDD0;
 extern f32 D_8011FDD4;
-#define ENVIRONMENT_ZMP_NEW_FIELDS(F) F(D_8011FDCC) F(D_8011FDD0) F(D_8011FDD4)
+// ZMP (finding BY, D-156): a storm's lightning (the strike's timer and flash, the bolts) is simulation too: the
+// timer draws the game's random numbers every tick and decides when a bolt strikes. Who joined the Graveyard in the
+// rain, or received the leader's state, kept its own timer: one machine struck and drew 13 numbers where the others
+// drew 2, and the group desynchronized for as long as it rained.
+extern LightningBolt sLightningBolts[3];
+extern LightningStrike gLightningStrike;
+extern s16 sLightningFlashAlpha;
+#define ENVIRONMENT_ZMP_NEW_FIELDS(F) \
+    F(D_8011FDCC) F(D_8011FDD0) F(D_8011FDD4) F(sLightningBolts) F(gLightningStrike) F(sLightningFlashAlpha)
 ZMP_SAVESTATE_DEFINE(Environment, ENVIRONMENT_SHIP_SAVESTATE_FIELDS, ENVIRONMENT_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 u16 D_8011FB44 = 0xFFFC;
@@ -1693,6 +1702,12 @@ f32 func_800746DC(void) {
     return Rand_ZeroOne() - 0.5f;
 }
 
+// ZMP (finding BY, D-156): the rain is presentation. How many random numbers its drawing takes depends on this
+// machine's picture (the rings on the ground only when its camera is above the Link): with the game's numbers, a
+// screen whose camera was above changed the simulation's RNG and the group desynchronized while it rained (the
+// Graveyard after Bongo Bongo, the Song of Storms). It draws with numbers of its own, kept between frames.
+static u32 sZmpRainRand[2] = { 1, 0 };
+
 void Environment_DrawRain(PlayState* play, View* view, GraphicsContext* gfxCtx) {
     s16 i;
     s32 pad;
@@ -1713,6 +1728,13 @@ void Environment_DrawRain(PlayState* play, View* view, GraphicsContext* gfxCtx) 
     Player* player = GET_PLAYER(play);
 
     if (!(play->cameraPtrs[0]->unk_14C & 0x100) && (play->envCtx.unk_EE[2] == 0)) {
+        // ZMP (D-156): the rain's own random numbers (mutant lluvia_del_juego: the game's, as before)
+        u32 zmpSimRand[2];
+        s32 zmpOwnRand = !Zmp_TestMutant("lluvia_del_juego");
+        if (zmpOwnRand) {
+            zmpSimRand[0] = Rand_ZmpGetState(&zmpSimRand[1]);
+            Rand_ZmpSetState(sZmpRainRand[0], sZmpRainRand[1]);
+        }
         OPEN_DISPS(gfxCtx);
 
         vec.x = view->lookAt.x - view->eye.x;
@@ -1802,6 +1824,10 @@ void Environment_DrawRain(PlayState* play, View* view, GraphicsContext* gfxCtx) 
         }
 
         CLOSE_DISPS(gfxCtx);
+        if (zmpOwnRand) { // ZMP (D-156): the simulation's numbers back, untouched
+            sZmpRainRand[0] = Rand_ZmpGetState(&sZmpRainRand[1]);
+            Rand_ZmpSetState(zmpSimRand[0], zmpSimRand[1]);
+        }
     }
 }
 

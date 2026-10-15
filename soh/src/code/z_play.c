@@ -1319,6 +1319,12 @@ skip:
     PLAY_LOG(3816);
     Environment_Update(play, &play->envCtx, &play->lightCtx, &play->pauseCtx, &play->msgCtx, &play->gameOverCtx,
                        play->state.gfxCtx);
+    // ZMP (D-156): the storm's lightning timer is simulation (it draws random numbers and decides when a bolt
+    // strikes): the original runs it in the draw, which a machine skips while its own pause menu shows the frozen
+    // picture. In a session it runs here, once per tick, at the same point of the tick (after every update).
+    if (Zmp_MultiActive()) {
+        Environment_UpdateLightningStrike(play);
+    }
 }
 
 // ZMP: this frame draws the world again to capture the pause background (set by Play_Draw)
@@ -1549,7 +1555,9 @@ void Play_Draw(PlayState* play) {
         }
 
         if ((HREG(80) != 10) || (HREG(90) & 4)) {
-            Environment_UpdateLightningStrike(play);
+            if (!Zmp_MultiActive()) { // ZMP (D-156): in a session it runs in Play_Update
+                Environment_UpdateLightningStrike(play);
+            }
             Environment_DrawLightning(play, 0);
         }
 
