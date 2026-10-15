@@ -16,4 +16,7 @@ typedef struct BgHakaMegane {
     /* 0x016A */ char unk_16A[0x2];
 } BgHakaMegane; // size = 0x016C
 
+// ZMP phase 6 scenario tests (f6_shadow_rooms.py, row B10): whether this piece switches its collision with the Lens.
+s32 BgHakaMegane_ZmpReacts(const BgHakaMegane* megane);
+
 #endif

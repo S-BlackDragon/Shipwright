@@ -52,6 +52,7 @@ typedef struct BossSst {
     /* 0x09D0 */ s16 trailIndex;
     /* 0x09D2 */ s16 trailCount;
     /* 0x09D4 */ BossSstHandTrail handTrails[7];
+    s8 zmpHeldSlot; // ZMP (T1, D-154): 1 + the slot of the player the hand grabbed last (0: nobody)
 } BossSst; // size = 0x0A98
 
 typedef enum {
@@ -59,5 +60,10 @@ typedef enum {
     /*  0 */ BONGO_LEFT_HAND,
     /*  1 */ BONGO_RIGHT_HAND
 } BossSstType;
+
+// ZMP phase 6 scenario tests (f6_shadow.py): what the bots cannot aim, and what the tests read.
+s32 BossSst_ZmpStage(struct PlayState* play, s32 what);
+const char* BossSst_ZmpActionName(const BossSst* boss);
+s32 BossSst_ZmpHandState(const BossSst* boss);
 
 #endif

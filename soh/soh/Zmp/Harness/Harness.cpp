@@ -60,6 +60,8 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"               // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"             // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"               // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"             // ZMP phase 6 scenario tests
+#include "overlays/actors/ovl_Bg_Haka_Megane/z_bg_haka_megane.h" // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 extern u16 gTimeSpeed;
@@ -626,6 +628,30 @@ json ActorsJson(const json& cmd) {
                 list.back()["fd2_invincible"] = h->work[FD2_INVINC_TIMER];
                 list.back()["fd2_timer0"] = h->timers[0];
                 list.back()["fd2_head"] = Vec3(h->headPos);
+            }
+            if (a->id == ACTOR_BG_HAKA_MEGANE) {
+                // The Shadow Temple's and the Well's pieces seen with the Lens (row B10): whether its collision is one
+                // the Lens turns off (1), none at all (0) or not yet made (-1), and its dynamic collision flags now
+                // (bit 1 in use, bit 2 off; -1 without any).
+                const BgHakaMegane* m = (const BgHakaMegane*)a;
+                list.back()["megane_reacts"] = BgHakaMegane_ZmpReacts(m);
+                list.back()["megane_bg_flags"] = (m->dyna.bgId >= 0 && m->dyna.bgId < BG_ACTOR_MAX)
+                                                     ? (int)gPlayState->colCtx.dyna.bgActorFlags[m->dyna.bgId]
+                                                     : -1;
+            }
+            if (a->id == ACTOR_BOSS_SST) {
+                // Bongo Bongo (f6_shadow.py): the head (params -1) or a hand (0 left, 1 right), what it does (the name
+                // of its action, z_boss_sst.c), the hands' state machine (sHandState: 0 wait ... 8 damaged), whether
+                // its body pushes Links (OC on: off while a hand holds a Link alive), the Link it grabbed last
+                // (D-154: slot, -1 nobody) and the head's health.
+                const BossSst* s = (const BossSst*)a;
+                list.back()["sst_part"] = a->params < 0 ? "head" : "hand";
+                list.back()["sst_action"] = BossSst_ZmpActionName(s);
+                list.back()["sst_hand_state"] = BossSst_ZmpHandState(s);
+                list.back()["sst_oc_on"] = (s->colliderJntSph.base.ocFlags1 & OC1_ON) ? 1 : 0;
+                list.back()["sst_held_slot"] = (int)s->zmpHeldSlot - 1;
+                list.back()["sst_health"] = (s8)a->colChkInfo.health;
+                list.back()["sst_timer"] = s->timer;
             }
             if (a->id == ACTOR_BOSS_MO) {
                 // Phase 6 scenario tests (Morpha with six players): the core (params 0 once it is born) and its

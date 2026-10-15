@@ -145,6 +145,21 @@
 //                          D-145): with a partner by her she never swims up
 //   lente_compartida       one Lens of Truth for everybody (T3, D-146): a second player's lens turns the first one's
 //                          off
+//   estaticas_de_jefe      (also covers D-148: the Shadow Temple's truth spinner, spinning pots and spiked walls)
+//   muros_al_del_contexto  the Shadow Temple's spiked walls crush only the player in their context (B8, D-149): a
+//                          second Link between them stays there
+//   trampa_al_del_contexto the guillotine's blade and the spiked walls' spikes hit only the player in their context
+//                          (B8, B11, D-149): of two Links under the blade one is cut
+//   mano_al_mas_cercano    a Wallmaster lifts the player nearest to it (B13, D-150): it takes a partner up and leaves
+//                          the one it caught on the floor
+//   grito_al_mas_cercano   a ReDead's scream freezes only the player nearest to it (B13, D-151)
+//   ocarina_al_mas_cercano a spot that listens to the ocarina hears only the player nearest to it (B9, D-152): the
+//                          one who plays the Lullaby two steps further does not move the ship
+//   barco_al_grupo         the sinking ship of the Shadow Temple voids out the whole group (B9, D-153)
+//   mano_que_tuerce        Bongo Bongo's swinging hand straightens the player nearest to it once it lets go (D-154):
+//                          the thrown Link stays leaning on its side
+//   portal_al_alcance_sst  Bongo Bongo's blue warp appears in the middle of the drum with a Link in its reach (row B4,
+//                          D-155): that Link leaves without stepping in
 
 #ifdef __cplusplus
 extern "C" {

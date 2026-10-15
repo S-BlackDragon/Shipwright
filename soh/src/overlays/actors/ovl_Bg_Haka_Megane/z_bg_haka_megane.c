@@ -140,3 +140,14 @@ void BgHakaMegane_Draw(Actor* thisx, PlayState* play) {
         Gfx_DrawDListXlu(play, gBotwBloodSplatterDL);
     }
 }
+
+// ZMP phase 6 scenario tests (f6_shadow_rooms.py, row B10): 1 when this piece has collision that the Lens turns off
+// (BgHakaMegane_UpdateState), 0 when it never has any (no collision of its type, or a room where the Lens shows hidden
+// things: BgHakaMegane_DoNothing), -1 while its object loads.
+s32 BgHakaMegane_ZmpReacts(const BgHakaMegane* this) {
+    if (this->actionFunc == BgHakaMegane_WaitForObject) {
+        return -1;
+    }
+    return ((this->actionFunc == BgHakaMegane_UpdateState) && (sCollisionHeaders[this->dyna.actor.params] != NULL)) ? 1
+                                                                                                                    : 0;
+}

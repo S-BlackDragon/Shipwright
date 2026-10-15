@@ -28,6 +28,8 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"
+#include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"
+#include "overlays/actors/ovl_Bg_Haka_Gate/z_bg_haka_gate.h"
 extern PlayState* gPlayState;
 s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
 }
@@ -133,6 +135,12 @@ struct MorphaArg {
 void MorphaInContext(void* p) {
     MorphaArg* a = (MorphaArg*)p;
     a->done = BossMo_ZmpStage(gPlayState, a->what, a->slot);
+}
+
+// Bongo Bongo (f6_shadow.py): BossSst_ZmpStage in the context of a player.
+void BongoInContext(void* p) {
+    MorphaArg* a = (MorphaArg*)p;
+    a->done = BossSst_ZmpStage(gPlayState, a->what);
 }
 
 // D-117 tests: the player in context walks into a room as through a door (the room loads for it if nobody is there).
@@ -400,6 +408,34 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         Zmp::Players::RunInContext(target, MorphaInContext, &a);
         if (!a.done) {
             return Bad(cmd, "Morpha is not in a state where that applies");
+        }
+    } else if (op == "bongo" && w.size() == 4) {
+        // Bongo Bongo (f6_shadow.py), what the bots cannot aim:
+        // "zmp_stage bongo stun <slot>": both hands and the open eye hit by that Link's arrows (the head knocked out,
+        //  the hands stunned; whoever a hand held is let go), while the head waits or attacks;
+        // "zmp_stage bongo eye <slot>": the knocked-out head hit by that Link's Master Sword.
+        int what = w[2] == "stun" ? 0 : (w[2] == "eye" ? 1 : -1);
+        int target = Num(w[3]);
+        if (what < 0) {
+            return Bad(cmd, "unknown bongo event");
+        }
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        MorphaArg a{ what, target, 0 };
+        Zmp::Players::RunInContext(target, BongoInContext, &a);
+        if (!a.done) {
+            return Bad(cmd, "Bongo Bongo is not in a state where that applies");
+        }
+    } else if (op == "haka_gate" && w.size() == 5 && w[2] == "turn") {
+        // "zmp_stage haka_gate turn <slot> <1|-1>": the statue of the Shadow Temple's truth spinner turns one step
+        // (60 degrees) that way, as when that Link pushes it (row B7). Only while it waits for a push.
+        int target = Num(w[3]);
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        if (!BgHakaGate_ZmpTurn(gPlayState, Num(w[4]))) {
+            return Bad(cmd, "the statue is not waiting for a push");
         }
     } else if (op == "fhg_burst" && w.size() == 3) {
         // "zmp_stage fhg_burst <slot>": the lightning burst of Phantom Ganon's energy ball when it hits that Link (what

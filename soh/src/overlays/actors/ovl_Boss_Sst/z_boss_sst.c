@@ -5,6 +5,8 @@
  */
 
 #include "z_boss_sst.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "textures/boss_title_cards/object_sst.h"
 #include "objects/object_sst/object_sst.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
@@ -301,6 +303,42 @@ static InitChainEntry sInitChain[] = {
     ICHAIN_U8(targetMode, 5, ICHAIN_CONTINUE),
     ICHAIN_VEC3F_DIV1000(scale, 20, ICHAIN_STOP),
 };
+
+// ZMP (row B4 of the Shadow Temple, D-155): the blue warp appears in the middle of the drum while the death cutscene
+// still holds everybody; it takes a Link within 60 of it, and a Link standing there (or laid there by the cutscene's
+// arc) would leave without stepping in. When the warp appears, every present Link within 85 of it is moved out to 85,
+// the way it stood from it (the same as Morpha's, D-138).
+static void BossSst_ZmpClearWarp(PlayState* play, f32 x, f32 z) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("portal_al_alcance_sst")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (link == NULL) {
+            continue;
+        }
+        dx = link->actor.world.pos.x - x;
+        dz = link->actor.world.pos.z - z;
+        d = sqrtf(SQ(dx) + SQ(dz));
+        if (d >= 85.0f) {
+            continue;
+        }
+        if (d < 1.0f) {
+            dx = 0.0f;
+            dz = d = 1.0f;
+        }
+        link->actor.world.pos.x = x + dx / d * 85.0f;
+        link->actor.world.pos.z = z + dz / d * 85.0f;
+        link->actor.prevPos = link->actor.home.pos = link->actor.world.pos;
+        link->actor.speedXZ = 0.0f;
+    }
+}
 
 void BossSst_Init(Actor* thisx, PlayState* play2) {
     PlayState* play = play2;
@@ -1229,6 +1267,7 @@ void BossSst_HeadFinish(BossSst* this, PlayState* play) {
         }
     } else if (this->effects[0].alpha == 0) {
         if (GameInteractor_Should(VB_SPAWN_BLUE_WARP, true, this)) {
+            BossSst_ZmpClearWarp(play, ROOM_CENTER_X, ROOM_CENTER_Z); // ZMP (B4, D-155)
             Actor_Spawn(&play->actorCtx, play, ACTOR_DOOR_WARP1, ROOM_CENTER_X, ROOM_CENTER_Y, ROOM_CENTER_Z, 0, 0, 0,
                         WARP_DUNGEON_ADULT);
         }
@@ -1945,8 +1984,23 @@ void BossSst_HandSetupSwing(BossSst* this) {
     this->actionFunc = BossSst_HandSwing;
 }
 
+// ZMP (T1, D-154): the swing throws the Link the hand grabbed and then straightens "the player" (shape.rot.x and z back
+// to 0) and pushes it on. While the hand holds it, that Link is its context (ContextSlot, the parent); once let go it
+// was the Link nearest to the hand: a partner was pushed and straightened, and the thrown one stayed leaning on its
+// side (seen with six: 14 to 26 degrees for more than 2000 ticks). In a group the swing acts on the Link the hand
+// grabbed until it ends (the same fix as Morpha's tentacles, D-140).
+static Player* BossSst_ZmpSwingPlayer(BossSst* this, PlayState* play) {
+    Player* held;
+
+    if (!Zmp_MultiActive() || (this->zmpHeldSlot <= 0) || Zmp_TestMutant("mano_que_tuerce")) {
+        return GET_PLAYER(play); // (mutant: the nearest once let go, as before)
+    }
+    held = Zmp_HeldPlayer(play, this->zmpHeldSlot - 1);
+    return (held != NULL) ? held : GET_PLAYER(play);
+}
+
 void BossSst_HandSwing(BossSst* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = BossSst_ZmpSwingPlayer(this, play);
     f32 offXZ;
 
     if (Math_ScaledStepToS(&this->actor.shape.rot.x, this->amplitude, this->timer * 0xE4 + 0x1C8)) {
@@ -1959,6 +2013,7 @@ void BossSst_HandSwing(BossSst* this, PlayState* play) {
             if (this->timer == 4) {
                 player->actor.shape.rot.x = 0;
                 player->actor.shape.rot.z = 0;
+                this->zmpHeldSlot = 0; // ZMP (D-154): the swing is over
                 BossSst_HandSetupRetreat(this);
                 return;
             }
@@ -2447,6 +2502,7 @@ void BossSst_HandGrabPlayer(BossSst* this, PlayState* play) {
 
     if (play->grabPlayer(play, player)) {
         player->actor.parent = &this->actor;
+        this->zmpHeldSlot = Zmp_SlotOfPlayer(player) + 1; // ZMP (T1, D-154): -1 outside a group
         if (player->actor.colChkInfo.health > 0) {
             this->colliderJntSph.base.ocFlags1 &= ~OC1_ON;
             if (HAND_STATE(this) == HAND_CLAP) {
@@ -3335,4 +3391,145 @@ void BossSst_Reset(void) {
     sSubCamAtVel.x = sSubCamAtVel.y = sSubCamAtVel.z = 0.0f;
     sSubCamEyeVel.x = sSubCamEyeVel.y = sSubCamEyeVel.z = 0.0f;
     sHandClapDropFlag = false;
+}
+
+// ZMP phase 6 scenario tests (f6_shadow.py, row B4 and the blue warp of Bongo Bongo): what a bot cannot aim (an arrow
+// into a moving hand, then into the eye, then the Master Sword into the eye at the right moment). In the context of the
+// player the event names (Scenario.cpp):
+//   what 0, "stun": both hands and the eye hit by arrows, as the original's arrow into the open eye ends
+//           (BossSst_HeadCollisionCheck: the head knocked out, the hands stunned; each hand lets its Link go first);
+//           while the head is waiting or attacking (not knocked out, hurt, dying or before its intro);
+//   what 1, "eye": the knocked-out head hit by the Master Sword (BossSst_HeadCollisionCheck, damage 2).
+s32 BossSst_ZmpStage(PlayState* play, s32 what) {
+    BossSst* head = sHead;
+    s32 i;
+
+    if ((head == NULL) || (sHands[LEFT] == NULL) || (sHands[RIGHT] == NULL)) {
+        return 0;
+    }
+    if (what == 0) {
+        if ((head->actionFunc != BossSst_HeadNeutral) && (head->actionFunc != BossSst_HeadWait) &&
+            (head->actionFunc != BossSst_HeadDamagedHand) && (head->actionFunc != BossSst_HeadReadyCharge) &&
+            (head->actionFunc != BossSst_HeadCharge) && (head->actionFunc != BossSst_HeadEndCharge)) {
+            return 0;
+        }
+        for (i = LEFT; i <= RIGHT; i++) {
+            Player* held = NULL;
+            s32 k = -1;
+
+            while ((k = Zmp_NextPresentSlot(k)) >= 0) { // (the Link this hand holds lets go, as in its hit)
+                Player* link = Zmp_SlotPlayer(k);
+
+                if ((link != NULL) && (link->actor.parent == &sHands[i]->actor)) {
+                    held = link;
+                }
+            }
+            if (held != NULL) {
+                held->actor.parent = NULL;
+                held->av2.actionVar2 = 100;
+            }
+            sHands[i]->colliderJntSph.base.ocFlags1 |= OC1_ON;
+        }
+        BossSst_HeadSetupStunned(head);
+        if (HAND_STATE(sHands[RIGHT]) == HAND_FROZEN) {
+            BossSst_IceShatter(sHands[RIGHT]);
+        } else if (HAND_STATE(sHands[LEFT]) == HAND_FROZEN) {
+            BossSst_IceShatter(sHands[LEFT]);
+        }
+        BossSst_HandSetupStunned(sHands[RIGHT]);
+        BossSst_HandSetupStunned(sHands[LEFT]);
+        return 1;
+    }
+    if (what == 1) {
+        if (head->actionFunc != BossSst_HeadVulnerable) {
+            return 0;
+        }
+        head->actor.colChkInfo.damage = 2;
+        if (Actor_ApplyDamage(&head->actor) == 0) {
+            Enemy_StartFinishingBlow(play, &head->actor);
+            BossSst_HeadSetupDeath(head, play);
+            GameInteractor_ExecuteOnBossDefeat(&head->actor);
+        } else {
+            BossSst_HeadSetupDamage(head);
+        }
+        BossSst_HandSetupDamage(sHands[LEFT]);
+        BossSst_HandSetupDamage(sHands[RIGHT]);
+        return 1;
+    }
+    return 0;
+}
+
+static const struct {
+    BossSstActionFunc func;
+    const char* name;
+} sZmpActionNames[] = {
+    { BossSst_HeadLurk, "lurk" },
+    { BossSst_HeadIntro, "intro" },
+    { BossSst_HeadNeutral, "neutral" },
+    { BossSst_HeadWait, "wait" },
+    { BossSst_HeadDamagedHand, "damagedhand" },
+    { BossSst_HeadReadyCharge, "readycharge" },
+    { BossSst_HeadCharge, "charge" },
+    { BossSst_HeadEndCharge, "endcharge" },
+    { BossSst_HeadFrozenHand, "frozenhand" },
+    { BossSst_HeadUnfreezeHand, "unfreezehand" },
+    { BossSst_HeadStunned, "stunned" },
+    { BossSst_HeadVulnerable, "vulnerable" },
+    { BossSst_HeadDamage, "damage" },
+    { BossSst_HeadRecover, "recover" },
+    { BossSst_HeadDeath, "death" },
+    { BossSst_HeadThrash, "thrash" },
+    { BossSst_HeadDarken, "darken" },
+    { BossSst_HeadFall, "fall" },
+    { BossSst_HeadMelt, "melt" },
+    { BossSst_HeadFinish, "finish" },
+    { BossSst_HandWait, "wait" },
+    { BossSst_HandDownbeat, "downbeat" },
+    { BossSst_HandOffbeat, "offbeat" },
+    { BossSst_HandDownbeatEnd, "downbeatend" },
+    { BossSst_HandOffbeatEnd, "offbeatend" },
+    { BossSst_HandReadySlam, "readyslam" },
+    { BossSst_HandSlam, "slam" },
+    { BossSst_HandEndSlam, "endslam" },
+    { BossSst_HandReadySweep, "readysweep" },
+    { BossSst_HandSweep, "sweep" },
+    { BossSst_HandReadyPunch, "readypunch" },
+    { BossSst_HandPunch, "punch" },
+    { BossSst_HandReadyClap, "readyclap" },
+    { BossSst_HandClap, "clap" },
+    { BossSst_HandEndClap, "endclap" },
+    { BossSst_HandReadyGrab, "readygrab" },
+    { BossSst_HandGrab, "grab" },
+    { BossSst_HandCrush, "crush" },
+    { BossSst_HandEndCrush, "endcrush" },
+    { BossSst_HandSwing, "swing" },
+    { BossSst_HandRetreat, "retreat" },
+    { BossSst_HandReel, "reel" },
+    { BossSst_HandReadyShake, "readyshake" },
+    { BossSst_HandShake, "shake" },
+    { BossSst_HandReadyCharge, "readycharge" },
+    { BossSst_HandFrozen, "frozen" },
+    { BossSst_HandReadyBreakIce, "readybreakice" },
+    { BossSst_HandBreakIce, "breakice" },
+    { BossSst_HandStunned, "stunned" },
+    { BossSst_HandDamage, "damage" },
+    { BossSst_HandRecover, "recover" },
+    { BossSst_HandThrash, "thrash" },
+    { BossSst_HandDarken, "darken" },
+    { BossSst_HandFall, "fall" },
+    { BossSst_HandMelt, "melt" },
+    { BossSst_HandFinish, "finish" },
+};
+
+const char* BossSst_ZmpActionName(const BossSst* this) {
+    for (s32 i = 0; i < ARRAY_COUNT(sZmpActionNames); i++) {
+        if (this->actionFunc == sZmpActionNames[i].func) {
+            return sZmpActionNames[i].name;
+        }
+    }
+    return "other";
+}
+
+s32 BossSst_ZmpHandState(const BossSst* this) {
+    return ((this->actor.params == LEFT) || (this->actor.params == RIGHT)) ? sHandState[this->actor.params] : -1;
 }
