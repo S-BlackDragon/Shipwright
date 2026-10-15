@@ -177,4 +177,7 @@ typedef struct BossTw {
     /* 0x06B0 */ f32 subCamYawStep;
 } BossTw; // size = 0x06B4
 
+// ZMP phase 6 scenario tests (f6_spirit.py): what the bots cannot aim.
+s32 BossTw_ZmpStage(struct PlayState* play, s32 what);
+
 #endif

@@ -28,6 +28,7 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Fd/z_boss_fd.h"
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"
+#include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"
 #include "overlays/actors/ovl_Bg_Haka_Gate/z_bg_haka_gate.h"
 extern PlayState* gPlayState;
@@ -141,6 +142,12 @@ void MorphaInContext(void* p) {
 void BongoInContext(void* p) {
     MorphaArg* a = (MorphaArg*)p;
     a->done = BossSst_ZmpStage(gPlayState, a->what);
+}
+
+// Twinrova (f6_spirit.py): BossTw_ZmpStage in the context of a player.
+void TwinrovaInContext(void* p) {
+    MorphaArg* a = (MorphaArg*)p;
+    a->done = BossTw_ZmpStage(gPlayState, a->what);
 }
 
 // D-117 tests: the player in context walks into a room as through a door (the room loads for it if nobody is there).
@@ -426,6 +433,23 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         Zmp::Players::RunInContext(target, BongoInContext, &a);
         if (!a.done) {
             return Bad(cmd, "Bongo Bongo is not in a state where that applies");
+        }
+    } else if (op == "twinrova" && w.size() == 4) {
+        // Twinrova (f6_spirit.py, D-159), what the bots cannot aim:
+        // "zmp_stage twinrova stun <slot>": the charged blast sent back by that Link's Mirror Shield reaches Twinrova
+        //  (she falls stunned), while she flies, charges, shoots or spins.
+        int what = w[2] == "stun" ? 0 : -1;
+        int target = Num(w[3]);
+        if (what < 0) {
+            return Bad(cmd, "unknown twinrova event");
+        }
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        MorphaArg a{ what, target, 0 };
+        Zmp::Players::RunInContext(target, TwinrovaInContext, &a);
+        if (!a.done) {
+            return Bad(cmd, "Twinrova is not in a state where that applies");
         }
     } else if (op == "haka_gate" && w.size() == 5 && w[2] == "turn") {
         // "zmp_stage haka_gate turn <slot> <1|-1>": the statue of the Shadow Temple's truth spinner turns one step

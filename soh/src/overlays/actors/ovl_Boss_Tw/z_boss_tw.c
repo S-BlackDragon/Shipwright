@@ -6,6 +6,8 @@
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #include <string.h>
 
@@ -237,6 +239,42 @@ static BossTwEffect sEffects[150];
     R(sTwinrovaPtr)
 
 ZMP_SAVESTATE_DEFINE(BossTw, BOSS_TW_SHIP_SAVESTATE_FIELDS, BOSS_TW_ZMP_NEW_FIELDS, BOSS_TW_ZMP_ACTOR_REFS)
+
+// ZMP (row 5 of Twinrova, D-162): the blue warp appears on the east pillar (600, 230, 0) while the death cutscene still
+// holds everybody; it takes a Link within 60 of it, and a Link standing there would leave without stepping in. When it
+// appears, every present Link within 85 of it is moved out to 85, the way it stood from it (still on the pillar), as
+// Bongo Bongo's (D-155) and Morpha's (D-138).
+static void BossTw_ZmpClearWarp(PlayState* play, f32 x, f32 z) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("portal_al_alcance_tw")) { // (mutant: as before)
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (link == NULL) {
+            continue;
+        }
+        dx = link->actor.world.pos.x - x;
+        dz = link->actor.world.pos.z - z;
+        d = sqrtf(SQ(dx) + SQ(dz));
+        if (d >= 85.0f) {
+            continue;
+        }
+        if (d < 1.0f) {
+            dx = 0.0f;
+            dz = d = 1.0f;
+        }
+        link->actor.world.pos.x = x + dx / d * 85.0f;
+        link->actor.world.pos.z = z + dz / d * 85.0f;
+        link->actor.prevPos = link->actor.home.pos = link->actor.world.pos;
+        link->actor.speedXZ = 0.0f;
+    }
+}
 
 void BossTw_AddDotEffect(PlayState* play, Vec3f* initalPos, Vec3f* initalSpeed, Vec3f* accel, f32 scale, s16 args,
                          s16 countLimit) {
@@ -2823,6 +2861,7 @@ void BossTw_TwinrovaDeathCS(BossTw* this, PlayState* play) {
                 Player_SetCsActionWithHaltedActors(play, &this->actor, 7);
                 Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_BOSS_CLEAR);
                 if (GameInteractor_Should(VB_SPAWN_BLUE_WARP, true, this)) {
+                    BossTw_ZmpClearWarp(play, 600.0f, 0.0f); // ZMP (row 5, D-162)
                     Actor_SpawnAsChild(&play->actorCtx, &this->actor, play, ACTOR_DOOR_WARP1, 600.0f, 230.0f, 0.0f, 0,
                                        0, 0, WARP_DUNGEON_ADULT);
                 }
@@ -5493,4 +5532,24 @@ void BossTw_TwinrovaLaugh(BossTw* this, PlayState* play) {
 void BossTw_Reset(void) {
     sTwInitialized = false;
     memset(sEffects, 0, sizeof(sEffects));
+}
+
+// ZMP phase 6 scenario tests (f6_spirit.py, D-159): what the bots cannot aim. In the context of the player the event
+// names (Scenario.cpp):
+//   what 0, "stun": the charged blast sent back by a Mirror Shield reaches Twinrova (the flag the blast sets,
+//           BossTw_BlastUpdate; her own update stuns her), while she flies, charges, shoots or spins after the merge.
+s32 BossTw_ZmpStage(PlayState* play, s32 what) {
+    BossTw* tw = sTwinrovaPtr;
+
+    if ((tw == NULL) || (what != 0)) {
+        return 0;
+    }
+    if ((tw->actionFunc != BossTw_TwinrovaArriveAtTarget) && (tw->actionFunc != BossTw_TwinrovaChargeBlast) &&
+        (tw->actionFunc != BossTw_TwinrovaShootBlast) && (tw->actionFunc != BossTw_TwinrovaDoneBlastShoot) &&
+        (tw->actionFunc != BossTw_TwinrovaFly) && (tw->actionFunc != BossTw_TwinrovaSpin) &&
+        (tw->actionFunc != BossTw_TwinrovaLaugh)) {
+        return 0;
+    }
+    tw->twinrovaStun = 1;
+    return 1;
 }
