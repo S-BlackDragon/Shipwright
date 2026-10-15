@@ -5,6 +5,8 @@
  */
 
 #include "z_obj_oshihiki.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "overlays/actors/ovl_Obj_Switch/z_obj_switch.h"
 #include "objects/gameplay_dangeon_keep/gameplay_dangeon_keep.h"
 #include "soh/ResourceManagerHelpers.h"
@@ -467,6 +469,26 @@ void ObjOshihiki_SetupOnScene(ObjOshihiki* this, PlayState* play) {
     this->dyna.actor.velocity.x = this->dyna.actor.velocity.y = this->dyna.actor.velocity.z = 0.0f;
 }
 
+// ZMP (SP1, Spirit R3, D-160): the block let go of "the player" of its context when a push ended, as when there was one
+// Link: with a partner nearer to it, that partner was the one let go and the Link that pushed kept pushing for ever
+// (its flag on). Now it lets go of every Link that pushes it (the wall it pushes is this block). (Mutant
+// "bloque_al_del_contexto": as before.)
+static void ObjOshihiki_ZmpStopPushers(ObjOshihiki* this, Player* player) {
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("bloque_al_del_contexto")) {
+        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.wallBgId == this->dyna.bgId)) {
+            link->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        }
+    }
+}
+
 void ObjOshihiki_OnScene(ObjOshihiki* this, PlayState* play) {
     s32 pad;
     Player* player = GET_PLAYER(play);
@@ -478,11 +500,11 @@ void ObjOshihiki_OnScene(ObjOshihiki* this, PlayState* play) {
             this->direction = this->dyna.unk_150;
             ObjOshihiki_SetupPush(this, play);
         } else {
-            player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+            ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
             this->dyna.unk_150 = 0.0f;
         }
     } else {
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
         this->dyna.unk_150 = 0.0f;
     }
 }
@@ -519,11 +541,11 @@ void ObjOshihiki_OnActor(ObjOshihiki* this, PlayState* play) {
                         this->direction = this->dyna.unk_150;
                         ObjOshihiki_SetupPush(this, play);
                     } else {
-                        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+                        ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
                         this->dyna.unk_150 = 0.0f;
                     }
                 } else {
-                    player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+                    ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
                     this->dyna.unk_150 = 0.0f;
                 }
             } else {
@@ -571,7 +593,7 @@ void ObjOshihiki_Push(ObjOshihiki* this, PlayState* play) {
     if (!ObjOshihiki_CheckFloor(this, play)) {
         thisx->home.pos.x = thisx->world.pos.x;
         thisx->home.pos.z = thisx->world.pos.z;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
         this->dyna.unk_150 = 0.0f;
         this->pushDist = 0.0f;
         this->pushSpeed = 0.0f;
@@ -584,7 +606,7 @@ void ObjOshihiki_Push(ObjOshihiki* this, PlayState* play) {
 
         thisx->home.pos.x = thisx->world.pos.x;
         thisx->home.pos.z = thisx->world.pos.z;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
         this->dyna.unk_150 = 0.0f;
         this->pushDist = 0.0f;
         this->pushSpeed = 0.0f;
@@ -612,7 +634,7 @@ void ObjOshihiki_Fall(ObjOshihiki* this, PlayState* play) {
     this->stateFlags |= PUSHBLOCK_FALL;
     if (fabsf(this->dyna.unk_150) > 0.001f) {
         this->dyna.unk_150 = 0.0f;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        ObjOshihiki_ZmpStopPushers(this, player); // ZMP (D-160)
     }
     Actor_MoveXZGravity(&this->dyna.actor);
     if (ObjOshihiki_CheckGround(this, play)) {

@@ -6,6 +6,8 @@
 #include "overlays/actors/ovl_Mir_Ray/z_mir_ray.h"
 #include "objects/object_jya_obj/object_jya_obj.h"
 #include "vt.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -113,6 +115,56 @@ static Vec3f D_80897548[] = {
     { 0.1f, 0.1f, 0.132f },
 };
 
+// ZMP (SP1, Spirit R3, D-160): the cobra turned and carried "the player" of its context (the Link nearest to it), and
+// took the way to turn from where that Link stood: with a partner nearer to it than the Link that pushed, the partner
+// decided the way, and the one who pushed was neither carried round nor let go. Now the Link that turns it is the one
+// that pushes it (its wall is this cobra; the first such Link in slot order), kept while it turns. (Mutant
+// "espejo_al_mas_cercano": as before.)
+static s32 BgJyaCobra_ZmpOff(void) {
+    return !Zmp_MultiActive() || Zmp_TestMutant("espejo_al_mas_cercano");
+}
+
+static Player* BgJyaCobra_ZmpPusher(BgJyaCobra* this, PlayState* play) {
+    s32 k = -1;
+
+    if (BgJyaCobra_ZmpOff()) {
+        return GET_PLAYER(play);
+    }
+    if (this->zmpPusherSlot > 0) {
+        Player* held = Zmp_SlotPlayer(this->zmpPusherSlot - 1);
+
+        if (held != NULL) {
+            return held;
+        }
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.wallBgId == this->dyna.bgId) &&
+            (link->stateFlags2 & PLAYER_STATE2_MOVING_DYNAPOLY)) {
+            return link;
+        }
+    }
+    return GET_PLAYER(play);
+}
+
+static void BgJyaCobra_ZmpLetGo(BgJyaCobra* this, PlayState* play) {
+    s32 k = -1;
+
+    if (BgJyaCobra_ZmpOff()) {
+        GET_PLAYER(play)->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.wallBgId == this->dyna.bgId)) {
+            link->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        }
+    }
+    this->zmpPusherSlot = 0;
+}
+
 void func_808958F0(Vec3f* dest, Vec3f* src, f32 arg2, f32 arg3) {
     dest->x = (src->z * arg2) + (src->x * arg3);
     dest->y = src->y;
@@ -193,7 +245,7 @@ void func_80895A70(BgJyaCobra* this) {
 }
 
 void func_80895BEC(BgJyaCobra* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = BgJyaCobra_ZmpPusher(this, play); // ZMP (D-160)
     s32 pad;
     Vec3f sp2C;
 
@@ -439,8 +491,6 @@ void func_80896918(BgJyaCobra* this, PlayState* play) {
 }
 
 void func_80896950(BgJyaCobra* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
-
     if (this->dyna.unk_150 > 0.001f) {
         this->unk_168++;
         if (this->unk_168 >= (15 - CVarGetInteger(CVAR_ENHANCEMENT("FasterBlockPush"), 0) * 2)) {
@@ -452,18 +502,31 @@ void func_80896950(BgJyaCobra* this, PlayState* play) {
 
     if (fabsf(this->dyna.unk_150) > 0.001f) {
         this->dyna.unk_150 = 0.0f;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        BgJyaCobra_ZmpLetGo(this, play); // ZMP (D-160)
     }
 }
 
 void func_808969F8(BgJyaCobra* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player;
     s32 phi_a3;
     s16 temp2;
 
+    this->zmpPusherSlot = 0; // ZMP (D-160): the Link that pushes it turns it and is carried round
+    player = BgJyaCobra_ZmpPusher(this, play);
+    if (!BgJyaCobra_ZmpOff()) {
+        s32 k = -1;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            if (Zmp_SlotPlayer(k) == player) {
+                this->zmpPusherSlot = (s8)(k + 1);
+            }
+        }
+    }
     this->actionFunc = func_80896ABC;
 
-    temp2 = this->dyna.actor.yawTowardsPlayer - this->dyna.actor.shape.rot.y;
+    temp2 = (BgJyaCobra_ZmpOff() ? this->dyna.actor.yawTowardsPlayer
+                                 : Actor_WorldYawTowardActor(&this->dyna.actor, &player->actor)) -
+            this->dyna.actor.shape.rot.y;
     phi_a3 = (s16)(this->dyna.actor.shape.rot.y - this->dyna.unk_158);
     phi_a3 = ABS(phi_a3);
 
@@ -483,7 +546,7 @@ void func_808969F8(BgJyaCobra* this, PlayState* play) {
 
 void func_80896ABC(BgJyaCobra* this, PlayState* play) {
     s16 temp_v0;
-    Player* player = GET_PLAYER(play);
+    Player* player = BgJyaCobra_ZmpPusher(this, play); // ZMP (D-160)
 
     temp_v0 = (s16)((this->unk_16C * 0x2000) + this->dyna.actor.home.rot.y) - this->dyna.actor.world.rot.y;
     if (ABS(temp_v0) < 7424) {
@@ -495,6 +558,7 @@ void func_80896ABC(BgJyaCobra* this, PlayState* play) {
     if (Math_ScaledStepToS(&this->unk_170, this->unk_16A * 0x2000, this->unk_16E)) {
         this->unk_16C = (this->unk_16C + this->unk_16A) & 7;
         player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        this->zmpPusherSlot = 0; // ZMP (D-160)
         this->dyna.unk_150 = 0.0f;
         func_80896918(this, play);
     } else {

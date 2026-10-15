@@ -27,6 +27,7 @@ typedef struct BgJyaCobra {
     /* 0x018C */ f32 unk_18C;
     /* 0x0190 */ f32 unk_190;
     /* 0x0194 */ u8 shadowTextureBuffer[COBRA_SHADOW_TEX_SIZE / sizeof(u8) + 0xF]; // Extra space to allow aligning actual texture to 0x10
+    s8 zmpPusherSlot; // ZMP (SP1, D-160): 1 + the slot of the Link that turns it (0: the player of its context)
 } BgJyaCobra; // size = 0x11A4
 
 #endif
