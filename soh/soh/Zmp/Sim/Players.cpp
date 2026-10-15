@@ -444,6 +444,32 @@ int ContextSlot(const Actor* actor) {
             return j;
         }
     }
+    // B9 (D-152): a spot that listens to the ocarina (En_Okarina_Tag) runs with the player who takes the ocarina out
+    // for it, the nearest of them, until its song starts (then the rule below): it starts that player's song check.
+    // Before, it ran with the player nearest to it, and the one who played two steps further was never heard.
+    if (actor->id == ACTOR_EN_OKARINA_TAG && !Zmp_TestMutant("ocarina_al_mas_cercano")) {
+        int who = -1;
+        f32 best = 0.0f;
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (!Present(j)) {
+                continue;
+            }
+            const Player* p = Slot(j).player;
+            if (!(p->stateFlags2 & (PLAYER_STATE2_ATTEMPT_PLAY_FOR_ACTOR | PLAYER_STATE2_PLAY_FOR_ACTOR)) ||
+                (p->unk_6A8 != nullptr && p->unk_6A8 != actor)) {
+                continue;
+            }
+            f32 dx = actor->world.pos.x - p->actor.world.pos.x, dz = actor->world.pos.z - p->actor.world.pos.z;
+            f32 d = dx * dx + dz * dz;
+            if (who < 0 || d < best) {
+                best = d;
+                who = j;
+            }
+        }
+        if (who >= 0) {
+            return who;
+        }
+    }
     // What listens to the ocarina hears the nearest player who is playing (its song lives in that player's text box
     // state).
     {

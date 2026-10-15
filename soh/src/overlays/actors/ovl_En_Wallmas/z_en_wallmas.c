@@ -6,6 +6,7 @@
  */
 
 #include "z_en_wallmas.h"
+#include "soh/Zmp/Test/Mutants.h" // ZMP
 #include "objects/object_wallmaster/object_wallmaster.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -271,6 +272,7 @@ void EnWallmas_SetupTakePlayer(EnWallmas* this, PlayState* play) {
 
     this->yTarget = this->actor.yDistToPlayer;
     Player_SetCsAction(play, &this->actor, 0x25);
+    this->zmpHeldSlot = Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1; // ZMP (T1, B13, D-150): -1 outside a group
     OnePointCutscene_Init(play, 9500, 9999, &this->actor, CAM_ID_MAIN);
 }
 
@@ -451,8 +453,29 @@ void EnWallmas_Die(EnWallmas* this, PlayState* play) {
     this->actor.scale.y = this->actor.scale.x;
 }
 
+// ZMP (T1, row B13 of the Shadow Temple, D-150): the hand takes "the player" up and back to the entrance; it does not
+// mark it as its parent, so on every tick "the player" was the Link nearest to it: with a partner by the one it caught,
+// the hand lifted the partner (moved to the hand on every tick) and left the caught one held on the floor, and nobody
+// went back to the entrance. In a group it acts on the Link it caught until it lets go; if that Link left the group the
+// hand goes back to the ceiling with nobody.
+static Player* EnWallmas_ZmpHeldPlayer(EnWallmas* this, PlayState* play) {
+    Player* held;
+
+    if (!Zmp_MultiActive() || (this->zmpHeldSlot <= 0) || Zmp_TestMutant("mano_al_mas_cercano")) {
+        return GET_PLAYER(play); // (mutant: the nearest, as before)
+    }
+    held = Zmp_HeldPlayer(play, this->zmpHeldSlot - 1);
+    return held;
+}
+
 void EnWallmas_TakePlayer(EnWallmas* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = EnWallmas_ZmpHeldPlayer(this, play);
+
+    if (player == NULL) { // ZMP (D-150): the Link it took left the group
+        this->zmpHeldSlot = 0;
+        EnWallmas_SetupReturnToCeiling(this);
+        return;
+    }
 
     if (Animation_OnFrame(&this->skelAnime, 1.0f) != 0) {
         if (!LINK_IS_ADULT) {
@@ -502,6 +525,12 @@ void EnWallmas_TakePlayer(EnWallmas* this, PlayState* play) {
         Sfx_PlaySfxCentered(NA_SE_OC_ABYSS);
         Play_TriggerRespawn(play);
         Zmp_NoteTransitionBy(player); // ZMP: the hand takes only the player it holds back to the entrance
+        if (Zmp_MultiActive() && !Zmp_TestMutant("mano_al_mas_cercano")) {
+            // ZMP (D-150): in a group the scene stays: the hand lets go and goes back up. Kept in this action it went
+            // on carrying the same slot, which came back next to the group a moment later, up to the sky.
+            this->zmpHeldSlot = 0;
+            EnWallmas_SetupReturnToCeiling(this);
+        }
     }
 }
 

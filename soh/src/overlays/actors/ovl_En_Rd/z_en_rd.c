@@ -1,4 +1,6 @@
 #include "z_en_rd.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "objects/object_rd/object_rd.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -316,6 +318,63 @@ void EnRd_SetupWalkToPlayer(EnRd* this, PlayState* play) {
     EnRd_SetupAction(this, EnRd_WalkToPlayer);
 }
 
+// ZMP (row B13 of the Shadow Temple, D-151): the scream freezes "the player" if it is in front of the ReDead and in
+// reach: the Link nearest to it. In a group it freezes every present Link in front of it and in reach, each the same
+// way, and nobody else. `maxYaw` and `reach` are the original's (in reach: `reach` in 3D, or in XZ with `reachXZ`).
+// Returns 0 outside a group (the original runs); in a group 1, with *anyInReach saying whether any Link was.
+static s32 EnRd_ZmpScream(EnRd* this, PlayState* play, s16 maxYaw, f32 reach, s32 reachXZ, s16 freeze, s32* anyInReach,
+                          s32* contextGaveUp) {
+    Player* context = GET_PLAYER(play);
+    s32 back = Zmp_SlotOfPlayer(context);
+    s32 frozen[6];
+    s32 n = 0;
+    s32 i;
+    s32 k = -1;
+
+    *anyInReach = false;
+    *contextGaveUp = false;
+    if (!Zmp_MultiActive() || (back < 0) || Zmp_TestMutant("grito_al_mas_cercano")) { // (mutant: as before)
+        return 0;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        s16 yaw;
+        f32 dist;
+
+        if ((link == NULL) || (n >= ARRAY_COUNT(frozen))) {
+            continue;
+        }
+        yaw = Actor_WorldYawTowardActor(&this->actor, &link->actor) - this->actor.shape.rot.y - this->headYRotation -
+              this->upperBodyYRotation;
+        dist = reachXZ ? Actor_WorldDistXZToActor(&this->actor, &link->actor)
+                       : Actor_WorldDistXYZToActor(&this->actor, &link->actor);
+        if ((ABS(yaw) >= maxYaw) || (dist > reach)) {
+            continue;
+        }
+        if ((link->stateFlags1 & (PLAYER_STATE1_DEAD | PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE |
+                                  PLAYER_STATE1_JUMPING | PLAYER_STATE1_FREEFALL | PLAYER_STATE1_CLIMBING_LADDER)) ||
+            (link->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY)) {
+            if (link == context) {
+                *contextGaveUp = true;
+            }
+            continue;
+        }
+        frozen[n++] = k;
+    }
+    *anyInReach = (n > 0);
+    if ((n > 0) && !(this->rdFlags & 0x80) && GameInteractor_Should(VB_REDEAD_GIBDO_FREEZE_LINK, true, this)) {
+        for (i = 0; i < n; i++) {
+            Zmp_SetContext(play, frozen[i]);
+            GET_PLAYER(play)->actor.freezeTimer = freeze;
+            Player_SetAutoLockOnActor(play, &this->actor);
+            GET_PLAYER(play)->autoLockOnActor = &this->actor;
+        }
+        Zmp_SetContext(play, back);
+        Rumble_Request(this->actor.xzDistToPlayer, 0xFF, 0x14, 0x96);
+    }
+    return 1;
+}
+
 void EnRd_WalkToPlayer(EnRd* this, PlayState* play) {
     Vec3f sp44 = D_80AE4918;
     Color_RGBA8 sp40 = D_80AE4924;
@@ -335,7 +394,17 @@ void EnRd_WalkToPlayer(EnRd* this, PlayState* play) {
         EnRd_SetupWalkToHome(this, play);
     }
 
-    if ((ABS(sp32) < 0x1554) && (Actor_WorldDistXYZToActor(&this->actor, &player->actor) <= 150.0f)) {
+    s32 zmpInReach;
+    s32 zmpGaveUp;
+    if ((this->playerStunWaitTimer == 0) &&
+        EnRd_ZmpScream(this, play, 0x1554, 150.0f, false, 40, &zmpInReach, &zmpGaveUp)) { // ZMP (B13, D-151)
+        if (zmpInReach) {
+            this->playerStunWaitTimer = 0x3C;
+            Audio_PlayActorSound2(&this->actor, NA_SE_EN_REDEAD_AIM);
+        } else if (zmpGaveUp) {
+            EnRd_SetupWalkToHome(this, play);
+        }
+    } else if ((ABS(sp32) < 0x1554) && (Actor_WorldDistXYZToActor(&this->actor, &player->actor) <= 150.0f)) {
         if (!(player->stateFlags1 &
               (PLAYER_STATE1_DEAD | PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE |
                PLAYER_STATE1_JUMPING | PLAYER_STATE1_FREEFALL | PLAYER_STATE1_CLIMBING_LADDER)) &&
@@ -573,8 +642,12 @@ void EnRd_AttemptPlayerFreeze(EnRd* this, PlayState* play) {
     s16 temp_v0 =
         this->actor.yawTowardsPlayer - this->actor.shape.rot.y - this->headYRotation - this->upperBodyYRotation;
 
+    s32 zmpInReach;
+    s32 zmpGaveUp;
     if (ABS(temp_v0) < 0x2008) {
-        if (!(this->rdFlags & 0x80) && GameInteractor_Should(VB_REDEAD_GIBDO_FREEZE_LINK, true, this)) {
+        if (EnRd_ZmpScream(this, play, 0x2008, 150.0f, true, 60, &zmpInReach, &zmpGaveUp)) {
+            // ZMP (B13, D-151): every Link in front of it and in reach (150, the reach that woke it up)
+        } else if (!(this->rdFlags & 0x80) && GameInteractor_Should(VB_REDEAD_GIBDO_FREEZE_LINK, true, this)) {
             player->actor.freezeTimer = 60;
             Rumble_Request(this->actor.xzDistToPlayer, 0xFF, 0x14, 0x96);
             Player_SetAutoLockOnActor(play, &this->actor);

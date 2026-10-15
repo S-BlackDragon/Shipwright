@@ -25,6 +25,7 @@ typedef struct EnWallmas {
     /* 0x022E */ Vec3s morphTable[25];
     /* 0x02C4 */ f32 yTarget;
     /* 0x02C8 */ ColliderCylinder collider;
+    s8 zmpHeldSlot; // ZMP (T1, row B13, D-150): 1 + the slot of the player it took (0: nobody)
 } EnWallmas; // size = 0x0314
 
 #endif

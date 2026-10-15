@@ -5,6 +5,8 @@
  */
 
 #include "z_bg_haka_ship.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "objects/object_haka_objects/object_haka_objects.h"
 
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -170,6 +172,31 @@ void BgHakaShip_CrashShake(BgHakaShip* this, PlayState* play) {
     Actor_PlaySfx_Flagged(&this->dyna.actor, NA_SE_EV_BLOCKSINK - SFX_FLAG);
 }
 
+// ZMP (row B9 of the Shadow Temple, D-153): the sinking ship voids out "the player" when any Link stands on it, and the
+// void out was nobody's: the whole group went back to the entrance, the Links that stayed on the dock too. In a group
+// it voids out the Links standing on it, one per tick (a scene change takes one player per tick), each by itself.
+// Returns 0 outside a group (the original runs).
+static s32 BgHakaShip_ZmpVoidOutAboard(BgHakaShip* this, PlayState* play) {
+    s32 back = Zmp_SlotOfPlayer(GET_PLAYER(play));
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || (back < 0) || Zmp_TestMutant("barco_al_grupo")) { // (mutant: the whole group)
+        return 0;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.floorBgId == this->dyna.bgId) && (link->actor.bgCheckFlags & 1)) {
+            Zmp_SetContext(play, k);
+            Play_TriggerVoidOut(play);
+            Zmp_NoteTransitionBy(link);
+            Zmp_SetContext(play, back);
+            break;
+        }
+    }
+    return 1;
+}
+
 void BgHakaShip_CrashFall(BgHakaShip* this, PlayState* play) {
     Actor* child;
 
@@ -182,7 +209,7 @@ void BgHakaShip_CrashFall(BgHakaShip* this, PlayState* play) {
     } else {
         Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_BLOCKSINK - SFX_FLAG);
         if ((this->dyna.actor.home.pos.y - this->dyna.actor.world.pos.y > 500.0f) &&
-            DynaPolyActor_IsPlayerOnTop(&this->dyna)) {
+            !BgHakaShip_ZmpVoidOutAboard(this, play) && DynaPolyActor_IsPlayerOnTop(&this->dyna)) {
             Play_TriggerVoidOut(play);
         }
     }
