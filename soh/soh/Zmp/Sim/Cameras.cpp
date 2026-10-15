@@ -852,7 +852,13 @@ bool ScreenShowsText(PlayState* play, int owner, int local) {
     if (shared && owner == gZmpSim.anchor) {
         return true;
     }
-    return gZmpSim.globalCs && owner == gZmpSim.csTrigger && !Zmp_TestMutant("texto_de_uno");
+    if (!gZmpSim.globalCs || Zmp_TestMutant("texto_de_uno")) {
+        return false;
+    }
+    // D-126: the text of the player the group cutscene is about. D-163: and the text the cutscene's actors opened last
+    // (in the context of the Link nearest to them, which need not be that player: Twinrova's death, the sisters' words
+    // on one screen of six). Everybody is held by the cutscene: no private text is opened meanwhile.
+    return owner == gZmpSim.csTrigger || (owner == gZmpSim.msgOwner && !Zmp_TestMutant("texto_del_mas_cercano"));
 }
 
 bool LocalTextHidden() {

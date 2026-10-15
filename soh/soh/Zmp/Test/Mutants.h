@@ -163,6 +163,14 @@
 //   lluvia_del_juego       the rain is drawn with the simulation's random numbers (finding BY, D-156): each screen
 //   takes
 //                          as many as its camera asks for, and the Graveyard after Bongo Bongo desynchronizes
+//   rupias_no_viajan       the room's count of silver rupees does not travel in the group state (SP3, D-159): who
+//                          joins in the middle of a set counts from 0 and the last rupee desynchronizes
+//   bloque_al_del_contexto the silver block lets go of the player of its context when a push ends (SP1, D-160): the
+//                          Link that pushed keeps pushing
+//   espejo_al_mas_cercano  the turning cobra mirror carries and lets go of the Link nearest to it (SP1, D-160)
+//   portal_al_alcance_tw   Twinrova's blue warp appears on the east pillar with a Link in its reach (row 5, D-162)
+//   texto_del_mas_cercano  a group cutscene's text opened in the context of another Link than the cutscene's is
+//                          shown on that Link's screen only (D-163): Twinrova's sisters' last words
 //   colgado_retenido       a Link hanging from a ledge when a group cutscene ends keeps the cutscene's wait order
 //                          (finding BP, D-157): it stays "in a cutscene" until it climbs or lets go
 
