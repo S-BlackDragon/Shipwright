@@ -15,6 +15,8 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/frame_interpolation.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-159)
+#include "soh/Zmp/Test/Mutants.h"                 // ZMP
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -42,6 +44,15 @@ void EnGSwitch_UpdateEffects(EnGSwitch* this, PlayState* play);
 void EnGSwitch_DrawEffects(EnGSwitch* this, PlayState* play);
 
 static s16 sCollectedCount = 0;
+
+// ZMP (family 1, INVENTARIO row 1 / Spirit T3, D-159): how many silver rupees of the room's set were taken is one
+// number for the scene and did not travel: who joined in the middle of a set counted from 0, and the last rupee
+// turned the set's switch on everywhere but there (a resynchronisation). (Mutant "rupias_no_viajan": as before.)
+void EnGSwitch_SaveState(SaveStateCtx* ctx) {
+    if (!Zmp_TestMutant("rupias_no_viajan")) {
+        ZMP_SAVESTATE_NEW_FIELD(sCollectedCount)
+    }
+}
 
 static ColliderCylinderInit sCylinderInit = {
     {

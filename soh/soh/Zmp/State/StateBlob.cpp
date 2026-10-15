@@ -104,6 +104,7 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(BgJyaBigmirror)            \
     X(BgJyaLift)                 \
     X(BgJyaZurerukabe)           \
+    X(EnGSwitch)                 \
     X(Player)                    \
     X(Demo)                      \
     X(MessageZmp)                \
