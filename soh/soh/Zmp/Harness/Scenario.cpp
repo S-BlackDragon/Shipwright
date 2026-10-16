@@ -29,6 +29,7 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Fd2/z_boss_fd2.h"
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"
 #include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"
+#include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"
 #include "overlays/actors/ovl_Bg_Haka_Gate/z_bg_haka_gate.h"
 #include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"   // ZMP phase 6 scenario tests (f6_ganon.py)
@@ -448,6 +449,21 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         Zmp::Players::RunInContext(target, BongoInContext, &a);
         if (!a.done) {
             return Bad(cmd, "Bongo Bongo is not in a state where that applies");
+        }
+    } else if (op == "gohma" && w.size() == 3) {
+        // Gohma (f6_gohma.py, D-170), what the bots cannot aim: "zmp_stage gohma stun": a slingshot seed reaches her
+        // open eye (struck down from the ceiling, or stunned on the floor, open to the sword).
+        if (w[2] != "stun") {
+            return Bad(cmd, "unknown gohma event");
+        }
+        Actor* goma = nullptr;
+        for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BOSS].head; a != nullptr; a = a->next) {
+            if (a->id == ACTOR_BOSS_GOMA) {
+                goma = a;
+            }
+        }
+        if (goma == nullptr || !BossGoma_ZmpStage(gPlayState, goma, 0)) {
+            return Bad(cmd, "Gohma is not in a state where that applies");
         }
     } else if (op == "twinrova" && w.size() == 4) {
         // Twinrova (f6_spirit.py, D-159), what the bots cannot aim:

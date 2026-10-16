@@ -25,6 +25,7 @@ typedef struct EnDha {
     /* 0x01F4 */ Vec3f armPos;
     /* 0x0200 */ ColliderJntSph collider;
     /* 0x0220 */ ColliderJntSphElement colliderItem[5];
-} EnDha; // size = 0x0360
+    s8 zmpHeldSlot; // ZMP (T1, D-168): 1 + the slot of the Link this hand holds (0: nobody)
+} EnDha;            // size = 0x0360
 
 #endif

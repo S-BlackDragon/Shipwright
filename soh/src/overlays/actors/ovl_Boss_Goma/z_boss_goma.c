@@ -2194,3 +2194,33 @@ void BossGoma_SpawnChildGohma(BossGoma* this, PlayState* play, s16 i) {
 
     this->childrenGohmaState[i] = 1;
 }
+
+// ZMP phase 6 scenario tests (f6_gohma.py, D-170): what the bots cannot aim. "zmp_stage gohma stun": a slingshot seed
+// reaches her open eye, as BossGoma_UpdateHit takes it: on the ceiling she falls struck down; on the floor, while she
+// walks, waits or faces a Link, she lies stunned (open to the sword) for 90 ticks.
+s32 BossGoma_ZmpStage(PlayState* play, Actor* thisx, s32 what) {
+    BossGoma* this = (BossGoma*)thisx;
+
+    if ((this == NULL) || (what != 0) || (this->invincibilityFrames != 0) || (this->eyeClosedTimer != 0)) {
+        return 0;
+    }
+    if ((this->actionFunc == BossGoma_CeilingMoveToCenter) || (this->actionFunc == BossGoma_CeilingIdle) ||
+        (this->actionFunc == BossGoma_CeilingPrepareSpawnGohmas)) {
+        BossGoma_SetupFallStruckDown(this);
+        Audio_PlayActorSound2(&this->actor, NA_SE_EN_GOMA_DAM2);
+        return 1;
+    }
+    if ((this->actionFunc != BossGoma_FloorMain) && (this->actionFunc != BossGoma_FloorIdle) &&
+        (this->actionFunc != BossGoma_FloorAttackPosture) && (this->actionFunc != BossGoma_FloorPrepareAttack)) {
+        return 0;
+    }
+    Audio_PlayActorSound2(&this->actor, NA_SE_EN_GOMA_DAM2);
+    Audio_StopSfxById(NA_SE_EN_GOMA_CRY1);
+    this->invincibilityFrames = 10;
+    BossGoma_SetupFloorStunned(this);
+    this->sfxFaintTimer = 100;
+    this->framesUntilNextAction = 90;
+    this->timer = 4;
+    Actor_RequestQuakeAndRumble(&this->actor, play, 4, 0xC);
+    return 1;
+}

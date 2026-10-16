@@ -352,6 +352,8 @@ void* Zmp_PauseScratch(void);
 s32 Zmp_TransitionGate(PlayState* play);
 // z_player.c: this player's own action (an exit, a void, Farore's Wind) started the scene change.
 void Zmp_NoteTransitionBy(Player* player);
+// D-171: the scene change is that Link's alone even with a cutscene running (a capture by a Gerudo guard).
+void Zmp_NoteSoloTransitionBy(Player* player);
 // Phase 5b, blue warp (z_door_warp1.c): a player enters it (the warp is its own until it leaves); the warp's scene
 // change takes only that player, with the cutscene of the destination if there is one. Zmp_WarpIsShared: 1 while other
 // players stay in the scene (the warp's screen effects on the world are skipped).

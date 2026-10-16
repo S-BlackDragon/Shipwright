@@ -7,6 +7,7 @@
 #include "z_en_dha.h"
 #include "overlays/actors/ovl_En_Dh/z_en_dh.h"
 #include "objects/object_dh/object_dh.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -189,11 +190,50 @@ void EnDha_SetupWait(EnDha* this) {
     EnDha_SetupAction(this, EnDha_Wait);
 }
 
+// ZMP (T1, D-168): a hand holds the Link it grabbed, by its slot (never a pointer), until it lets go. The original
+// works on "the player" of its context, the Link nearest to the hand: with a partner walking closer, the hand followed
+// the partner and left the held one held, and its release when it is hurt or dies never ran (it asks for the held
+// Link's `parent`, which the grab does not set; alone, nobody can hurt a hand that holds Link). In a group a partner
+// can: the hand that is hurt or dies lets its Link go.
+static s32 EnDha_ZmpGroup(void) {
+    // (mutant "mano_muerta_al_mas_cercano": the nearest player and no release, as before D-168)
+    return Zmp_MultiActive() && !Zmp_TestMutant("mano_muerta_al_mas_cercano");
+}
+
+static Player* EnDha_ZmpPlayer(EnDha* this, PlayState* play) {
+    Player* held;
+
+    if (!EnDha_ZmpGroup() || (this->zmpHeldSlot <= 0)) {
+        return GET_PLAYER(play);
+    }
+    held = Zmp_HeldPlayer(play, this->zmpHeldSlot - 1);
+    if (held == NULL) { // (that Link left the group)
+        this->zmpHeldSlot = 0;
+        return GET_PLAYER(play);
+    }
+    this->actor.xzDistToPlayer = Actor_WorldDistXZToActor(&this->actor, &held->actor);
+    return held;
+}
+
+static void EnDha_ZmpRelease(EnDha* this) {
+    Player* held;
+
+    if (!EnDha_ZmpGroup() || (this->zmpHeldSlot <= 0)) {
+        return;
+    }
+    held = Zmp_SlotPlayer(this->zmpHeldSlot - 1);
+    this->zmpHeldSlot = 0;
+    if ((held != NULL) && (held->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY)) {
+        held->stateFlags2 &= ~PLAYER_STATE2_GRABBED_BY_ENEMY;
+        held->av2.actionVar2 = 200; // (the held action lets go on the next tick, as the original's release)
+    }
+}
+
 void EnDha_Wait(EnDha* this, PlayState* play) {
     Vec3f zeroVec = { 0.0f, 0.0f, 0.0f }; // unused
     Vec3f armPosMultiplier1 = { 0.0f, 0.0f, 55.0f };
     Vec3f armPosMultiplier2 = { 0.0f, 0.0f, -54.0f };
-    Player* player = GET_PLAYER(play);
+    Player* player = EnDha_ZmpPlayer(this, play); // ZMP (T1, D-168): the Link it holds, else the nearest
     s32 pad;
     s32 pad2;
     Vec3f playerPos = player->actor.world.pos;
@@ -215,6 +255,7 @@ void EnDha_Wait(EnDha* this, PlayState* play) {
         if (Math_Vec3f_DistXYZ(&playerPos, &this->handPos[0]) <= 12.0f) {
             if (this->unk_1CC == 0) {
                 if (play->grabPlayer(play, player)) {
+                    this->zmpHeldSlot = Zmp_SlotOfPlayer(player) + 1; // ZMP (T1, D-168)
                     this->timer = 0;
                     this->unk_1CC++;
 
@@ -243,6 +284,7 @@ void EnDha_Wait(EnDha* this, PlayState* play) {
             this->handAngle.y -= this->actor.shape.rot.y + this->limbAngleY;
             this->handAngle.x -= this->actor.shape.rot.x + this->limbAngleX[0] + this->limbAngleX[1];
         } else {
+            EnDha_ZmpRelease(this); // ZMP (T1, D-168): its Link is out of the hand's grip
             if ((player->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY) && (&this->actor == player->actor.parent)) {
                 player->stateFlags2 &= ~PLAYER_STATE2_GRABBED_BY_ENEMY;
                 player->actor.parent = NULL;
@@ -283,6 +325,7 @@ void EnDha_Wait(EnDha* this, PlayState* play) {
             this->limbAngleX[1] *= -2;
         }
     } else {
+        EnDha_ZmpRelease(this); // ZMP (T1, D-168)
         if ((player->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY) && (&this->actor == player->actor.parent)) {
             player->stateFlags2 &= ~PLAYER_STATE2_GRABBED_BY_ENEMY;
             player->actor.parent = NULL;
@@ -303,6 +346,8 @@ void EnDha_SetupTakeDamage(EnDha* this) {
 
 void EnDha_TakeDamage(EnDha* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
+
+    EnDha_ZmpRelease(this); // ZMP (T1, D-168): a hand that is hurt or dies lets its Link go
 
     if ((player->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY) && (&this->actor == player->actor.parent)) {
         player->stateFlags2 &= ~PLAYER_STATE2_GRABBED_BY_ENEMY;
@@ -341,6 +386,8 @@ void EnDha_Die(EnDha* this, PlayState* play) {
     s16 angle;
     Vec3f vec;
     Player* player = GET_PLAYER(play);
+
+    EnDha_ZmpRelease(this); // ZMP (T1, D-168): a hand that is hurt or dies lets its Link go
 
     if ((player->stateFlags2 & PLAYER_STATE2_GRABBED_BY_ENEMY) && (&this->actor == player->actor.parent)) {
         player->stateFlags2 &= ~PLAYER_STATE2_GRABBED_BY_ENEMY;

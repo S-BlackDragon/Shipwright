@@ -5,6 +5,7 @@
  */
 
 #include "z_en_ge2.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 #include "objects/object_gla/object_gla.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
@@ -236,6 +237,33 @@ s32 EnGe2_CheckCarpentersFreed(void) {
 
 // Actions
 
+// ZMP (D-171): a guard that catches a Link sends THAT Link to the jail, alone; the others go on (the family of the
+// Wallmaster, D-150, and of "who lives it", D-108). The original's scene change took the whole group: nobody told the
+// group whose it was. The guard goes back to its round on every machine (the caught Link is no longer there).
+static s32 EnGe2_ZmpOwnCapture(void) {
+    // (mutant "captura_del_grupo": the capture takes the whole group to the jail, as before D-171)
+    return Zmp_MultiActive() && !Zmp_TestMutant("captura_del_grupo");
+}
+
+// True when nobody is to be sent (the caught Link left the group meanwhile): the caller starts no scene change.
+static s32 EnGe2_ZmpCaptureTransition(EnGe2* this) {
+    Player* caught;
+
+    if (!EnGe2_ZmpOwnCapture() || (this->zmpCaughtSlot <= 0)) {
+        return false;
+    }
+    caught = Zmp_SlotPlayer(this->zmpCaughtSlot - 1);
+    this->zmpCaughtSlot = 0;
+    this->stateFlags &= ~GE2_STATE_CAPTURING;
+    this->actor.speedXZ = 0.0f;
+    EnGe2_ChangeAction(this, ((this->actor.params & 0xFF) == GE2_TYPE_STATIONARY) ? GE2_ACTION_STAND : GE2_ACTION_WALK);
+    if (caught == NULL) {
+        return true;
+    }
+    Zmp_NoteSoloTransitionBy(caught);
+    return false;
+}
+
 void EnGe2_CaptureClose(EnGe2* this, PlayState* play) {
     if (this->timer > 0) {
         this->timer--;
@@ -254,6 +282,9 @@ void EnGe2_CaptureClose(EnGe2* this, PlayState* play) {
             Entrance_OverrideGerudoGuardCapture();
         }
 
+        if (EnGe2_ZmpCaptureTransition(this)) { // ZMP (D-171): only the caught Link goes
+            return;
+        }
         play->transitionType = TRANS_TYPE_CIRCLE(TCA_STARBURST, TCC_BLACK, TCS_FAST);
         play->transitionTrigger = TRANS_TRIGGER_START;
     }
@@ -284,6 +315,9 @@ void EnGe2_CaptureCharge(EnGe2* this, PlayState* play) {
             Entrance_OverrideGerudoGuardCapture();
         }
 
+        if (EnGe2_ZmpCaptureTransition(this)) { // ZMP (D-171): only the caught Link goes
+            return;
+        }
         play->transitionType = TRANS_TYPE_CIRCLE(TCA_STARBURST, TCC_BLACK, TCS_FAST);
         play->transitionTrigger = TRANS_TRIGGER_START;
     }
@@ -492,6 +526,7 @@ void EnGe2_ForceTalk(EnGe2* this, PlayState* play) {
 
 void EnGe2_SetupCapturePlayer(EnGe2* this, PlayState* play) {
     this->stateFlags |= GE2_STATE_CAPTURING;
+    this->zmpCaughtSlot = Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1; // ZMP (D-171): -1 outside a group
     this->actor.speedXZ = 0.0f;
     EnGe2_ChangeAction(this, GE2_ACTION_CAPTURETURN);
     Player_SetCsActionWithHaltedActors(play, &this->actor, 95);

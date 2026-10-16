@@ -28,6 +28,7 @@ typedef struct EnGe2 {
     /* 0x0305 */ u8 timer;
     /* 0x0306 */ u8 playerSpottedParam;
     /* 0x0308 */ EnGe2ActionFunc actionFunc;
-} EnGe2; // size = 0x030C
+    s8 zmpCaughtSlot; // ZMP (D-171): 1 + the slot of the Link this guard caught (0: nobody)
+} EnGe2;              // size = 0x030C
 
 #endif

@@ -388,7 +388,8 @@ json PlayerJson(Player* player, int slot = 0) {
         floor = { { "type", SurfaceType_GetFloorType(col, a->floorPoly, a->floorBgId) },
                   { "property", func_80041EA4(col, a->floorPoly, a->floorBgId) },
                   { "exit", SurfaceType_GetSceneExitIndex(col, a->floorPoly, a->floorBgId) },
-                  { "damage", SurfaceType_IsWallDamage(col, a->floorPoly, a->floorBgId) } };
+                  { "damage", SurfaceType_IsWallDamage(col, a->floorPoly, a->floorBgId) },
+                  { "bg", a->floorBgId } }; // (50: the scene; else the actor whose collision it stands on)
     }
     return {
         { "ok", true },

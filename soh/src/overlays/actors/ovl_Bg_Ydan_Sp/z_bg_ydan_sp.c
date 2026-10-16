@@ -7,6 +7,7 @@
 #include "z_bg_ydan_sp.h"
 #include "objects/object_ydan_objects/object_ydan_objects.h"
 #include "soh/ResourceManagerHelpers.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS 0
 
@@ -272,11 +273,51 @@ void BgYdanSp_FloorWebBreaking(BgYdanSp* this, PlayState* play) {
     BgYdanSp_UpdateFloorWebCollision(this);
 }
 
+// ZMP (D-169): the original reads "the player" of its context, the Link nearest to the web: a Link that fell on it from
+// high up broke it only if no partner stood nearer (on its edge, or beside it). Now each Link on top counts with its
+// own fall. Body unchanged from the original's block; true when the web breaks.
+static s32 BgYdanSp_FloorWebStand(BgYdanSp* this, Player* player, f32 xzDist) {
+    f32 sqrtFallDistance;
+    f32 unk;
+
+    sqrtFallDistance = sqrtf(CLAMP_MIN(player->fallDistance, 0.0f));
+    if (player->fallDistance > 750.0f) {
+        if (xzDist < 80.0f) {
+            this->unk_16C = 200.0f;
+            this->dyna.actor.room = -1;
+            this->dyna.actor.flags |= ACTOR_FLAG_UPDATE_CULLING_DISABLED;
+            this->timer = 40;
+            Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_WEB_BROKEN);
+            this->actionFunc = BgYdanSp_FloorWebBreaking;
+            return true;
+        }
+    }
+    unk = sqrtFallDistance + sqrtFallDistance;
+    if (this->unk_16C < unk) {
+        if (unk > 2.0f) {
+            this->unk_16C = unk;
+            this->timer = 14;
+        }
+    }
+    if (player->actor.speedXZ != 0.0f) {
+        if (this->unk_16C < 0.1f) {
+            this->timer = 14;
+        }
+        if (this->unk_16C < 2.0f) {
+            this->unk_16C = 2.0f;
+        }
+    }
+    return false;
+}
+
+static s32 BgYdanSp_ZmpEveryLink(void) {
+    // (mutant "telarana_al_mas_cercano": the nearest player only, as before D-169)
+    return Zmp_MultiActive() && !Zmp_TestMutant("telarana_al_mas_cercano");
+}
+
 void BgYdanSp_FloorWebIdle(BgYdanSp* this, PlayState* play) {
     Player* player;
     Vec3f webPos;
-    f32 sqrtFallDistance;
-    f32 unk;
 
     player = GET_PLAYER(play);
     webPos.x = this->dyna.actor.world.pos.x;
@@ -292,36 +333,22 @@ void BgYdanSp_FloorWebIdle(BgYdanSp* this, PlayState* play) {
         BgYdanSp_BurnWeb(this, play);
         return;
     }
-    if (DynaPolyActor_IsPlayerOnTop(&this->dyna)) {
-        sqrtFallDistance = sqrtf(CLAMP_MIN(player->fallDistance, 0.0f));
-        if (player->fallDistance > 750.0f) {
-            if (this->dyna.actor.xzDistToPlayer < 80.0f) {
-                this->unk_16C = 200.0f;
-                this->dyna.actor.room = -1;
-                this->dyna.actor.flags |= ACTOR_FLAG_UPDATE_CULLING_DISABLED;
-                this->timer = 40;
-                Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_WEB_BROKEN);
-                this->actionFunc = BgYdanSp_FloorWebBreaking;
+    if (BgYdanSp_ZmpEveryLink()) {
+        // ZMP (D-169): every Link standing on the web shakes it, and one that lands on it from high up breaks it
+        s32 k = -1;
+
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* link = Zmp_SlotPlayer(k);
+
+            if ((link != NULL) && (link->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+                (link->actor.floorBgId == this->dyna.bgId) &&
+                BgYdanSp_FloorWebStand(this, link, Actor_WorldDistXZToActor(&this->dyna.actor, &link->actor))) {
                 return;
             }
         }
-        unk = sqrtFallDistance + sqrtFallDistance;
-        if (this->unk_16C < unk) {
-            if (unk > 2.0f) {
-                this->unk_16C = unk;
-                this->timer = 14;
-            }
-        }
-        if (player->actor.speedXZ != 0.0f) {
-            if (this->unk_16C < 0.1f) {
-                this->timer = 14;
-            }
-            if (this->unk_16C < 2.0f) {
-                this->unk_16C = 2.0f;
-            } else {
-                this->unk_16C = this->unk_16C;
-            }
-        }
+    } else if (DynaPolyActor_IsPlayerOnTop(&this->dyna) &&
+               BgYdanSp_FloorWebStand(this, player, this->dyna.actor.xzDistToPlayer)) {
+        return;
     }
     if (this->timer != 0) {
         this->timer--;

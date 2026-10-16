@@ -2221,6 +2221,16 @@ extern "C" void Zmp_NoteTransitionBy(Player* player) {
         gZmpSim.transitionBy = (s8)k;
     }
 }
+extern "C" void Zmp_NoteSoloTransitionBy(Player* player) {
+    if (!Zmp_MultiActive() || player == nullptr) {
+        return;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (k >= 0) {
+        gZmpSim.transitionBy = (s8)k;
+        gZmpSim.transitionSolo = 1;
+    }
+}
 // D-165 (INVENTARIO E2): the escape from Ganon's tower (its exterior, the tower inside and the castle) is one way down
 // with one countdown for everybody (E1, D-164) and Zelda opening the bars ahead. An exit taken there by one Link takes
 // the whole group: split, each part would carry on with its own Zelda and reach Ganon on its own. (The original's
@@ -2547,8 +2557,10 @@ extern "C" s32 Zmp_AnyViewBox(PlayState* play, Actor* actor, f32 maxX, f32 maxY,
         return fabsf(actor->projectedPos.x) < maxX && fabsf(actor->projectedPos.y) < maxY &&
                actor->projectedPos.z < maxZ && actor->projectedPos.z > minZ;
     }
+    // (mutant "mirada_del_ancla": only the anchor's picture counts, as the one camera of the original; D-170)
+    bool anchorOnly = Zmp_TestMutant("mirada_del_ancla");
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
-        if (!sSlotVPValid[k] || !Present(k)) {
+        if (!sSlotVPValid[k] || !Present(k) || (anchorOnly && k != gZmpSim.anchor)) {
             continue;
         }
         Vec3f proj;

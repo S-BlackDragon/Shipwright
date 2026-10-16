@@ -312,6 +312,10 @@ static void RegisterConsoleCommands() {
                                  s16 yaw = (s16)std::stoi(args[4]);
                                  player->actor.shape.rot.y = player->actor.world.rot.y = player->yaw = yaw;
                              }
+                             if (args.size() > 6 && args[6] == "fall") {
+                                 // a fall from here (D-169): the landing counts it as the game counts a fall
+                                 player->fallStartHeight = (s16)pos.y;
+                             }
                              return 0;
                          },
                           "ZMP: teleport the player to x y z [yaw] (used by scripted recordings)",
