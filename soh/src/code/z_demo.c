@@ -2150,6 +2150,7 @@ void func_80068ECC(PlayState* play, CutsceneContext* csCtx) {
             csCtx->npcActions[i] = NULL;
         }
 
+        Zmp_OnCutsceneTriggered(); // ZMP (S7-A, D-176): about the player whose actor set the trigger
         csCtx->state++;
 
         if (csCtx->state == CS_STATE_SKIPPABLE_INIT) {

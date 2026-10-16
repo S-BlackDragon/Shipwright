@@ -713,7 +713,29 @@ extern "C" s32 Zmp_HearsCameraWater(Camera* camera) {
 
 extern "C" void Zmp_OnCutsceneStart(void) {
     if (gZmpSim.enabled && gZmpSim.inPlay) {
-        gZmpSim.csStarter = gZmpSim.ctx;
+        // S7-A (D-176): a trigger an actor set is read later, in the context of whoever runs the cutscene update (the
+        // anchor): the cutscene is about the player that actor acted on (Darunia's dance is the one who played).
+        int by = gZmpSim.csTriggerBy - 1;
+        gZmpSim.csStarter = (Present(by) && !Zmp_TestMutant("escena_del_ancla")) ? (s8)by : gZmpSim.ctx;
+        gZmpSim.csTriggerBy = 0;
+    }
+}
+
+extern "C" void Zmp_OnCutsceneTriggered(void) {
+    // (the start through the cutscene index, which never passes by Zmp_OnCutsceneStart: without a trigger set by an
+    // actor the cutscene is the anchor's, as before)
+    if (gZmpSim.enabled && gZmpSim.inPlay) {
+        int by = gZmpSim.csTriggerBy - 1;
+        if (Present(by) && !Zmp_TestMutant("escena_del_ancla")) {
+            gZmpSim.csStarter = (s8)by;
+        }
+        gZmpSim.csTriggerBy = 0;
+    }
+}
+
+extern "C" void Zmp_NoteCutsceneTrigger(u8 before) {
+    if (gZmpSim.enabled && gZmpSim.inPlay && before == 0 && gSaveContext.cutsceneTrigger != 0) {
+        gZmpSim.csTriggerBy = (u8)(gZmpSim.ctx + 1);
     }
 }
 

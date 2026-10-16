@@ -2795,7 +2795,9 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
                         actor->colorFilterTimer--;
                     }
                     if (GameInteractor_ShouldActorUpdate(actor)) {
+                        u8 zmpCsTrigger = gSaveContext.cutsceneTrigger; // ZMP (S7-A, D-176)
                         actor->update(actor, play);
+                        Zmp_NoteCutsceneTrigger(zmpCsTrigger); // ZMP: a cutscene this actor starts is its player's
                         GameInteractor_ExecuteOnActorUpdate(actor);
                     }
                     func_8003F8EC(play, &play->colCtx.dyna, actor);

@@ -1,4 +1,5 @@
 #include "z_en_du.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "objects/object_du/object_du.h"
 #include "scenes/overworld/spot18/spot18_scene.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -356,7 +357,9 @@ void func_809FE3B4(EnDu* this, PlayState* play) {
 void func_809FE3C0(EnDu* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
 
+    this->zmpOwner = 0; // ZMP (S7-A, D-177): idle, he attends the nearest again
     if (player->stateFlags2 & PLAYER_STATE2_ATTEMPT_PLAY_FOR_ACTOR) {
+        this->zmpOwner = Zmp_ContextSlotTag(); // ZMP: the song, his dance and his gift are this player's
         func_8010BD88(play, OCARINA_ACTION_CHECK_SARIA);
         player->stateFlags2 |= PLAYER_STATE2_PLAY_FOR_ACTOR;
         player->unk_6A8 = &this->actor;
@@ -405,6 +408,7 @@ void func_809FE638(EnDu* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
 
     if (!(player->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE)) {
+        this->zmpOwner = Zmp_ContextSlotTag(); // ZMP (V8, D-177): his camera, text and release are this player's
         OnePointCutscene_Init(play, 3330, -99, &this->actor, CAM_ID_MAIN);
         player->actor.shape.rot.y = player->actor.world.rot.y = this->actor.world.rot.y + 0x7FFF;
         Audio_PlayFanfare(NA_BGM_APPEAR);

@@ -21,6 +21,7 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
+#include "overlays/actors/ovl_En_Du/z_en_du.h" // S7-A, V8 (D-177)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -415,6 +416,16 @@ int ContextSlot(const Actor* actor) {
         int r = ((const EnRu2*)actor)->zmpReader - 1;
         if (Present(r)) {
             return r;
+        }
+    }
+    // S7-A and V8 (D-177): Darunia attends the player who played Saria's Song to him until his dance, his words and
+    // his gift are over, and in the Fire Temple the player his camera froze until he leaves. Before, the nearest player
+    // on every tick: a partner who came nearer read his text, and the frozen one's camera was never told to end (it
+    // stayed with cs action 8 under that camera).
+    if (actor->id == ACTOR_EN_DU && !Zmp_TestMutant("darunia_al_mas_cercano")) {
+        int d = ((const EnDu*)actor)->zmpOwner - 1;
+        if (Present(d)) {
+            return d;
         }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
@@ -976,6 +987,7 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.globalCs = 0;
     gZmpSim.csTrigger = -1;
     gZmpSim.csStarter = -1;
+    gZmpSim.csTriggerBy = 0;
     gZmpSim.extraRoomCount = 0;
     gZmpSim.loadingRoom = -1;
     gZmpSim.setupRoom = -1;
@@ -1018,7 +1030,10 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
         if (!s.active) {
             continue;
         }
-        if (keepDown && s.downed) {
+        // Block 7 (D-178): the scene loaded again in place (the room's age changed, D-068, or progress made elsewhere)
+        // is the same scene, not a new one: a downed player stays down there too (D-120), with its new age.
+        bool inPlace = s.restoreValid != 0 && !Zmp_TestMutant("recarga_levanta_caido");
+        if ((keepDown || inPlace) && s.downed) {
             s.block.health = 0;
             s.block.healthAccumulator = 0;
             Zmp::Log("zmp: D-117: slot " + std::to_string(k) + " came through the boss door downed: it stays down");
@@ -2853,6 +2868,7 @@ bool Found(int slot) {
     }
     gZmpSim.csTrigger = -1;
     gZmpSim.csStarter = -1;
+    gZmpSim.csTriggerBy = 0;
     gZmpSim.extraRoomCount = 0;
     gZmpSim.loadingRoom = -1;
     gZmpSim.setupRoom = -1;

@@ -123,7 +123,9 @@ typedef struct {
     u8 undoValid;    // the undo values below were taken
     s16 transitionEntrance;
     u8 groupDefeat; // every player was downed: the original game over runs for the group
-    u8 pad2;
+    // S7-A (D-176): 1 + the slot whose context set the cutscene trigger during its actor update (0: none, or not set
+    // by an actor). The scripted cutscene it starts is about that player, not about the context the trigger is read in.
+    u8 csTriggerBy;
     s16 lastMagicCapacity; // shared magic meter size seen last tick (a new meter fills everybody's)
     u32 audioTaskCount;    // deterministic replacement of gAudioContext.totalTaskCnt in a ZMP session
     u32 audioRandom;       // deterministic replacement of Audio_NextRandom in a ZMP session
@@ -408,6 +410,9 @@ void Zmp_UpdateCameras(PlayState* play);
 void Zmp_FinishCameras(PlayState* play);
 // Cutscene_SetSegment / manual cutscene start: remembers who started a scripted cutscene.
 void Zmp_OnCutsceneStart(void);
+void Zmp_NoteCutsceneTrigger(u8 before);
+void Zmp_OnCutsceneTriggered(void); // S7-A (D-176): a scripted cutscene starts from the trigger (z_demo.c) // S7-A
+                                    // (D-176): after an actor update, with the cutscene trigger before it
 // Player_UpdateCommon: whether this player follows the scripted cutscene's Link cues (only the one it is about).
 s32 Zmp_FollowsCutsceneScript(Player* player);
 // Player_Update: a player a global cutscene is not about stands still (its input still reaches text and skip).

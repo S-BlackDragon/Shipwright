@@ -27,6 +27,7 @@ typedef struct EnDu {
     /* 0x01F1 */ u8 noseTexIndex;
     /* 0x01F2 */ s16 blinkTimer;
     /* 0x01F4 */ NpcInteractInfo interactInfo;
+    s8 zmpOwner; // ZMP (S7-A, V8, D-177): 1 + the player his song or his scene is about (0: the nearest)
 } EnDu; // size = 0x021C
 
 #endif
