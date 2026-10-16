@@ -50,6 +50,9 @@ extern "C" {
 #include "variables.h"
 #include "functions.h"
 #include "macros.h"
+#include "overlays/actors/ovl_En_Md/z_en_md.h"           // block 7
+#include "overlays/actors/ovl_En_Heishi1/z_en_heishi1.h" // block 7
+#include "overlays/actors/ovl_En_Du/z_en_du.h"           // block 7
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
 #include "overlays/actors/ovl_Boss_Dodongo/z_boss_dodongo.h"     // ZMP phase 6 scenario tests
 #include "overlays/actors/ovl_Boss_Va/z_boss_va.h"               // ZMP phase 6 scenario tests
@@ -420,7 +423,11 @@ json PlayerJson(Player* player, int slot = 0) {
         { "downed", downed },
         { "away", multi && slot >= 0 && slot < ZMP_MAX_PLAYERS ? gZmpSim.slots[slot].away != 0 : false }, // D-117
         { "camera",
-          { { "eye", Vec3(cam->eye) }, { "at", Vec3(cam->at) }, { "setting", cam->setting }, { "mode", cam->mode } } },
+          { { "eye", Vec3(cam->eye) },
+            { "at", Vec3(cam->at) },
+            { "setting", cam->setting },
+            { "mode", cam->mode },
+            { "data_idx", cam->camDataIdx } } }, // (block 7: the courtyard guards watch by it)
         { "focus_actor", player->focusActor != nullptr ? json(player->focusActor->id) : json(nullptr) },
         // (what Navi points at for this player: a Z press locks on to it instead of starting the parallel camera)
         { "navi_pointed", target->arrowPointedActor != nullptr ? json(target->arrowPointedActor->id) : json(nullptr) },
@@ -544,6 +551,28 @@ json ActorsJson(const json& cmd) {
                 list.back()["ru1_action"] = r->action;
                 list.back()["ru1_carrier"] = carrier;
                 list.back()["ru1_room2"] = r->roomNum2;
+            }
+            if (a->id == ACTOR_EN_MD) {
+                // Block 7 (S7-D, Mido): his action (an offset in the executable) and his conversation state.
+                const EnMd* m = (const EnMd*)a;
+                list.back()["md_action"] = (uint64_t)((uintptr_t)m->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["talk_state"] = m->interactInfo.talkState;
+                list.back()["text_id"] = a->textId;
+            }
+            if (a->id == ACTOR_EN_HEISHI1) {
+                // Block 7 (S7-C, courtyard guards): their route and whether they saw a Link.
+                const EnHeishi1* h = (const EnHeishi1*)a;
+                list.back()["heishi_type"] = h->type;
+                list.back()["heishi_path"] = h->path;
+                list.back()["heishi_detected"] = h->linkDetected;
+                list.back()["heishi_action"] = (uint64_t)((uintptr_t)h->actionFunc - (uintptr_t)&__ImageBase);
+            }
+            if (a->id == ACTOR_EN_DU) {
+                // Block 7 (S7-A, V8, D-177): Darunia's action and the player he attends (-1: the nearest).
+                const EnDu* d = (const EnDu*)a;
+                list.back()["du_action"] = (uint64_t)((uintptr_t)d->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["du_owner"] = d->zmpOwner - 1;
+                list.back()["talk_state"] = d->interactInfo.talkState;
             }
             if (a->id == ACTOR_DOOR_WARP1) {
                 // Phase 6 (B1): Ruto's warp talks with her through this state (0 not ready ... 5 warping), and the

@@ -284,6 +284,15 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         } else {
             Flags_UnsetEventChkInf(Num(w[2]));
         }
+    } else if (op == "reload" && w.size() == 2) {
+        // Block 7: "zmp_stage reload": the group's scene loads again by the entrance it came in through (a scene change
+        // of the whole group, white fade, everybody put back where it stood), once no cutscene or menu is running. The
+        // flags just set take effect (actors that exist or not by them, scene layers).
+        gZmpSim.refreshPending = 1;
+    } else if (op == "age" && w.size() == 2) {
+        // Block 7: "zmp_stage age": the room's age changes as when the Master Sword is pulled or returned in another
+        // group (D-068): this group reloads its scene in place with the other age, everybody where it stood.
+        gZmpSim.agePending = (u8)(1 + (gSaveContext.linkAge == LINK_AGE_CHILD ? LINK_AGE_ADULT : LINK_AGE_CHILD));
     } else if (op == "refill" && w.size() == 2) {
         ForEachPresent(RefillInContext, nullptr);
     } else if (op == "hp" && w.size() == 4) {
