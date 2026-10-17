@@ -416,6 +416,7 @@ void UpdateGlobalCutscene(PlayState* play) {
     bool active = scripted || AnyGlobalActive(play, &creator);
     if (active && !gZmpSim.globalCs) {
         int trigger = scripted ? gZmpSim.csStarter : creator;
+        gZmpSim.csCarry = 0; // (D-187: used by the cutscene the new scene started with)
         if (!Present(trigger) || Zmp::Players::SlotDowned(trigger)) {
             trigger = gZmpSim.anchor;
         }
@@ -440,6 +441,9 @@ void UpdateGlobalCutscene(PlayState* play) {
     }
     if (active && gZmpSim.globalCs) {
         MaintainArc(play);
+    }
+    if (!active && gZmpSim.csCarry != 0 && ++gZmpSim.csCarryTicks > 3) {
+        gZmpSim.csCarry = 0; // (D-187: the new scene started without a cutscene of its own)
     }
     // Outside the events everybody watches the shared letterbox and HUD are the normal ones (the players' own cameras
     // drive only their own, Present.cpp): what a camera left before the group formed or a scene started goes back.
@@ -711,11 +715,22 @@ extern "C" s32 Zmp_HearsCameraWater(Camera* camera) {
     return Ctx() == Zmp::Players::LocalSlot() ? 1 : 0;
 }
 
+// D-187: the player a cutscene of the previous scene was about, when that cutscene's own command took the group to
+// this one (the Master Sword: the pedestal, the Sacred Realm, the Chamber of Sages and back to the temple are one
+// story about whoever pulled it); -1 when none is pending or that player is gone or down.
+static int CarriedStarter() {
+    int c = gZmpSim.csCarry - 1;
+    return (Present(c) && !Zmp::Players::SlotDowned(c)) ? c : -1;
+}
+
 extern "C" void Zmp_OnCutsceneStart(void) {
     if (gZmpSim.enabled && gZmpSim.inPlay) {
         // S7-A (D-176): a trigger an actor set is read later, in the context of whoever runs the cutscene update (the
         // anchor): the cutscene is about the player that actor acted on (Darunia's dance is the one who played).
         int by = gZmpSim.csTriggerBy - 1;
+        if (!Present(by)) {
+            by = CarriedStarter();
+        }
         gZmpSim.csStarter = (Present(by) && !Zmp_TestMutant("escena_del_ancla")) ? (s8)by : gZmpSim.ctx;
         gZmpSim.csTriggerBy = 0;
     }
@@ -726,6 +741,9 @@ extern "C" void Zmp_OnCutsceneTriggered(void) {
     // actor the cutscene is the anchor's, as before)
     if (gZmpSim.enabled && gZmpSim.inPlay) {
         int by = gZmpSim.csTriggerBy - 1;
+        if (!Present(by)) {
+            by = CarriedStarter(); // (D-187)
+        }
         if (Present(by) && !Zmp_TestMutant("escena_del_ancla")) {
             gZmpSim.csStarter = (s8)by;
         }

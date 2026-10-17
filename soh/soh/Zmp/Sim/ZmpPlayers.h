@@ -137,6 +137,10 @@ typedef struct {
     s8 csTrigger;     // player the running global cutscene is about (the others are frozen around it)
     s8 csStarter;     // context that last started a scripted cutscene
     u8 skipRequested; // the host pressed START during a scripted cutscene (the skip happens at its next command)
+    // D-187: 1 + the slot a scripted cutscene was about when its own command changed the group's scene (0: none). The
+    // cutscene the new scene starts with (the Chamber of Sages after the Master Sword) is about the same player.
+    u8 csCarry;
+    u8 csCarryTicks; // ticks of the new scene without a cutscene; the carry is dropped after a few
     // Phase 4 (PLAN.md 2.10): several rooms loaded. The engine keeps two (curRoom, prevRoom); the others that some
     // player still stands in are kept here. While code runs for player k, curRoom is k's room.
     u8 extraRoomCount;

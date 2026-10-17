@@ -314,6 +314,8 @@ void VisitZmp(Visitor& v) {
     v.S("cs_trigger", gZmpSim.csTrigger);
     v.S("cs_starter", gZmpSim.csStarter);
     v.U("cs_trigger_by", gZmpSim.csTriggerBy);
+    v.U("cs_carry", gZmpSim.csCarry);
+    v.U("cs_carry_ticks", gZmpSim.csCarryTicks);
     v.U("skip_requested", gZmpSim.skipRequested);
     v.U("cs_arc_placed", gZmpSim.csArcPlaced);
     v.Bytes("cs_arc_centre", gZmpSim.csArcCentre, sizeof(gZmpSim.csArcCentre));

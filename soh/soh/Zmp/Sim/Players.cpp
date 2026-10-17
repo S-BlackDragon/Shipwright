@@ -2406,6 +2406,15 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
     }
     if (!own) {
         Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));
+        // D-187: a scripted cutscene that ends by changing the group's scene goes on in the new one about the same
+        // player (whoever pulled the Master Sword wakes up in the Chamber of Sages, hears Rauru and comes back to the
+        // temple). Without it the next cutscene was the anchor's: two players took turns as "the" Link of one story.
+        if (play->csCtx.state != CS_STATE_IDLE && gZmpSim.globalCs && Present(gZmpSim.csTrigger) &&
+            !Zmp_TestMutant("espada_de_dos_duenos")) { // (mutant: the new scene's cutscene is the anchor's, as before)
+            gZmpSim.csCarry = (u8)(gZmpSim.csTrigger + 1);
+            gZmpSim.csCarryTicks = 0;
+            Zmp::Log("zmp: the cutscene goes on in the new scene about slot " + std::to_string(gZmpSim.csTrigger));
+        }
         return 1;
     }
     if (k == sLocalSlot) {
