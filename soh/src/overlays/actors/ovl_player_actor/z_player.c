@@ -12110,7 +12110,8 @@ void Player_UpdateCommon(Player* this, PlayState* play, Input* input) {
                 Player_ZeroSpeedXZ(this);
             } else if ((this->csAction == 0) && !(this->stateFlags2 & PLAYER_STATE2_UNDERWATER) &&
                        (play->csCtx.state != CS_STATE_UNSKIPPABLE_INIT) &&
-                       !Zmp_DownedIgnoresCutscene(this)) { // ZMP: a downed Link lies down (finding AQ, D-120)
+                       !Zmp_DownedIgnoresCutscene(this) && // ZMP: a downed Link lies down (finding AQ, D-120)
+                       !Zmp_OutsideGroupCutscene(this)) {  // ZMP: one in another room plays on (D-188)
                 Player_SetCsActionWithHaltedActors(play, NULL, 0x31);
                 Player_ZeroSpeedXZ(this);
             }

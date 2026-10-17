@@ -2226,6 +2226,58 @@ void Cutscene_HandleEntranceTriggers(PlayState* play) {
     }
 }
 
+// ZMP (D-188): the running cutscene ends at once, as func_80068DC0 ends it once the letterbox is gone (for a cutscene
+// whose scene change takes only some Links: the scene is not loaded again, so nothing else would drop it). Answers the
+// sub camera it cleared (0: none).
+s32 Zmp_EndCutsceneNow(PlayState* play) {
+    CutsceneContext* csCtx = &play->csCtx;
+    s32 cleared = 0;
+    s16 i;
+
+    csCtx->unk_0C = 0.0f;
+    csCtx->linkAction = NULL;
+    for (i = 0; i < 10; i++) {
+        csCtx->npcActions[i] = NULL;
+    }
+    gSaveContext.cutsceneIndex = 0;
+    gSaveContext.gameMode = GAMEMODE_NORMAL;
+    if (D_8015FCC8 != 0 && csCtx->unk_14 >= CAM_ID_SUB_FIRST && play->cameraPtrs[csCtx->unk_14] != NULL) {
+        Play_ChangeCameraStatus(play, D_8015FCC6, CAM_STAT_ACTIVE);
+        Play_ClearCamera(play, csCtx->unk_14);
+        func_8005B1A4(play->cameraPtrs[D_8015FCC6]);
+        cleared = csCtx->unk_14;
+    }
+    Audio_SetCutsceneFlag(0);
+    csCtx->state = CS_STATE_IDLE;
+    return cleared;
+}
+
+// ZMP (D-188): what Cutscene_HandleEntranceTriggers does on arriving at `entrance`, for Links that arrive at it without
+// loading the scene (a trial's sage in Ganon's Castle takes back only the Links of its room). 1 if a cutscene starts.
+s32 Zmp_StartEntranceCutscene(PlayState* play, s16 entrance) {
+    s16 i;
+
+    for (i = 0; i < ARRAY_COUNT(sEntranceCutsceneTable); i++) {
+        EntranceCutscene* entranceCutscene = &sEntranceCutsceneTable[i];
+        u8 requiredAge = entranceCutscene->ageRestriction;
+
+        if (GameInteractor_Should(VB_ALLOW_ENTRANCE_CS_FOR_EITHER_AGE, requiredAge == 2, entranceCutscene->entrance)) {
+            requiredAge = gSaveContext.linkAge;
+        }
+        if ((entranceCutscene->entrance == entrance) && !Flags_GetEventChkInf(entranceCutscene->flag) &&
+            ((u8)gSaveContext.linkAge == requiredAge)) {
+            Flags_SetEventChkInf(entranceCutscene->flag);
+            if (GameInteractor_Should(VB_PLAY_ENTRANCE_CS, true, entranceCutscene->flag, entranceCutscene->entrance)) {
+                Cutscene_SetSegment(play, entranceCutscene->segAddr);
+                gSaveContext.cutsceneTrigger = 2;
+                return 1;
+            }
+            return 0;
+        }
+    }
+    return 0;
+}
+
 void Cutscene_HandleConditionalTriggers(PlayState* play) {
     osSyncPrintf("\ngame_info.mode=[%d] restart_flag", ((void)0, gSaveContext.respawnFlag));
     LUSLOG_INFO("Cutscene_HandleConditionalTriggers - entranceIndex: %#x cutsceneIndex: %#x",

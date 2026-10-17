@@ -21,8 +21,9 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
-#include "overlays/actors/ovl_En_Du/z_en_du.h"       // S7-A, V8 (D-177)
-#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h" // B8b-B (D-184)
+#include "overlays/actors/ovl_En_Du/z_en_du.h"             // S7-A, V8 (D-177)
+#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"       // B8b-B (D-184)
+#include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h" // castle T1 (D-188)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -437,6 +438,37 @@ int ContextSlot(const Actor* actor) {
         int o = ((const EnOssan*)actor)->zmpOwner - 1;
         if (Present(o)) {
             return o;
+        }
+    }
+    // Castle T1 (D-188): a trial's barrier broken by a Link's light arrow runs, in the tick of the hit, with that Link
+    // (the arrow's owner): the sage's scene it starts is about whoever broke it. Without a known owner, the nearest
+    // standing Link of its own room. Before, the nearest Link of the whole scene, who could be in another trial.
+    if (actor->id == ACTOR_DEMO_KEKKAI && actor->params >= KEKKAI_WATER && actor->params <= KEKKAI_FOREST &&
+        (((const DemoKekkai*)actor)->collider2.base.acFlags & AC_HIT) && !Zmp_TestMutant("barrera_del_mas_cercano")) {
+        const Actor* by = ((const DemoKekkai*)actor)->collider2.base.ac;
+        int who = by != nullptr ? Zmp::Players::SlotOf(by) : -1;
+        if (who < 0 && by != nullptr && by->parent != nullptr) {
+            who = Zmp::Players::SlotOf(by->parent);
+        }
+        int nearest = -1;
+        f32 best = 0.0f;
+        for (int j = 0; j < ZMP_MAX_PLAYERS && !Present(who); j++) {
+            if (!Present(j) || Slot(j).downed || Zmp::Players::SlotRoom(j) != actor->room) {
+                continue;
+            }
+            const Vec3f& a = actor->world.pos;
+            const Vec3f& b = Slot(j).player->actor.world.pos;
+            f32 d = SQ(a.x - b.x) + SQ(a.y - b.y) + SQ(a.z - b.z);
+            if (nearest < 0 || d < best) {
+                best = d;
+                nearest = j;
+            }
+        }
+        if (!Present(who)) {
+            who = nearest;
+        }
+        if (Present(who)) {
+            return who;
         }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
@@ -999,6 +1031,7 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.csTrigger = -1;
     gZmpSim.csStarter = -1;
     gZmpSim.csTriggerBy = 0;
+    gZmpSim.csRoom = 0;
     gZmpSim.extraRoomCount = 0;
     gZmpSim.loadingRoom = -1;
     gZmpSim.setupRoom = -1;
@@ -1188,6 +1221,10 @@ extern "C" void Zmp_RandTraceHit(void* caller) {
         }
     }
     sRandTrace.push_back(e);
+}
+
+const Actor* Zmp::Players::UpdatingActor() {
+    return sTracePhase == 'U' ? sTraceActor : nullptr;
 }
 
 extern "C" Player* Zmp_ContextForActor(PlayState* play, Actor* actor) {
@@ -2309,6 +2346,93 @@ static bool EscapeTakesGroup(PlayState* play) {
 // client leaves the group; on the others its Link disappears and the scene stays. Scene changes of the world (a
 // scripted cutscene, a warp song, the group game over, the blue warp) still take the whole group, which then belongs to
 // the new scene (the client reports it).
+// Castle T1 (D-188): a group cutscene is for the Links of its room (Zmp_OutsideGroupCutscene). One that ends by loading
+// its own scene again (a trial's sage: the Link goes back to the central room) does that for the Links of that room
+// only, without loading the scene: its cutscene ends, whoever it was about and the partners who watched it with it are
+// put at that entrance's spawn point (its room) and the cutscene of arriving there plays (the trial's light going into
+// the tower, and then the tower's barrier when it was the sixth), about the same player. The Links in the other rooms
+// go on where they are with what they did there (rupees, blocks). Before, the whole group was taken to the central
+// room. Answers whether it did it (the group stays in its scene).
+static bool RoomSceneReturn(PlayState* play) {
+    if (!gZmpSim.globalCs || gZmpSim.csRoom == 0 || play->csCtx.state == CS_STATE_IDLE ||
+        Zmp_TestMutant("barrera_arrastra_al_grupo") || play->nextEntranceIndex < 0 ||
+        play->nextEntranceIndex >= ENTR_MAX || gEntranceTable[play->nextEntranceIndex].scene != play->sceneNum ||
+        play->linkActorEntry == nullptr || !Present(gZmpSim.csTrigger)) {
+        return false;
+    }
+    u8 mask = 0;
+    bool outside = false;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!Present(k)) {
+            continue;
+        }
+        if (Zmp_OutsideGroupCutscene(Slot(k).player)) {
+            outside = true;
+        } else {
+            mask |= (u8)(1 << k);
+        }
+    }
+    if (!outside) {
+        return false; // (everybody watched it: the whole group goes, as before)
+    }
+    s16 e = play->nextEntranceIndex;
+    int spawnIdx = gEntranceTable[e].spawn;
+    ActorEntry* list = play->linkActorEntry - play->setupEntranceList[play->curSpawn].spawn;
+    ActorEntry* sp = &list[play->setupEntranceList[spawnIdx].spawn];
+    Vec3f base = { (f32)sp->pos.x, (f32)sp->pos.y, (f32)sp->pos.z };
+    s16 yaw = sp->rot.y;
+    int room = play->setupEntranceList[spawnIdx].room;
+    int about = gZmpSim.csTrigger;
+    Zmp::Log("zmp: D-188: the cutscene of room " + std::to_string(gZmpSim.csRoom - 1) + " (slot " +
+             std::to_string(about) + ") ends in entrance " + std::to_string(e) +
+             " of this scene: the Links of that room " + "(mask " + std::to_string(mask) +
+             ") go to its spawn in room " + std::to_string(room) + ", the others stay");
+    // The group stays: what the exit touched goes back, but the entrance is the one the Links arrive by.
+    play->transitionTrigger = TRANS_TRIGGER_OFF;
+    if (gZmpSim.undoValid) {
+        gSaveContext.respawnFlag = gZmpSim.undoRespawnFlag;
+        memcpy(gSaveContext.respawn, gZmpSim.undoRespawn, sizeof(gZmpSim.undoRespawn));
+        gSaveContext.entranceSpeed = gZmpSim.undoEntranceSpeed;
+        gSaveContext.nextTransitionType = gZmpSim.undoNextTransitionType;
+        gSaveContext.retainWeatherMode = gZmpSim.undoRetainWeather;
+        gSaveContext.seqId = gZmpSim.undoSeqId;
+        gSaveContext.natureAmbienceId = gZmpSim.undoNatureId;
+        play->haltAllActors = gZmpSim.undoHaltAll;
+        gSaveContext.nextCutsceneIndex = gZmpSim.undoNextCutsceneIndex;
+    }
+    gSaveContext.entranceIndex = e;
+    // The cutscene ends here (as one without a scene change ends, at once: its camera too) and the room's Links stand
+    // at the entrance.
+    int cam = Zmp_EndCutsceneNow(play);
+    Zmp::Log("zmp: D-188: the cutscene ended in place (camera " + std::to_string(cam) + " cleared, active camera " +
+             std::to_string(play->activeCamera) + ")");
+    int ctx = gZmpSim.ctx;
+    int n = 0;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (!(mask & (1 << k))) {
+            continue;
+        }
+        Vec3f pos = k == about ? base : SafeSpawnPos(play, base, yaw, ++n, k);
+        SwitchTo(play, k);
+        Zmp_HollSettle(play, room); // (its room: loaded for it if nobody is there)
+        Player* p = Slot(k).player;
+        p->actor.world.pos = p->actor.prevPos = p->actor.home.pos = pos;
+        p->actor.shape.rot.y = p->actor.world.rot.y = p->yaw = yaw;
+        p->actor.speedXZ = p->linearVelocity = 0.0f;
+        p->actor.velocity.y = 0.0f;
+    }
+    if (Present(ctx)) {
+        SwitchTo(play, ctx);
+    }
+    // The cutscene of arriving there, about the same player (D-176: as if an actor had set its trigger in its
+    // context).
+    gZmpSim.csTriggerBy = (u8)(about + 1);
+    if (!Zmp_StartEntranceCutscene(play, e)) {
+        gZmpSim.csTriggerBy = 0;
+    }
+    return true;
+}
+
 extern "C" s32 Zmp_TransitionGate(PlayState* play) {
     if (!Zmp_MultiActive() || play->transitionMode != TRANS_MODE_OFF) {
         return 1;
@@ -2403,6 +2527,9 @@ extern "C" s32 Zmp_TransitionGate(PlayState* play) {
         // D-165 (E2): in the escape from Ganon's tower an exit taken by one Link takes the whole group.
         Zmp::Log("zmp: D-165: slot " + std::to_string(k) + " takes an exit of the escape: the whole group goes");
         own = false;
+    }
+    if (!own && !solo && RoomSceneReturn(play)) {
+        return 0; // (D-188: the Links of the cutscene's room went back to the entrance; nobody leaves)
     }
     if (!own) {
         Zmp::Log("zmp: scene change of the whole group to entrance " + std::to_string(play->nextEntranceIndex));
@@ -2923,6 +3050,7 @@ bool Found(int slot) {
     gZmpSim.csTrigger = -1;
     gZmpSim.csStarter = -1;
     gZmpSim.csTriggerBy = 0;
+    gZmpSim.csRoom = 0;
     gZmpSim.extraRoomCount = 0;
     gZmpSim.loadingRoom = -1;
     gZmpSim.setupRoom = -1;

@@ -229,7 +229,10 @@ typedef struct {
     // A8 (D-143): 1 + the player whose ocarina the Water Temple's triforce left paused for the water (0: nobody). The
     // water closes that player's text box when it stops, whoever stands nearer to it.
     u8 waterSongBy;
-    u8 pad5[2];
+    // Castle T1 (D-188): a group cutscene is for the Links of one room: the room of the player it is about when it
+    // starts, 1 + room (0: every room).
+    u8 csRoom;
+    u8 pad5;
     u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
@@ -421,6 +424,13 @@ void Zmp_OnCutsceneTriggered(void); // S7-A (D-176): a scripted cutscene starts 
 s32 Zmp_FollowsCutsceneScript(Player* player);
 // Player_Update: a player a global cutscene is not about stands still (its input still reaches text and skip).
 s32 Zmp_PlayerHeldByCutscene(Player* player);
+// Player_UpdateCommon (D-188): a player in another room than the one a group cutscene is for gets no wait order.
+s32 Zmp_OutsideGroupCutscene(Player* player);
+// z_demo.c (D-188): starts the cutscene that arriving at `entrance` plays (Cutscene_HandleEntranceTriggers for that
+// entrance instead of the current one); 0 when it has none or it was seen.
+s32 Zmp_StartEntranceCutscene(PlayState* play, s16 entrance);
+// z_demo.c (D-188): the running cutscene ends now (its camera cleared); answers the sub camera cleared (0: none).
+s32 Zmp_EndCutsceneNow(PlayState* play);
 // Cutscene_Command_Terminator: the host (anchor) skips a scripted cutscene with START in multiplayer.
 s32 Zmp_HostSkipsCutscene(PlayState* play);
 
@@ -619,6 +629,8 @@ void RunInContext(int slot, void (*fn)(void*), void* arg);
 int PresentCount();
 int SlotActiveCam(int slot);
 int SlotRoom(int slot);
+// The actor whose update is running now (nullptr between actor updates).
+const Actor* UpdatingActor();
 void SetSlotRoom(int slot, int room);
 // Rooms.cpp: curRoom becomes this player's room when it is loaded (context switch).
 void ArrangeRooms(PlayState* play, int slot);

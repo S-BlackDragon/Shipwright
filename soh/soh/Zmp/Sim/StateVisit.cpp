@@ -277,6 +277,9 @@ void VisitZmp(Visitor& v) {
         v.U("boss_pass_by", gZmpSim.bossPassBy);
         v.S("boss_pass_ticks", gZmpSim.bossPassTicks);
     }
+    if (gZmpSim.csRoom != 0) { // (D-188, hashed only while set)
+        v.U("cs_room", gZmpSim.csRoom);
+    }
     if (gZmpSim.waterSongBy != 0) {
         v.U("water_song_by",
             gZmpSim.waterSongBy); // A8, D-143 (hashed only while set: the recordings keep their hashes)

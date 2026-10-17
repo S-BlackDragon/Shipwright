@@ -545,6 +545,7 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
             return Bad(cmd, "no trial barrier in the scene");
         }
         best->collider2.base.acFlags |= AC_HIT;
+        best->collider2.base.ac = &p->actor; // (that Link broke it, D-188)
     } else if (op == "subtimer" && w.size() == 3) {
         // "zmp_stage subtimer <seconds>": the countdown that runs (the escape's, E1) jumps to <seconds>.
         if (gSaveContext.subTimerState == SUBTIMER_STATE_OFF) {

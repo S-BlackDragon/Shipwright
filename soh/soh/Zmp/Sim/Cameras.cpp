@@ -59,6 +59,18 @@ bool Present(int k) {
     return Zmp::Players::IsPresent(k);
 }
 
+// Castle T1 (D-188): a group cutscene is for the Links in the room of the player it is about (csRoom, taken when it
+// starts). One in another room of the scene (another trial of Ganon's Castle, another room of a dungeon) is not placed
+// in its arc, does not watch its camera, gets no wait order and is not held: it goes on playing where it is. Before,
+// the light arrow on one trial's barrier took the Links of the other trials into that room and held them there.
+bool OutsideScene(int k) {
+    if (gZmpSim.csRoom == 0 || !Present(k) || Zmp_TestMutant("barrera_arrastra_al_grupo")) {
+        return false; // (mutant: every room of the scene watches it, as before D-188)
+    }
+    int rk = Zmp::Players::SlotRoom(k);
+    return rk >= 0 && rk != gZmpSim.csRoom - 1;
+}
+
 // One-point cutscenes everybody watches: introductions of rooms and bosses (completed empirically, PLAN.md 2.9.3).
 bool GlobalOnePoint(s16 csId) {
     // None so far: the room and boss introductions of the Deku Tree are not one-point cutscenes (the boss's own
@@ -233,7 +245,7 @@ void PlaceInArc(PlayState* play, int trigger, u8 mask) {
     }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Player* p = Zmp::Players::SlotPlayer(k);
-        if (k == trigger || p == nullptr || Zmp::Players::SlotDowned(k) || !(mask & (1 << k))) {
+        if (k == trigger || p == nullptr || Zmp::Players::SlotDowned(k) || !(mask & (1 << k)) || OutsideScene(k)) {
             continue;
         }
         bool placed = false;
@@ -289,7 +301,8 @@ void MaintainArc(PlayState* play) {
     }
     u8 held = 0;
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
-        if (k != trigger && Zmp::Players::SlotPlayer(k) != nullptr && !Zmp::Players::SlotDowned(k)) {
+        if (k != trigger && Zmp::Players::SlotPlayer(k) != nullptr && !Zmp::Players::SlotDowned(k) &&
+            !OutsideScene(k)) { // (D-188: one in another room is left out of it)
             held |= (u8)(1 << k);
         }
     }
@@ -316,6 +329,12 @@ void MaintainArc(PlayState* play) {
         PlaceInArc(play, trigger, todo);
         gZmpSim.csArcPlaced |= todo;
     }
+    // D-188: one in another room keeps its own camera (the global camera is given to everybody when it is activated).
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && OutsideScene(k) && IsGlobal(ActiveOf(play, k))) {
+            SetActiveOf(play, k, CAM_ID_MAIN);
+        }
+    }
     // Everybody watches the cutscene's camera (PLAN.md 2.9 point 2): one who arrived during it starts on its own.
     int cam = -1;
     for (int k = 0; k < ZMP_MAX_PLAYERS && cam < 0; k++) {
@@ -328,7 +347,7 @@ void MaintainArc(PlayState* play) {
         return;
     }
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
-        if (Present(k) && !IsGlobal(ActiveOf(play, k))) {
+        if (Present(k) && !IsGlobal(ActiveOf(play, k)) && !OutsideScene(k)) {
             SetActiveOf(play, k, (s16)cam);
             Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " watches the group cutscene's camera " +
                      std::to_string(cam));
@@ -422,18 +441,28 @@ void UpdateGlobalCutscene(PlayState* play) {
         }
         gZmpSim.globalCs = 1;
         gZmpSim.csTrigger = (s8)trigger;
+        int room = Zmp::Players::SlotRoom(trigger);
+        gZmpSim.csRoom = (u8)(room >= 0 ? room + 1 : 0); // (D-188: the room the cutscene is for)
         Camera_ZmpResetInterface(0);
         Zmp::Log("zmp: global cutscene starts (" + std::string(scripted ? "scripted" : "camera") + "), about slot " +
-                 std::to_string(trigger));
+                 std::to_string(trigger) + " in room " + std::to_string((int)gZmpSim.csRoom - 1));
         gZmpSim.csArcPlaced = 0;
         if (Zmp_TestMutant("arco_solo_al_empezar")) {
             PlaceInArc(play, trigger, 0xFF);
         }
     } else if (!active && gZmpSim.globalCs) {
+        if (gSaveContext.cutsceneTrigger != 0 && Present(gZmpSim.csTrigger) &&
+            !Zmp::Players::SlotDowned(gZmpSim.csTrigger)) {
+            // D-188: a cutscene that ends by starting another one in the same scene (a trial's light going into the
+            // tower, then the tower's barrier) goes on about the same player, as D-187 does across a scene change.
+            gZmpSim.csCarry = (u8)(gZmpSim.csTrigger + 1);
+            gZmpSim.csCarryTicks = 0;
+        }
         gZmpSim.globalCs = 0;
         gZmpSim.csTrigger = -1;
         gZmpSim.csStarter = -1;
         gZmpSim.csArcPlaced = 0;
+        gZmpSim.csRoom = 0;
         Camera_ZmpResetInterface(1);
         Zmp::Log("zmp: global cutscene ends");
         ReleaseDowned();
@@ -715,6 +744,18 @@ extern "C" s32 Zmp_HearsCameraWater(Camera* camera) {
     return Ctx() == Zmp::Players::LocalSlot() ? 1 : 0;
 }
 
+// Castle T1 (D-188): who set or started a scripted cutscene (actor, room, context slot, frame), in the log.
+static void LogCutsceneStart(const char* what, int chosen) {
+    const Actor* a = Zmp::Players::UpdatingActor();
+    Zmp::Log(std::string("zmp: cs-start: ") + what + " at frame " +
+             std::to_string(gPlayState ? gPlayState->gameplayFrames : 0) + ", actor " +
+             (a ? std::to_string(a->id) + " params " + std::to_string(a->params) + " room " + std::to_string(a->room)
+                : std::string("none")) +
+             ", context slot " + std::to_string(gZmpSim.ctx) + ", trigger by " +
+             std::to_string((int)gZmpSim.csTriggerBy - 1) + ", carry " + std::to_string((int)gZmpSim.csCarry - 1) +
+             " -> starter " + std::to_string(chosen));
+}
+
 // D-187: the player a cutscene of the previous scene was about, when that cutscene's own command took the group to
 // this one (the Master Sword: the pedestal, the Sacred Realm, the Chamber of Sages and back to the temple are one
 // story about whoever pulled it); -1 when none is pending or that player is gone or down.
@@ -732,6 +773,7 @@ extern "C" void Zmp_OnCutsceneStart(void) {
             by = CarriedStarter();
         }
         gZmpSim.csStarter = (Present(by) && !Zmp_TestMutant("escena_del_ancla")) ? (s8)by : gZmpSim.ctx;
+        LogCutsceneStart("segment or state", gZmpSim.csStarter);
         gZmpSim.csTriggerBy = 0;
     }
 }
@@ -747,6 +789,7 @@ extern "C" void Zmp_OnCutsceneTriggered(void) {
         if (Present(by) && !Zmp_TestMutant("escena_del_ancla")) {
             gZmpSim.csStarter = (s8)by;
         }
+        LogCutsceneStart("from the trigger", gZmpSim.csStarter);
         gZmpSim.csTriggerBy = 0;
     }
 }
@@ -754,6 +797,7 @@ extern "C" void Zmp_OnCutsceneTriggered(void) {
 extern "C" void Zmp_NoteCutsceneTrigger(u8 before) {
     if (gZmpSim.enabled && gZmpSim.inPlay && before == 0 && gSaveContext.cutsceneTrigger != 0) {
         gZmpSim.csTriggerBy = (u8)(gZmpSim.ctx + 1);
+        LogCutsceneStart("trigger set", gZmpSim.ctx);
     }
 }
 
@@ -762,6 +806,9 @@ extern "C" s32 Zmp_FollowsCutsceneScript(Player* player) {
         return 1;
     }
     int k = Zmp::Players::SlotOf(&player->actor);
+    if (OutsideScene(k)) {
+        return 0; // (D-188: one in another room never follows the cutscene's Link)
+    }
     int t = gZmpSim.globalCs ? gZmpSim.csTrigger : gZmpSim.csStarter;
     if (!Present(t)) {
         t = gZmpSim.anchor;
@@ -774,7 +821,14 @@ extern "C" s32 Zmp_PlayerHeldByCutscene(Player* player) {
         return 0;
     }
     int k = Zmp::Players::SlotOf(&player->actor);
-    return (k >= 0 && k != gZmpSim.csTrigger) ? 1 : 0;
+    return (k >= 0 && k != gZmpSim.csTrigger && !OutsideScene(k)) ? 1 : 0;
+}
+
+extern "C" s32 Zmp_OutsideGroupCutscene(Player* player) {
+    if (!Zmp_MultiActive()) {
+        return 0;
+    }
+    return OutsideScene(Zmp::Players::SlotOf(&player->actor)) ? 1 : 0;
 }
 
 extern "C" s32 Zmp_HostSkipsCutscene(PlayState* play) {

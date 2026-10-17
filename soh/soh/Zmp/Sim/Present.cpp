@@ -113,7 +113,10 @@ bool OtherRevives(PlayState* play) {
 }
 
 bool GroupEvent(PlayState* play) {
-    return gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE ||
+    // (D-188: a group cutscene of another room is not this screen's event: no black bars, its own HUD)
+    Player* me = Local() >= 0 ? Zmp::Players::SlotPlayer(Local()) : nullptr;
+    bool outside = me != nullptr && Zmp_OutsideGroupCutscene(me);
+    return ((gZmpSim.globalCs || play->csCtx.state != CS_STATE_IDLE) && !outside) ||
            (play->gameOverCtx.state != GAMEOVER_INACTIVE && !OtherRevives(play)) ||
            play->transitionMode != TRANS_MODE_OFF;
 }
