@@ -5,6 +5,8 @@
  */
 
 #include "z_en_xc.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "overlays/actors/ovl_En_Arrow/z_en_arrow.h"
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "objects/object_xc/object_xc.h"
@@ -288,9 +290,41 @@ void func_80B3CA38(EnXc* this, PlayState* play) {
     }
 }
 
+// ZMP (B8b-A, D-183): Sheik's lessons start when "the player" (the one whose context Sheik runs in: the nearest) stands
+// in a zone. In a group any standing Link in the zone starts it, and the lesson is that Link's (the update goes on in
+// its context, so the cutscene it orders is about that Link, D-176). Before, a Link in the zone was never heard while
+// another one stood nearer to Sheik outside it. Without a Link in the zone, or outside a group: the original player.
+static s32 EnXc_InMinuetZone(Player* player) {
+    return player->actor.world.pos.z < -2225.0f;
+}
+
+static s32 EnXc_InBoleroZone(Player* player) {
+    PosRot* posRot = &player->actor.world;
+
+    return (posRot->pos.x > -784.0f) && (posRot->pos.x < -584.0f) && (posRot->pos.y > 447.0f) &&
+           (posRot->pos.y < 647.0f) && (posRot->pos.z > -446.0f) && (posRot->pos.z < -246.0f);
+}
+
+static Player* EnXc_ZmpZonePlayer(PlayState* play, s32 (*inZone)(Player*)) {
+    s32 k = -1;
+
+    if (Zmp_MultiActive() && !Zmp_TestMutant("sheik_solo_hueco_0")) { // (mutant: only the context player, as before)
+        while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+            Player* link = Zmp_SlotPlayer(k);
+
+            if ((link != NULL) && !Zmp_IsDowned(link) && !(link->stateFlags1 & PLAYER_STATE1_IN_CUTSCENE) &&
+                inZone(link)) {
+                Zmp_SetContext(play, k);
+                return link;
+            }
+        }
+    }
+    return GET_PLAYER(play);
+}
+
 s32 EnXc_MinuetCS(EnXc* this, PlayState* play) {
     if (this->actor.params == SHEIK_TYPE_MINUET) {
-        Player* player = GET_PLAYER(play);
+        Player* player = EnXc_ZmpZonePlayer(play, EnXc_InMinuetZone); // ZMP: any Link in the zone (D-183)
         f32 z = player->actor.world.pos.z;
 
         if (z < -2225.0f) {
@@ -327,7 +361,7 @@ s32 EnXc_BoleroCS(EnXc* this, PlayState* play) {
     PosRot* posRot;
 
     if (this->actor.params == SHEIK_TYPE_BOLERO) {
-        player = GET_PLAYER(play);
+        player = EnXc_ZmpZonePlayer(play, EnXc_InBoleroZone); // ZMP: any Link in the box (D-183)
         posRot = &player->actor.world;
         if ((posRot->pos.x > -784.0f) && (posRot->pos.x < -584.0f) && (posRot->pos.y > 447.0f) &&
             (posRot->pos.y < 647.0f) && (posRot->pos.z > -446.0f) && (posRot->pos.z < -246.0f) &&

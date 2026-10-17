@@ -64,6 +64,7 @@ typedef struct EnOssan {
     /* 0x02CD */ u8 stickAnimState;
     /* 0x02D0 */ f32 shopItemSelectedTween;
     /* 0x02D4 */ f32 cameraFaceAngle; // stored in degrees
+    s8 zmpOwner; // ZMP (B8b-B, D-184): 1 + the player he is serving, from its first word to the end (0: nobody)
 } EnOssan; // size = 0x02D8
 
 typedef enum {

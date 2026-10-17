@@ -21,7 +21,8 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
-#include "overlays/actors/ovl_En_Du/z_en_du.h" // S7-A, V8 (D-177)
+#include "overlays/actors/ovl_En_Du/z_en_du.h"       // S7-A, V8 (D-177)
+#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h" // B8b-B (D-184)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -426,6 +427,16 @@ int ContextSlot(const Actor* actor) {
         int d = ((const EnDu*)actor)->zmpOwner - 1;
         if (Present(d)) {
             return d;
+        }
+    }
+    // B8b-B (D-184): a shopkeeper serves the player who spoke to him until the shopping is over: his menu, his camera,
+    // the purchase and the item handed over with its fanfare. Before, between two text boxes (the purchase, the
+    // fanfare) the buyer was not "talking" and he ran with the nearest player: he handed the item to slot 0 by the
+    // counter, who was left held under the shop's camera while the buyer stood frozen.
+    if (actor->id == ACTOR_EN_OSSAN && !Zmp_TestMutant("tendero_al_mas_cercano")) {
+        int o = ((const EnOssan*)actor)->zmpOwner - 1;
+        if (Present(o)) {
+            return o;
         }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
@@ -1822,9 +1833,43 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
             }
         }
     }
+    // B8b-C (D-185): the size of the meter (magicCapacity) is not part of the shared game; its level (magicLevel) is.
+    // The original grows the meter from the level only while the level is 0 (Interface_Update, then a step per frame),
+    // and in ZMP another group can raise the level first: the Great Fairy's group got the level from the five who
+    // stayed in the Colossus while it was still in her cutscene, and its meter stayed 0 for ever while theirs was 48.
+    // The meter is the game's: whenever the level says another size and nobody's meter is stepping, it takes that size
+    // at once and every player's meter fills up (below).
+    if (gSaveContext.isMagicAcquired && gSaveContext.magicLevel > 0 && !Zmp_TestMutant("hada_capacidad_del_contexto")) {
+        s16 size = (s16)(gSaveContext.magicLevel * MAGIC_NORMAL_METER);
+        bool stepping = gSaveContext.magicState == MAGIC_STATE_STEP_CAPACITY;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            stepping =
+                stepping || (Present(k) && k != gZmpSim.ctx && Slot(k).block.magicState == MAGIC_STATE_STEP_CAPACITY);
+        }
+        if (gSaveContext.magicCapacity != size && !stepping) {
+            gSaveContext.magicCapacity = size;
+            if (gSaveContext.magic > size) {
+                gSaveContext.magic = (s8)size;
+            }
+        }
+    }
     // The shared magic meter grew (first meter, double magic): every other player's meter fills up too, as the
     // anchor's did.
     if (gSaveContext.magicCapacity > gZmpSim.lastMagicCapacity) {
+        // B8b-C (D-185): the context player's too. The original fills its meter up to a target that only the Great
+        // Fairy sets (magicFillTarget); a group where the bigger meter arrived from elsewhere filled it up to the old
+        // target (0 after the meter was taken away): an empty new meter.
+        s16 full = MAX(gSaveContext.magicCapacity, gSaveContext.magicLevel * MAGIC_NORMAL_METER);
+        if (Zmp_TestMutant("hada_capacidad_del_contexto")) {
+            // (mutant: as before D-185)
+        } else if (gSaveContext.magicState == MAGIC_STATE_IDLE) {
+            gSaveContext.prevMagicState = MAGIC_STATE_IDLE;
+            gSaveContext.magicState = MAGIC_STATE_FILL;
+            gSaveContext.magicFillTarget = full;
+        } else if (gSaveContext.magicState == MAGIC_STATE_FILL ||
+                   gSaveContext.magicState == MAGIC_STATE_STEP_CAPACITY) {
+            gSaveContext.magicFillTarget = MAX(gSaveContext.magicFillTarget, full);
+        }
         for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
             ZmpPlayerBlock& b = Slot(k).block;
             s16 full = MAX(gSaveContext.magicCapacity, gSaveContext.magicLevel * MAGIC_NORMAL_METER);

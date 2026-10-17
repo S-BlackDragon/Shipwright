@@ -1,4 +1,5 @@
 #include "z_en_ossan.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 #include "vt.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_ossan/object_ossan.h"
@@ -762,6 +763,7 @@ void EnOssan_State_Idle(EnOssan* this, PlayState* play, Player* player) {
     if (Actor_ProcessTalkRequest(&this->actor, play)) {
         // "Start conversation!!"
         osSyncPrintf(VT_FGCOL(YELLOW) "★★★ 会話開始！！ ★★★" VT_RST "\n");
+        this->zmpOwner = Zmp_ContextSlotTag(); // ZMP (D-184): the shopping is this player's until it is over
         player->stateFlags2 |= PLAYER_STATE2_DISABLE_DRAW;
         Play_SetShopBrowsingViewpoint(play);
         EnOssan_SetStateStartShopping(play, this, false);
@@ -2293,6 +2295,9 @@ void EnOssan_MainActionFunc(EnOssan* this, PlayState* play) {
     EnOssan_UpdateCursorAnim(this);
     Math_StepToS(&this->headRot, this->headTargetRot, 0x190);
 
+    if (this->stateFlag == OSSAN_STATE_IDLE) {
+        this->zmpOwner = 0; // ZMP (D-184): nobody is shopping, he attends whoever comes
+    }
     if (player != NULL) {
         sStateFunc[this->stateFlag](this, play, player);
     }
