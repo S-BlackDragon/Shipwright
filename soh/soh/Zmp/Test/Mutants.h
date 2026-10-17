@@ -59,9 +59,12 @@
 //   entrada_sin_alcance    a client behind its group draws a frame for every tick it plays to catch up (D-191): a PC
 //                          that can only just draw 20 frames a second never reaches the group, and whoever enters never
 //                          appears
-//   ritmo_sin_dibujo       the accelerated clock of the tests paces itself on the simulation of a tick alone, without
-//                          its frame (D-101): a PC busy drawing cannot follow the group, and whoever enters never
-//                          catches up (test builds only: the accelerated clock exists only there)
+//   (ritmo_sin_dibujo, D-101: removed with D-191; whoever enters catches up without drawing the ticks it owes, so an
+//                          accelerated clock that asks too much no longer leaves anybody out, and no test tells it
+//                          apart)
+//   dibujo_escribe_simulacion every frame actually drawn draws a random number from the game's generator (D-192): the
+//                          drawing writes the simulation, and a PC that draws fewer frames (catching up, in the
+//                          background) goes another way
 //   captura_por_ventana    a screenshot asks the desktop for the game's window (finding AD, D-102): a window the
 //                          desktop does not show is "not found", or its capture is whatever the screen has there
 //   oferta_al_mas_cercano  something to lift is offered only to the nearest player (finding AK, D-109): the one

@@ -32,6 +32,8 @@ int32_t Zmp_ShortFrame(void);
 // Graph_ProcessGfxCommands, once per frame: 0 when this frame is not drawn (D-191: a client behind the group plays the
 // ticks it owes without their frames; presentation only).
 int32_t Zmp_DrawThisFrame(void);
+// Graph_ProcessGfxCommands, after each frame actually drawn (test builds: mutant dibujo_escribe_simulacion, D-192).
+void Zmp_MutantFrameDrawn(void);
 
 // Around Graph_ProcessGfxCommands: keep the game's matrix stack as the tick left it (frame
 // interpolation reuses it while drawing intermediate frames).

@@ -1068,7 +1068,51 @@ extern "C" void Zmp_Deinit(void) {
     Zmp::LogClose();
 }
 
+// D-192 (finding CI): the presentation of a frame (Graph_ProcessGfxCommands, between Zmp_BeforeRender and
+// Zmp_AfterRender) and the other threads (audio, network) never write what the tick reads; a client catching up with
+// its group leaves most of its frames undrawn (D-191), a PC in the background drops them, so anything the drawing
+// wrote would differ between machines. The game's random number generator is read by everything in the simulation:
+// in a session every draw from it (Rand_Next, Rand_ZeroOne, Rand_Centered) checks that it comes from the game thread
+// outside the presentation; one that does not is counted (lockstep "rand_outside_tick") and its caller logged.
+extern "C" {
+s32 gZmpRandGuard = 0; // a lockstep session is running: the generator's draws are checked
+}
+static std::atomic<bool> sZmpPresenting{ false };
+static std::atomic<uint32_t> sZmpRandOutside{ 0 };
+static DWORD sZmpGameThreadId = 0;
+
+extern "C" void Zmp_RandGuardHit(void* caller) {
+    bool otherThread = sZmpGameThreadId != 0 && GetCurrentThreadId() != sZmpGameThreadId;
+    if (!sZmpPresenting.load(std::memory_order_relaxed) && !otherThread) {
+        return;
+    }
+    uint32_t n = ++sZmpRandOutside;
+    if (n <= 16) {
+        char line[160];
+        snprintf(line, sizeof(line), "zmp: RAND OUTSIDE THE TICK (%s) caller_rva +0x%llX (#%u)",
+                 otherThread ? "another thread" : "presenting a frame",
+                 (unsigned long long)((uintptr_t)caller - (uintptr_t)0x140000000), n);
+        Zmp::Log(line);
+    }
+}
+
+uint32_t Zmp_RandOutsideTickCount(void) {
+    return sZmpRandOutside.load();
+}
+
+extern "C" u32 Rand_Next(void);
+
+// Test builds (mutant dibujo_escribe_simulacion, D-192): every frame actually drawn draws a random number from the
+// game's generator, as an effect drawn with Rand_ZeroOne outside the tick would.
+extern "C" void Zmp_MutantFrameDrawn(void) {
+    if (Zmp_TestMutant("dibujo_escribe_simulacion")) {
+        Rand_Next();
+    }
+}
+
 extern "C" void Zmp_OnFrameBegin(void) {
+    sZmpGameThreadId = GetCurrentThreadId();
+    gZmpRandGuard = gZmpSim.enabled ? 1 : 0;
 #ifdef _WIN32
     if (sGameThread == nullptr) {
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &sGameThread, 0, FALSE,
@@ -1116,6 +1160,7 @@ static MtxF* sMatrixStackBackup = nullptr;
 static MtxF* sMatrixCurrentBackup = nullptr;
 
 extern "C" void Zmp_BeforeRender(void) {
+    sZmpPresenting = true; // (D-192)
     Matrix_ZmpGetPointers(&sMatrixStackBackup, &sMatrixCurrentBackup);
     if (sMatrixStackBackup != nullptr) {
         memcpy(sMatrixBackup, sMatrixStackBackup, sizeof(sMatrixBackup));
@@ -1134,4 +1179,5 @@ extern "C" void Zmp_AfterRender(void) {
     Zmp::Lockstep::BurnTestFrameCost(); // (D-101: a test can make every frame of this machine cost more)
 #endif
     Zmp::Lockstep::AfterFrame(); // (D-191: what a drawn frame costs, for catching up)
+    sZmpPresenting = false;      // (D-192)
 }

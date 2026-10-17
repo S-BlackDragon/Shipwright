@@ -1873,6 +1873,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
 #endif
         if (!zmpDrop) {
             wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
+            Zmp_MutantFrameDrawn(); // ZMP (test builds, D-192: mutant dibujo_escribe_simulacion)
         }
         intp->mInterpolationIndex++;
     }

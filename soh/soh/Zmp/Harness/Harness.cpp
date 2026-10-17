@@ -100,6 +100,8 @@ using json = nlohmann::json;
 extern "C" const char __ImageBase; // start of the executable image (MSVC linker symbol)
 #endif
 
+uint32_t Zmp_RandOutsideTickCount(void); // Zmp.cpp (D-192)
+
 namespace Zmp::Harness {
 
 namespace {
@@ -861,6 +863,8 @@ json LockstepJson() {
              { "tick_cost_us", ls.tickCostUs },
              { "tick_full_cost_us", ls.tickFullCostUs },
              { "frames_skipped", ls.framesSkipped },
+             // D-192: random numbers drawn from the game's generator while presenting a frame or from another thread
+             { "rand_outside_tick", Zmp_RandOutsideTickCount() },
              { "shared_held", ls.sharedHeld },
              { "ticks_played", ls.ticksPlayed },
              // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the

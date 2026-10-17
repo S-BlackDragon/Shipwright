@@ -4,9 +4,16 @@
 // ZMP: debug trace of who draws random numbers (desync hunting, off unless gZmpRandTrace is set)
 extern s32 gZmpRandTrace;
 void Zmp_RandTraceHit(void* caller);
+// ZMP (D-192): in a session, a random number drawn while a frame is presented or from another thread than the game's
+// is the drawing writing the simulation's generator: counted and logged with its caller (Zmp.cpp)
+extern s32 gZmpRandGuard;
+void Zmp_RandGuardHit(void* caller);
 #define ZMP_RAND_TRACE()                    \
     if (gZmpRandTrace) {                    \
         Zmp_RandTraceHit(_ReturnAddress()); \
+    }                                       \
+    if (gZmpRandGuard) {                    \
+        Zmp_RandGuardHit(_ReturnAddress()); \
     }
 #else
 #define ZMP_RAND_TRACE()
