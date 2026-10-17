@@ -922,7 +922,7 @@ void SendPendingInputs() {
             // D-101 (finding AC): what a tick costs is the tick and its frame. Measured on the simulation alone, twice
             // that was all a PC busy drawing could play: the group went as fast as its members could follow and
             // whoever entered never caught up (a Link that did not appear in 30 s, entries of 34 s).
-            double cost = Zmp_TestMutant("ritmo_sin_dibujo") ? sTickCostUs : std::max(sTickCostUs, sTickFullCostUs);
+            double cost = std::max(sTickCostUs, sTickFullCostUs);
             period = std::max(period, (long long)(2.0 * cost));
         }
         sInputAt += std::chrono::microseconds(period);
