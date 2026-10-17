@@ -760,6 +760,13 @@ static void LogCutsceneStart(const char* what, int chosen) {
 // this one (the Master Sword: the pedestal, the Sacred Realm, the Chamber of Sages and back to the temple are one
 // story about whoever pulled it); -1 when none is pending or that player is gone or down.
 static int CarriedStarter() {
+    // D-190: only for a cutscene that starts outside any actor's update (the new scene's own cutscene: its entrance,
+    // its cutscene index, a trigger nobody set). One an actor starts in its update is its player's (D-176) whatever
+    // is pending: Ganon and Ganondorf's tower act on "the" Link of their context (cs action 8) and start their
+    // cutscene in the same update; made about the carried player, the Link they acted on was never released.
+    if (Zmp::Players::UpdatingActor() != nullptr && !Zmp_TestMutant("dueno_pendiente_gana_al_actor")) {
+        return -1; // (mutant: the carried player wins over the actor's, as D-187 did)
+    }
     int c = gZmpSim.csCarry - 1;
     return (Present(c) && !Zmp::Players::SlotDowned(c)) ? c : -1;
 }
