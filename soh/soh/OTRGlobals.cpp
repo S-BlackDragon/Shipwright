@@ -1837,6 +1837,8 @@ extern "C" void Graph_StartFrame() {
 #endif
 }
 
+static bool sZmpSkipDraw = false; // ZMP (D-191): this frame is not drawn (a client catching up with its group)
+
 // Interpolated frames of a tick are evenly spaced numerators time+step, time+2*step, ... over denom.
 void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(OTRGlobals::Instance->context->GetWindow());
@@ -1859,13 +1861,13 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
         std::unordered_map<Mtx*, MtxF> mtx_replacements =
             (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
         intp->mInterpolationT = (float)time / denom;
-        bool zmpDrop = false;
+        bool zmpDrop = sZmpSkipDraw; // ZMP (D-191)
 #ifdef ZMP_HARNESS
         // ZMP (tests): gZmp.Test.DropFrames makes every frame a dropped frame, as the window backend does when it
         // has no time to show it (DrawAndRunGraphicsCommands returns before running the display list). The count
         // goes to gZmp.Test.DroppedFrames. Presentation only: the simulation must not notice.
-        zmpDrop = CVarGetInteger("gZmp.Test.DropFrames", 0) != 0;
-        if (zmpDrop) {
+        if (CVarGetInteger("gZmp.Test.DropFrames", 0) != 0) {
+            zmpDrop = true;
             CVarSetInteger("gZmp.Test.DroppedFrames", CVarGetInteger("gZmp.Test.DroppedFrames", 0) + 1);
         }
 #endif
@@ -1935,6 +1937,7 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         count = 1;
     }
 
+    sZmpSkipDraw = !Zmp_DrawThisFrame(); // ZMP (D-191)
     RunCommands(commands, start_time, step, next_original_frame, count);
 
     last_fps = fps;

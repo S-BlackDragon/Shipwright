@@ -56,6 +56,9 @@
 //                          good, and who enters the group meanwhile differs from the rest (resynchronization)
 //   entrada_sin_adelanto   a player entering a group sends its inputs no earlier when they arrive late (D-094): over
 //                          a connection with latency its Link can take many seconds to appear
+//   entrada_sin_alcance    a client behind its group draws a frame for every tick it plays to catch up (D-191): a PC
+//                          that can only just draw 20 frames a second never reaches the group, and whoever enters never
+//                          appears
 //   ritmo_sin_dibujo       the accelerated clock of the tests paces itself on the simulation of a tick alone, without
 //                          its frame (D-101): a PC busy drawing cannot follow the group, and whoever enters never
 //                          catches up (test builds only: the accelerated clock exists only there)

@@ -885,17 +885,21 @@ extern "C" int32_t Zmp_IgnoreUpdateCulling(void) {
 }
 
 static bool sLockstepWaiting = false;
+static bool sTickRanThisFrame = false; // (D-191) only the frame of a tick played can be left undrawn
 
 extern "C" int32_t Zmp_ShouldRunTick(void) {
     sLockstepWaiting = false;
+    sTickRanThisFrame = false;
     if (Zmp::Sim::sPaused) {
         return 0;
     }
     if (Zmp::Sim::sMode == Zmp::Sim::Mode::Net) {
         bool run = Zmp::Lockstep::ShouldRunTick();
         sLockstepWaiting = !run;
+        sTickRanThisFrame = run;
         return run ? 1 : 0;
     }
+    sTickRanThisFrame = true;
     return 1;
 }
 
@@ -903,6 +907,10 @@ extern "C" int32_t Zmp_ShortFrame(void) {
     // The lockstep is waiting for a bundle: draw a single frame and check the tick gate again soon
     // (instead of the 3 interpolated frames of a tick, 50 ms), so a late bundle costs at most one frame.
     return sLockstepWaiting ? 1 : 0;
+}
+
+extern "C" int32_t Zmp_DrawThisFrame(void) {
+    return Zmp::Lockstep::DrawThisFrame(sTickRanThisFrame) ? 1 : 0;
 }
 
 extern "C" int32_t Zmp_PresentationSpeed(void) {

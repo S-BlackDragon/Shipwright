@@ -182,9 +182,16 @@ double sTickCostUs = 0;                                     // what a tick takes
 // gate, which is the tick, its frame drawn and presented and the harness' work, without the frame-rate limiter's wait.
 // The accelerated clock of the tests paces itself on this (SendPendingInputs), never on the simulation alone.
 double sTickFullCostUs = 0;
-bool sTickFullPending = false; // a tick started and its cost has not been taken yet
-uint64_t sTickPacingAt = 0;    // the limiter's total wait when it started
-int sFrameCostTestUs = 0;      // (test builds) every frame costs this much more: a busy PC or GPU, on purpose
+bool sTickFullPending = false;    // a tick started and its cost has not been taken yet
+uint64_t sTickPacingAt = 0;       // the limiter's total wait when it started
+int sFrameCostTestUs = 0;         // (test builds) every frame costs this much more: a busy PC or GPU, on purpose
+bool sFrameCostTestSleep = false; // (test builds) ... spent asleep (a slow GPU) instead of busy
+// D-191: the frame of the last tick was drawn (a tick played while catching up may go without its frame).
+bool sLastFrameDrawn = true;
+std::chrono::steady_clock::time_point sDrawStart; // when the last frame drawn started
+std::chrono::steady_clock::time_point sDrawEnd;   // ... and ended (after Zmp_AfterRender)
+double sDrawCostUs = 0;                           // what a drawn frame costs this PC (moving average)
+uint32_t sFramesSkipped = 0;                      // frames not drawn while catching up, since the session started
 // (test builds) the patches of the shared game this machine would send are kept until the test lets them go (a group
 // whose news reach the others late, on purpose: two groups that change the same thing before either knows)
 bool sSharedHold = false;
@@ -1531,7 +1538,8 @@ bool ShouldRunTick() {
         sTickFullPending = false;
         double us = std::chrono::duration<double, std::micro>(Clock::now() - sTickStartedAt).count() -
                     (double)(gZmpFramePacingWaitUs - sTickPacingAt);
-        if (us > 0 && us < 1e6) {
+        // (a tick played without its frame while catching up, D-191, is not what a tick costs this PC)
+        if (us > 0 && us < 1e6 && sLastFrameDrawn) {
             sTickFullCostUs = sTickFullCostUs <= 0 ? us : sTickFullCostUs * 0.95 + us * 0.05;
         }
     }
@@ -1875,6 +1883,47 @@ int CatchUpSpeed() {
     return behind > d + 12 ? 8 : behind > d + 6 ? 4 : behind > d + 1 ? 2 : 0;
 }
 
+// D-191 (a player entering a group never appeared: "own Link not present" for a minute, with the queue between 35 and
+// 80 ticks). Whoever enters loads the group's state while the group plays on, and must play faster than the group to
+// reach it (D-070): until it is a few ticks away (D + 3) it sends no input and its Link is not there. Catching up drew
+// a frame for every tick it played, so its pace was what this PC can draw: a PC that can only just draw 20 frames a
+// second (slow graphics, the game in the background, a busy PC) played as fast as the group, or a little faster at the
+// 2x speed, and stayed a few ticks above D + 3 for good. A Link already in the group fell behind the same way.
+// Now the ticks owed are played without most of their frames, by time and not by count (the cost that matters is the
+// time a frame takes): while catching up a frame is drawn only when the last one ended at least 50 ms ago and twice
+// what a frame costs this PC (drawing takes at most a third of the time); while entering, with the screen black until
+// its Link appears anyway, four frames a second (the window goes on answering). Catching up then costs what the
+// simulation costs. Presentation only: a frame not drawn changes nothing in the simulation (Zmp_BeforeRender/
+// AfterRender, gZmp.Test.DropFrames).
+bool DrawThisFrame(bool tickRan) {
+    int speed = tickRan ? CatchUpSpeed() : 0;
+    auto now = Clock::now();
+    bool draw = true;
+    if (speed >= 2 && !Zmp_TestMutant("entrada_sin_alcance")) {
+        bool entering = Zmp_MultiActive() && !Players::IsPresent(sSlot);
+        long long gapUs = entering ? 250000 : std::max(50000LL, (long long)(2.0 * sDrawCostUs));
+        draw = now - sDrawEnd >= std::chrono::microseconds(gapUs);
+    }
+    sLastFrameDrawn = draw;
+    if (draw) {
+        sDrawStart = now;
+    } else {
+        sFramesSkipped++;
+    }
+    return draw;
+}
+
+void AfterFrame() {
+    if (!sLastFrameDrawn) {
+        return;
+    }
+    sDrawEnd = Clock::now();
+    double us = std::chrono::duration<double, std::micro>(sDrawEnd - sDrawStart).count();
+    if (us > 0 && us < 2e6) {
+        sDrawCostUs = sDrawCostUs <= 0 ? us : sDrawCostUs * 0.8 + us * 0.2;
+    }
+}
+
 void SaveGroupBlocks(int fileNum) {
     if (sPhase != Phase::Running || !Zmp_MultiActive() || fileNum < 0 || fileNum >= 3) {
         return;
@@ -1907,12 +1956,17 @@ void TestTickViewLag(int ticks) {
     sTestTickViewLag = ticks;
 }
 
-void TestFrameCost(int us) {
+void TestFrameCost(int us, bool sleep) {
     sFrameCostTestUs = std::max(0, us);
+    sFrameCostTestSleep = sleep;
 }
 
 void BurnTestFrameCost() {
-    if (sFrameCostTestUs <= 0) {
+    if (sFrameCostTestUs <= 0 || !sLastFrameDrawn) {
+        return; // (what costs is drawing: a frame not drawn while catching up costs nothing more, D-191)
+    }
+    if (sFrameCostTestSleep) {
+        std::this_thread::sleep_for(std::chrono::microseconds(sFrameCostTestUs));
         return;
     }
     // (busy, not asleep: a sleep is as long as the system's timer wants, and the tests compare these costs)
@@ -2088,6 +2142,7 @@ Status GetStatus() {
     s.inputsHeld = Clock::now() < sTestHoldInputsUntil;
     s.tickCostUs = (uint32_t)sTickCostUs;
     s.tickFullCostUs = (uint32_t)sTickFullCostUs;
+    s.framesSkipped = sFramesSkipped;
     s.sharedHeld = (uint32_t)sSharedHeld.size();
     s.ticksPlayed = sTicksPlayed;
     s.relocatedLoads = sRelocatedLoads;

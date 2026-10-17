@@ -75,6 +75,7 @@ struct Status {
     uint64_t ticksPlayed = 0;    // ticks this machine has played in groups since it started (the tests' game clock)
     uint32_t tickCostUs = 0;     // what one tick of the simulation takes on this machine now (moving average)
     uint32_t tickFullCostUs = 0; // D-101: a tick with its frame and the harness' work, without the limiter's wait
+    uint32_t framesSkipped = 0;  // D-191: frames not drawn while catching up (the ticks played without their frame)
     uint32_t sharedHeld = 0;     // (test builds) patches of the shared game kept back: TestHoldShared
     bool inputsHeld = false;     // (test builds) this machine is not sending its inputs for a moment: TestHoldInputs
     // Phase 5b (D-073): group states loaded from a process that had the executable at another address, and the
@@ -105,6 +106,14 @@ void OnPadRead(void* pads);
 void OnTickEnd(uint32_t tick, uint64_t hash);
 // Presentation speed-up while this client is behind the group (queued bundles).
 int CatchUpSpeed();
+// D-191: whether the frame of the tick just played is drawn (presentation only; called once per frame, before drawing
+// it). While this client is behind the group most ticks it owes are played without their frames (by time, see
+// Lockstep.cpp), so a PC that can only just draw 20 frames a second (slow graphics, the game in the background, a busy
+// PC) still catches up with a group that kept playing while it loaded the group's state.
+// `tickRan`: a tick was played in this frame (a frame without one, waiting or paused, is always drawn).
+bool DrawThisFrame(bool tickRan);
+// After each frame (drawn or not, Zmp_AfterRender): the end of a drawn frame and what it cost.
+void AfterFrame();
 // Longest time the tick gate stayed closed (waiting for the server's next tick) since the last call.
 int GateWaitMs();
 // Fast test suite (test builds only; always 1 in the demo): how many times faster than real time the lockstep runs.
@@ -126,8 +135,9 @@ void TestHoldInputs(int ms);
 // with that much latency, without any clock involved).
 void TestTickViewLag(int ticks);
 // Test builds (D-101): every frame of this machine costs `us` microseconds more (a PC or GPU busy with something else);
-// BurnTestFrameCost spends them, after the frame is drawn.
-void TestFrameCost(int us);
+// BurnTestFrameCost spends them, after the frame is drawn (a frame not drawn costs nothing more, D-191). `sleep`: the
+// time goes by asleep instead of busy (a slow GPU: the PC's processors stay free for the other instances).
+void TestFrameCost(int us, bool sleep = false);
 void BurnTestFrameCost();
 // Test builds: while `hold`, the patches of the shared game this machine would send are kept; letting go sends them
 // in order. Returns how many were kept. (Two groups that change the same thing before either knows, on purpose.)

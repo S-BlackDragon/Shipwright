@@ -1133,4 +1133,5 @@ extern "C" void Zmp_AfterRender(void) {
 #ifdef ZMP_HARNESS
     Zmp::Lockstep::BurnTestFrameCost(); // (D-101: a test can make every frame of this machine cost more)
 #endif
+    Zmp::Lockstep::AfterFrame(); // (D-191: what a drawn frame costs, for catching up)
 }

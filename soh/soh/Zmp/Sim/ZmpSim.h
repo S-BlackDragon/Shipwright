@@ -29,6 +29,9 @@ int32_t Zmp_IgnoreUpdateCulling(void);
 int32_t Zmp_PresentationSpeed(void);
 // Graph_ProcessGfxCommands: true while the lockstep waits for a bundle (draw one frame, re-check soon).
 int32_t Zmp_ShortFrame(void);
+// Graph_ProcessGfxCommands, once per frame: 0 when this frame is not drawn (D-191: a client behind the group plays the
+// ticks it owes without their frames; presentation only).
+int32_t Zmp_DrawThisFrame(void);
 
 // Around Graph_ProcessGfxCommands: keep the game's matrix stack as the tick left it (frame
 // interpolation reuses it while drawing intermediate frames).

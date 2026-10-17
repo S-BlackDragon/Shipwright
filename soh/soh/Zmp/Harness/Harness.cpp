@@ -860,6 +860,7 @@ json LockstepJson() {
              { "inputs_held", ls.inputsHeld },
              { "tick_cost_us", ls.tickCostUs },
              { "tick_full_cost_us", ls.tickFullCostUs },
+             { "frames_skipped", ls.framesSkipped },
              { "shared_held", ls.sharedHeld },
              { "ticks_played", ls.ticksPlayed },
              // One snapshot for the tests' "is this player really playing in that group?": its own Link is in the
@@ -1737,7 +1738,7 @@ void Dispatch(const RequestPtr& req) {
     } else if (name == "debug.frame_cost") {
         // Every frame of this machine costs `us` microseconds more, spent after drawing it (D-101: a PC or GPU busy
         // with something else).
-        Zmp::Lockstep::TestFrameCost(cmd.value("us", 0));
+        Zmp::Lockstep::TestFrameCost(cmd.value("us", 0), cmd.value("sleep", false));
         req->Reply({ { "ok", true } });
     } else if (name == "debug.hold_shared") {
         // This machine keeps the patches of the shared game it would send until told to let them go (A of p19: two
