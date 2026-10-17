@@ -1188,10 +1188,12 @@ void Play_Update(PlayState* play) {
                     }
 
                     PLAY_LOG(3643);
+                    s32 zmpCsCtx = Zmp_CutsceneContextBegin(play); // ZMP (D-188)
                     func_80064558(play, &play->csCtx);
 
                     PLAY_LOG(3648);
                     func_800645A0(play, &play->csCtx);
+                    Zmp_CutsceneContextEnd(play, zmpCsCtx); // ZMP (D-188)
 
                     PLAY_LOG(3651);
                     Effect_UpdateAll(play);

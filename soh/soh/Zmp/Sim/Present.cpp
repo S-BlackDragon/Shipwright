@@ -297,9 +297,12 @@ extern "C" void Zmp_DrawPresentBegin(PlayState* play) {
     // drawn here.
     // The white flash of a lightning burst that hit another player (Phantom Ganon's energy ball, D-124) neither.
     bool otherFill = sFillOwner >= 0 && sFillFrame == play->gameplayFrames && sFillOwner != Local();
+    // D-188: neither the fades of a group cutscene of another room (a trial's sage fades to grey).
+    Player* me = Local() >= 0 ? Zmp::Players::SlotPlayer(Local()) : nullptr;
+    bool otherRoomCs = me != nullptr && play->csCtx.state != CS_STATE_IDLE && Zmp_OutsideGroupCutscene(me);
     if (play->envCtx.fillScreen &&
         ((play->actorCtx.freezeFlashTimer > 0 && sFlashOwner >= 0 && sFlashOwner != Local()) || otherRevives ||
-         otherFill)) {
+         otherFill || otherRoomCs)) {
         sFlashKeep = play->envCtx.fillScreen;
         play->envCtx.fillScreen = false;
         sFlashSwapped = true;

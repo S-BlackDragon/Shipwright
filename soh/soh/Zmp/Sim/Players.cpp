@@ -2424,6 +2424,7 @@ static bool RoomSceneReturn(PlayState* play) {
     if (Present(ctx)) {
         SwitchTo(play, ctx);
     }
+    gZmpSim.csRoom = (u8)(room + 1); // (the cutscene goes on in the room they arrive in)
     // The cutscene of arriving there, about the same player (D-176: as if an actor had set its trigger in its
     // context).
     gZmpSim.csTriggerBy = (u8)(about + 1);
@@ -2593,6 +2594,13 @@ extern "C" void Zmp_DrawBeginView(PlayState* play) {
     int L = sLocalSlot;
     // A cutscene is seen by everybody through the same camera (PLAN.md 2.9: scripted cutscenes are GLOBAL).
     bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
+    // D-188: a group cutscene of one room, with Links in other rooms: each screen draws its own active camera (the
+    // cutscene's for the Links of its room, its own for the others); the anchor may be one of the others.
+    for (int k = 0; k < ZMP_MAX_PLAYERS && cutscene; k++) {
+        if (Present(k) && Zmp_OutsideGroupCutscene(Slot(k).player)) {
+            cutscene = false;
+        }
+    }
     // Phase 5b: what every player sees, for the simulation ("is it on anybody's screen?", Zmp_ActorViewProjection):
     // the view of each player's own active camera, the same numbers on every machine.
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {

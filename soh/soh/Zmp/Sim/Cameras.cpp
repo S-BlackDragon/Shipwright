@@ -824,6 +824,22 @@ extern "C" s32 Zmp_PlayerHeldByCutscene(Player* player) {
     return (k >= 0 && k != gZmpSim.csTrigger && !OutsideScene(k)) ? 1 : 0;
 }
 
+extern "C" s32 Zmp_CutsceneContextBegin(PlayState* play) {
+    if (!Zmp_MultiActive() || !gZmpSim.globalCs || !Present(gZmpSim.csTrigger) || gZmpSim.csTrigger == gZmpSim.ctx ||
+        !OutsideScene(gZmpSim.ctx)) {
+        return -1;
+    }
+    int saved = gZmpSim.ctx;
+    Zmp::Players::SwitchContext(play, gZmpSim.csTrigger);
+    return saved;
+}
+
+extern "C" void Zmp_CutsceneContextEnd(PlayState* play, s32 saved) {
+    if (saved >= 0 && Present(saved)) {
+        Zmp::Players::SwitchContext(play, saved);
+    }
+}
+
 extern "C" s32 Zmp_OutsideGroupCutscene(Player* player) {
     if (!Zmp_MultiActive()) {
         return 0;

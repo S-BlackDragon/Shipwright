@@ -2241,6 +2241,8 @@ s32 Zmp_EndCutsceneNow(PlayState* play) {
     }
     gSaveContext.cutsceneIndex = 0;
     gSaveContext.gameMode = GAMEMODE_NORMAL;
+    play->envCtx.fillScreen = false; // (its fade out, which the scene's load would have ended)
+    play->envCtx.screenFillColor[3] = 0;
     if (D_8015FCC8 != 0 && csCtx->unk_14 >= CAM_ID_SUB_FIRST && play->cameraPtrs[csCtx->unk_14] != NULL) {
         Play_ChangeCameraStatus(play, D_8015FCC6, CAM_STAT_ACTIVE);
         Play_ClearCamera(play, csCtx->unk_14);

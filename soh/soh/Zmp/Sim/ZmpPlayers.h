@@ -431,6 +431,10 @@ s32 Zmp_OutsideGroupCutscene(Player* player);
 s32 Zmp_StartEntranceCutscene(PlayState* play, s16 entrance);
 // z_demo.c (D-188): the running cutscene ends now (its camera cleared); answers the sub camera cleared (0: none).
 s32 Zmp_EndCutsceneNow(PlayState* play);
+// Play_Update (D-188): a group cutscene of one room runs its script in the context of the player it is about when the
+// anchor is in another room (its camera relative to "the" Link, its cues); answers the context to restore (-1: none).
+s32 Zmp_CutsceneContextBegin(PlayState* play);
+void Zmp_CutsceneContextEnd(PlayState* play, s32 saved);
 // Cutscene_Command_Terminator: the host (anchor) skips a scripted cutscene with START in multiplayer.
 s32 Zmp_HostSkipsCutscene(PlayState* play);
 
