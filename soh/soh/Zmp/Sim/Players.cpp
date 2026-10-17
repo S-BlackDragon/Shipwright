@@ -1848,10 +1848,47 @@ extern "C" void Zmp_WaterSongClose(PlayState* play) {
         Zmp::Players::RunInContext(k, CloseTextboxInContext, play);
     }
 }
+// Great Fairy (D-189): every change of the shared meter (size, level, acquired) or of a player's meter state or fill
+// target, with each player's magic, the context and the anchor, in the log (only the log reads it).
+static void LogMagic(PlayState* play, const char* where) {
+    static int sLast[ZMP_MAX_PLAYERS][2];
+    static int sShared[3];
+    int shared[3] = { gSaveContext.magicCapacity, gSaveContext.magicLevel, gSaveContext.isMagicAcquired };
+    int now[ZMP_MAX_PLAYERS][3] = {};
+    bool changed = memcmp(shared, sShared, sizeof(shared)) != 0;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            bool live = k == gZmpSim.ctx;
+            const ZmpPlayerBlock& b = Slot(k).block;
+            now[k][0] = live ? gSaveContext.magicState : b.magicState;
+            now[k][1] = live ? gSaveContext.magicFillTarget : b.magicFillTarget;
+            now[k][2] = live ? gSaveContext.magic : b.magic;
+            changed = changed || memcmp(now[k], sLast[k], sizeof(sLast[k])) != 0;
+        }
+    }
+    if (!changed) {
+        return;
+    }
+    memcpy(sShared, shared, sizeof(shared));
+    std::string line = std::string("zmp: magic ") + where + " frame " + std::to_string(play->gameplayFrames) + " ctx " +
+                       std::to_string(gZmpSim.ctx) + " anchor " + std::to_string(gZmpSim.anchor) + " cap " +
+                       std::to_string(shared[0]) + " lvl " + std::to_string(shared[1]) + " acq " +
+                       std::to_string(shared[2]);
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k)) {
+            memcpy(sLast[k], now[k], sizeof(sLast[k]));
+            line += " [" + std::to_string(k) + ": " + std::to_string(now[k][2]) + " st " + std::to_string(now[k][0]) +
+                    " fill " + std::to_string(now[k][1]) + "]";
+        }
+    }
+    Zmp::Log(line);
+}
+
 extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
     if (!Zmp_MultiActive()) {
         return;
     }
+    LogMagic(play, "in");
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         if (!Present(k) || k == gZmpSim.ctx) {
             continue;
@@ -1890,35 +1927,35 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
             }
         }
     }
-    // The shared magic meter grew (first meter, double magic): every other player's meter fills up too, as the
-    // anchor's did.
+    // The shared magic meter grew (first meter, double magic): every player's meter fills up, as the anchor's did.
     if (gSaveContext.magicCapacity > gZmpSim.lastMagicCapacity) {
         // B8b-C (D-185): the context player's too. The original fills its meter up to a target that only the Great
         // Fairy sets (magicFillTarget); a group where the bigger meter arrived from elsewhere filled it up to the old
         // target (0 after the meter was taken away): an empty new meter.
+        // Great Fairy (D-189): whatever the meter is doing. The fairy is called with the ocarina, and taking it out
+        // resets the meter (MAGIC_STATE_RESET), which runs only once the player's texts and cutscenes are over: the
+        // one who played kept that state through the gift, was not filled ("only an idle meter fills") and ended
+        // with magic 0 on a full-size meter on every machine. The original never sees it: its Interface_Update puts
+        // the receiver's meter to grow and fill whatever its state was. Here the fill is the original's Magic_Fill
+        // (the meter goes back to what it was doing once full: a reset ends idle, a lens keeps burning).
         s16 full = MAX(gSaveContext.magicCapacity, gSaveContext.magicLevel * MAGIC_NORMAL_METER);
-        if (Zmp_TestMutant("hada_capacidad_del_contexto")) {
-            // (mutant: as before D-185)
-        } else if (gSaveContext.magicState == MAGIC_STATE_IDLE) {
-            gSaveContext.prevMagicState = MAGIC_STATE_IDLE;
-            gSaveContext.magicState = MAGIC_STATE_FILL;
-            gSaveContext.magicFillTarget = full;
-        } else if (gSaveContext.magicState == MAGIC_STATE_FILL ||
-                   gSaveContext.magicState == MAGIC_STATE_STEP_CAPACITY) {
-            gSaveContext.magicFillTarget = MAX(gSaveContext.magicFillTarget, full);
+        bool onlyIdle = Zmp_TestMutant("hada_llenado_solo_en_reposo"); // (mutant: as D-185)
+        auto fill = [&](s16& magicState, s16& prevMagicState, s16& magicFillTarget) {
+            if (magicState == MAGIC_STATE_FILL || magicState == MAGIC_STATE_STEP_CAPACITY) {
+                magicFillTarget = MAX(magicFillTarget, full);
+            } else if (!onlyIdle || magicState == MAGIC_STATE_IDLE) {
+                prevMagicState = magicState;
+                magicState = MAGIC_STATE_FILL;
+                magicFillTarget = full;
+            }
+        };
+        if (!Zmp_TestMutant("hada_capacidad_del_contexto")) { // (mutant: as before D-185)
+            fill(gSaveContext.magicState, gSaveContext.prevMagicState, gSaveContext.magicFillTarget);
         }
         for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
             ZmpPlayerBlock& b = Slot(k).block;
-            s16 full = MAX(gSaveContext.magicCapacity, gSaveContext.magicLevel * MAGIC_NORMAL_METER);
-            if (!Slot(k).active || k == gZmpSim.ctx) {
-                continue;
-            }
-            if (b.magicState == MAGIC_STATE_IDLE) {
-                b.prevMagicState = MAGIC_STATE_IDLE;
-                b.magicState = MAGIC_STATE_FILL;
-                b.magicFillTarget = full;
-            } else if (b.magicState == MAGIC_STATE_FILL) {
-                b.magicFillTarget = MAX(b.magicFillTarget, full);
+            if (Slot(k).active && k != gZmpSim.ctx) {
+                fill(b.magicState, b.prevMagicState, b.magicFillTarget);
             }
         }
     }
@@ -1949,6 +1986,7 @@ extern "C" void Zmp_UpdateHealthAccumulators(PlayState* play) {
     if (gZmpSim.ctx != gZmpSim.anchor) {
         SwitchTo(play, gZmpSim.anchor);
     }
+    LogMagic(play, "out");
 }
 
 extern "C" s32 Zmp_OnPlayerDeath(PlayState* play, Player* player) {
