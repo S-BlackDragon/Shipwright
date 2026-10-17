@@ -278,6 +278,19 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         } else {
             Flags_UnsetInfTable(Num(w[2]));
         }
+    } else if (op == "iteminf" && w.size() == 4) {
+        // D-189: "zmp_stage iteminf <flag> <0|1>" (a Great Fairy's spell is given once: ITEMGETINF_18 to 1A)
+        if (Num(w[3])) {
+            Flags_SetItemGetInf(Num(w[2]));
+        } else {
+            Flags_UnsetItemGetInf(Num(w[2]));
+        }
+    } else if (op == "item" && w.size() == 4) {
+        // D-189: "zmp_stage item <inventory slot> <item id>" (255: none), e.g. a spell taken away before its fairy
+        int at = Num(w[2]);
+        if (at >= 0 && at < 24) {
+            gSaveContext.inventory.items[at] = (u8)Num(w[3]);
+        }
     } else if (op == "event" && w.size() == 4) {
         if (Num(w[3])) {
             Flags_SetEventChkInf(Num(w[2]));

@@ -1362,6 +1362,11 @@ void Dispatch(const RequestPtr& req) {
               { "equipment", gSaveContext.inventory.equipment },
               { "quest_items", gSaveContext.inventory.questItems },
               { "event_chk_inf", ev },
+              // (D-189: the Great Fairies' gifts: the meter's level and the "spell given" flags)
+              { "magic_level", gSaveContext.magicLevel },
+              { "magic_acquired", gSaveContext.isMagicAcquired },
+              { "double_magic", gSaveContext.isDoubleMagicAcquired },
+              { "item_get_inf", json(std::vector<int>(gSaveContext.itemGetInf, gSaveContext.itemGetInf + 4)) },
               { "scene", scene },
               { "scene_flags", flags },
               { "day_time", gSaveContext.dayTime },
