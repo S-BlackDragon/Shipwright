@@ -14,6 +14,8 @@
 #include <map>
 #include <filesystem>
 #include <string>
+#include <algorithm>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 #ifdef _WIN32
@@ -474,6 +476,90 @@ json PlayerJson(Player* player, int slot = 0) {
         { "sub_timer_state", gSaveContext.subTimerState },
         { "tick", sFrame },
     };
+}
+
+// Block 9 (bots that walk, D-194): the scene collision's polygons with an exit index ("query.exits") or a wall a Link
+// climbs ("query.climbables"), grouped one per opening (a doorway or a vine wall is several triangles). Read only.
+struct PolyGroup {
+    int key = 0;
+    int polys = 0;
+    float sum[3] = { 0, 0, 0 };
+    float nrm[3] = { 0, 0, 0 };
+    float lo[3] = { 1e9f, 1e9f, 1e9f };
+    float hi[3] = { -1e9f, -1e9f, -1e9f };
+};
+
+static std::vector<PolyGroup> GroupScenePolys(bool climb) {
+    std::vector<PolyGroup> out;
+    CollisionHeader* h = gPlayState->colCtx.colHeader;
+    if (h == nullptr || h->polyList == nullptr || h->vtxList == nullptr) {
+        return out;
+    }
+    for (int i = 0; i < h->numPolygons; i++) {
+        CollisionPoly* poly = &h->polyList[i];
+        int key = 0;
+        if (climb) {
+            s32 f = SurfaceType_GetWallFlags(&gPlayState->colCtx, poly, BGCHECK_SCENE);
+            key = f & (WALL_FLAG_LADDER | WALL_FLAG_LADDER_TOP | WALL_FLAG_CLIMBABLE | WALL_FLAG_CRAWLSPACE);
+        } else {
+            key = SurfaceType_GetSceneExitIndex(&gPlayState->colCtx, poly, BGCHECK_SCENE);
+        }
+        if (key == 0) {
+            continue;
+        }
+        float c[3] = { 0, 0, 0 };
+        float lo[3] = { 1e9f, 1e9f, 1e9f };
+        float hi[3] = { -1e9f, -1e9f, -1e9f };
+        for (int v = 0; v < 3; v++) {
+            const Vec3s& q = h->vtxList[COLPOLY_VTX_INDEX(poly->vtxData[v])];
+            float w[3] = { (float)q.x, (float)q.y, (float)q.z };
+            for (int a = 0; a < 3; a++) {
+                c[a] += w[a] / 3.0f;
+                lo[a] = std::min(lo[a], w[a]);
+                hi[a] = std::max(hi[a], w[a]);
+            }
+        }
+        float n[3] = { COLPOLY_GET_NORMAL(poly->normal.x), COLPOLY_GET_NORMAL(poly->normal.y),
+                       COLPOLY_GET_NORMAL(poly->normal.z) };
+        PolyGroup* g = nullptr;
+        for (auto& e : out) {
+            // (the same key, facing the same way (the two faces of a crawl hole are two groups) and touching the
+            // group's box, with a margin: one opening)
+            float dot = e.nrm[0] * n[0] + e.nrm[1] * n[1] + e.nrm[2] * n[2];
+            if (e.key == key && dot > 0.0f && c[0] > e.lo[0] - 60 && c[0] < e.hi[0] + 60 && c[1] > e.lo[1] - 60 &&
+                c[1] < e.hi[1] + 60 && c[2] > e.lo[2] - 60 && c[2] < e.hi[2] + 60) {
+                g = &e;
+                break;
+            }
+        }
+        if (g == nullptr) {
+            out.push_back(PolyGroup());
+            g = &out.back();
+            g->key = key;
+        }
+        g->polys++;
+        for (int a = 0; a < 3; a++) {
+            g->sum[a] += c[a];
+            g->nrm[a] += n[a];
+            g->lo[a] = std::min(g->lo[a], lo[a]);
+            g->hi[a] = std::max(g->hi[a], hi[a]);
+        }
+    }
+    return out;
+}
+
+static json PolyGroupJson(const PolyGroup& g) {
+    float n = (float)g.polys;
+    float len = sqrtf(g.nrm[0] * g.nrm[0] + g.nrm[1] * g.nrm[1] + g.nrm[2] * g.nrm[2]);
+    if (len < 1e-3f) {
+        len = 1.0f;
+    }
+    return { { "pos", { lroundf(g.sum[0] / n), lroundf(g.sum[1] / n), lroundf(g.sum[2] / n) } },
+             { "min", { lroundf(g.lo[0]), lroundf(g.lo[1]), lroundf(g.lo[2]) } },
+             { "max", { lroundf(g.hi[0]), lroundf(g.hi[1]), lroundf(g.hi[2]) } },
+             { "normal", { g.nrm[0] / len, g.nrm[1] / len, g.nrm[2] / len } },
+             { "floor", g.nrm[1] / len > 0.5f },
+             { "polys", g.polys } };
 }
 
 json ActorsJson(const json& cmd) {
@@ -1662,14 +1748,106 @@ void Dispatch(const RequestPtr& req) {
             req->Reply({ { "ok", false }, { "error", "not in play" } });
         } else {
             json out = json::array();
+            json exits = json::array();
+            json bgs = json::array();
             for (auto& pt : cmd.value("points", json::array())) {
                 Vec3f pos = { pt[0].get<float>(), pt[1].get<float>(), pt[2].get<float>() };
                 CollisionPoly* poly = nullptr;
                 s32 bgId = 0;
                 f32 y = BgCheck_EntityRaycastFloor3(&gPlayState->colCtx, &poly, &bgId, &pos);
                 out.push_back(y);
+                // (D-194: the exit index of that floor, 0 for none; and the actor's collision it is, -1 the scene's)
+                exits.push_back(poly != nullptr ? (int)SurfaceType_GetSceneExitIndex(&gPlayState->colCtx, poly, bgId)
+                                                : 0);
+                bgs.push_back(poly != nullptr && bgId != BGCHECK_SCENE ? bgId : -1);
             }
-            req->Reply({ { "ok", true }, { "floors", out } });
+            req->Reply({ { "ok", true }, { "floors", out }, { "exits", exits }, { "bg", bgs } });
+        }
+    } else if (name == "query.exits") {
+        // D-194 (bots that walk): the scene's exits in its collision: one per opening, with the exit index, the
+        // entrance it leads to (the scene's exit list) and that entrance's scene. A Link walks onto them (a floor).
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json list = json::array();
+            for (const auto& g : GroupScenePolys(false)) {
+                json e = PolyGroupJson(g);
+                int entrance = gPlayState->setupExitList != nullptr ? gPlayState->setupExitList[g.key - 1] : -1;
+                e["exit"] = g.key;
+                e["entrance"] = entrance;
+                e["scene"] = (entrance >= 0 && entrance < ENTR_MAX) ? gEntranceTable[entrance].scene : -1;
+                list.push_back(e);
+            }
+            req->Reply({ { "ok", true }, { "scene", gPlayState->sceneNum }, { "exits", list } });
+        }
+    } else if (name == "debug.lines") {
+        // D-194 (bots that walk): does a wall stand between two points? "segments": [[x1, y1, z1, x2, y2, z2], ...]
+        // -> "hits": [bool, ...] (walls of the scene and of actors, one face, as an entity sees them). Read only.
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json hits = json::array();
+            for (auto& sg : cmd.value("segments", json::array())) {
+                Vec3f a = { sg[0].get<float>(), sg[1].get<float>(), sg[2].get<float>() };
+                Vec3f b = { sg[3].get<float>(), sg[4].get<float>(), sg[5].get<float>() };
+                Vec3f res;
+                CollisionPoly* poly = nullptr;
+                s32 bgId = 0;
+                hits.push_back(BgCheck_EntityLineTest1(&gPlayState->colCtx, &a, &b, &res, &poly, true, false, false,
+                                                       true, &bgId) != 0);
+            }
+            req->Reply({ { "ok", true }, { "hits", hits } });
+        }
+    } else if (name == "query.climbables") {
+        // D-194: the walls a Link climbs (ladders, vines: WALL_FLAG_LADDER, _LADDER_TOP, _CLIMBABLE) or crawls
+        // into (WALL_FLAG_CRAWLSPACE: A in front of the hole), one per wall.
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json list = json::array();
+            for (const auto& g : GroupScenePolys(true)) {
+                json e = PolyGroupJson(g);
+                e["ladder"] = (g.key & WALL_FLAG_LADDER) != 0;
+                e["ladder_top"] = (g.key & WALL_FLAG_LADDER_TOP) != 0;
+                e["climbable"] = (g.key & WALL_FLAG_CLIMBABLE) != 0;
+                e["crawlspace"] = (g.key & WALL_FLAG_CRAWLSPACE) != 0;
+                list.push_back(e);
+            }
+            req->Reply({ { "ok", true }, { "climbables", list } });
+        }
+    } else if (name == "query.doors") {
+        // D-194: the door actors of the scene (loaded rooms): En_Door (type, scene exit, locked by a small key) and
+        // Door_Shutter (type, open by its flag). A Link opens an En_Door with A in front of it; a shutter by walking.
+        if (!InPlay()) {
+            req->Reply({ { "ok", false }, { "error", "not in play" } });
+        } else {
+            json list = json::array();
+            for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_DOOR].head; a != nullptr; a = a->next) {
+                int flag = a->params & 0x3F;
+                json d = { { "id", a->id },
+                           { "params", (u16)a->params },
+                           { "pos", Vec3(a->world.pos) },
+                           { "rot_y", a->shape.rot.y },
+                           { "room", a->room },
+                           { "flag_set", Flags_GetSwitch(gPlayState, flag) != 0 } };
+                if (a->id == ACTOR_EN_DOOR) {
+                    int type = (a->params >> 7) & 7;
+                    d["kind"] = "en_door";
+                    d["type"] = type;
+                    d["scene_exit"] = type == 3;
+                    d["locked"] = type == 1 && !Flags_GetSwitch(gPlayState, flag);
+                    d["evening"] = type == 6;
+                } else if (a->id == ACTOR_DOOR_SHUTTER) {
+                    int type = (a->params >> 6) & 0xF;
+                    d["kind"] = "shutter";
+                    d["type"] = type;
+                    d["locked"] = (type == 0x0B || type == 0x05) && !Flags_GetSwitch(gPlayState, flag);
+                } else {
+                    d["kind"] = "other";
+                }
+                list.push_back(d);
+            }
+            req->Reply({ { "ok", true }, { "doors", list } });
         }
     } else if (name == "debug.spawn_spots") {
         // Diagnosis (finding AI): the spawn candidates next to the group's entrance for a slot, and their checks.
