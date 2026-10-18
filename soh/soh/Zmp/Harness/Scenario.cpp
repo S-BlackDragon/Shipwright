@@ -272,6 +272,32 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         if (!SceneFlag(Num(w[2]), w[3], Num(w[4]))) {
             return Bad(cmd, "bad scene flag");
         }
+    } else if (op == "owned" && w.size() == 3) {
+        // D-194 (block 9, a new game): "zmp_stage owned <mask>": the equipment the group owns (inventory.equipment).
+        gSaveContext.inventory.equipment = (u16)Num(w[2]);
+    } else if (op == "rupees" && w.size() == 3) {
+        // D-194: "zmp_stage rupees <n>": the group's rupees (none coming).
+        gSaveContext.rupees = (s16)Num(w[2]);
+        gSaveContext.rupeeAccumulator = 0;
+    } else if (op == "sclear" && w.size() == 4) {
+        // D-194: "zmp_stage sclear <scene> <chest|swch|collect|clear>": every flag of that kind of a scene off (its
+        // chests closed again, as in a new game). Not for the scene being played (its flags live in the play state).
+        int scene = Num(w[2]);
+        if (scene < 0 || scene >= (int)ARRAY_COUNT(gSaveContext.sceneFlags) ||
+            (gPlayState != nullptr && gPlayState->sceneNum == scene)) {
+            return Bad(cmd, "bad scene for sclear");
+        }
+        if (w[3] == "chest") {
+            gSaveContext.sceneFlags[scene].chest = 0;
+        } else if (w[3] == "swch") {
+            gSaveContext.sceneFlags[scene].swch = 0;
+        } else if (w[3] == "collect") {
+            gSaveContext.sceneFlags[scene].collect = 0;
+        } else if (w[3] == "clear") {
+            gSaveContext.sceneFlags[scene].clear = 0;
+        } else {
+            return Bad(cmd, "bad flag kind for sclear");
+        }
     } else if (op == "inf" && w.size() == 4) {
         if (Num(w[3])) {
             Flags_SetInfTable(Num(w[2]));
