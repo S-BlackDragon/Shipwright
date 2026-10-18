@@ -103,6 +103,9 @@ typedef struct {
     u8 away;
     // T3 (D-146): this player's Lens of Truth is on (play->actorCtx.lensActive while it is the context).
     u8 lensActive;
+    // B8b-B (D-195): this player's viewpoint in a scene with fixed cameras (play->unk_1242B while it is the context:
+    // a shop's shelves, a house's two cameras). 0: the scene's own (what Play_Init sets).
+    s8 viewpoint;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;

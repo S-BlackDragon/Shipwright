@@ -193,6 +193,9 @@ void Park(PlayState* play, int k) {
     }
     s.input = play->state.input[0];
     s.activeCam = play->activeCamera;
+    if (!Zmp_TestMutant("vista_del_ancla")) { // (mutant: one viewpoint for everybody, the anchor's camera, as before)
+        s.viewpoint = (s8)play->unk_1242B;
+    }
 }
 
 // --- one text box per player (phase 5b) ---
@@ -284,6 +287,11 @@ const MessageContext* SlotMsg(int k) {
     return &gZmpSim.msgStore[k];
 }
 
+// B8b-B (D-195): the viewpoint Play_Init gives the scene (a shop: its counter's camera; a house: the fixed one).
+s16 SceneViewpoint() {
+    return YREG(15) == 32 ? 2 : (YREG(15) == 16 ? 1 : 0);
+}
+
 void Load(PlayState* play, int k) {
     ZmpPlayerSlot& s = Slot(k);
     MsgSwitch(play, k);
@@ -296,6 +304,9 @@ void Load(PlayState* play, int k) {
     }
     play->state.input[0] = s.input;
     play->activeCamera = s.activeCam;
+    if (!Zmp_TestMutant("vista_del_ancla")) {
+        play->unk_1242B = s.viewpoint != 0 ? s.viewpoint : SceneViewpoint();
+    }
     gZmpCtxPlayer = s.player;
     // curRoom is the room of the player in context (Rooms.cpp)
     Zmp::Players::ArrangeRooms(play, k);
@@ -1048,6 +1059,7 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     gZmpSim.transitionSolo = 0;
     for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
         Slot(j).lensActive = 0; // T3 (D-146): a new scene starts with every lens off (Actor_InitContext's)
+        Slot(j).viewpoint = 0;  // B8b-B (D-195): and with the scene's own viewpoint
     }
     gZmpSim.waterSongBy = 0;
     gZmpSim.inviteBy = -1;
@@ -1295,6 +1307,17 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
             if (Present(t)) {
                 play->mainCamera.player = Slot(t).player;
                 gZmpCtxPlayer = Slot(t).player;
+            }
+            if (k != anchor && play->unk_1242B != 0 && !Zmp_TestMutant("vista_del_ancla")) {
+                // B8b-B (D-195): a scene with fixed cameras (a shop, a house) puts every player's camera on that
+                // player's viewpoint, as Play_Update does for the anchor (C-up toggles it in a house). Before, the
+                // viewpoint was one for the scene and only the anchor's camera followed it: when slot 2 talked to the
+                // Bazaar's shopkeeper, slot 0 got the shelves' camera and the buyer kept the room's.
+                if (CHECK_BTN_ALL(play->state.input[0].press.button, BTN_CUP) && !Player_InCsMode(play) &&
+                    (YREG(15) != 0x10)) {
+                    play->unk_1242B ^= 3;
+                }
+                Camera_ChangeDataIdx(GET_ACTIVE_CAM(play), play->unk_1242B - 1);
             }
             Camera_Update(&play->mainCamera);
             if (k != anchor && play->view.unk_124 != 0) {
