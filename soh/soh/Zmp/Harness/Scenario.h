@@ -18,7 +18,10 @@
 //   zmp_stage keys <dungeon> <n>                 small keys of a dungeon (index of gSaveContext.inventory.dungeonKeys)
 //   zmp_stage ditems <dungeon> <mask>            boss key / compass / map bits of a dungeon (absolute)
 //   zmp_stage sflag <scene> <swch|chest|clear|collect> <flag>   a permanent flag of any scene (the live copy too when
-//                                                               it is the current scene)
+//                                                               it is the current scene); swch 32-63 (or "tswch"):
+//                                                               a temporary switch flag of the current scene only
+//   zmp_stage hammer <slot>                      that Link swings the hammer it holds (forward blow, as B)
+//   zmp_stage mount <slot>                       that Link mounts the nearest free horse within 300 (as A beside it)
 //   zmp_stage inf <flag> <0|1>                   an infTable flag
 //   zmp_stage event <flag> <0|1>                 an eventChkInf flag (0 clears it: a boss intro plays again)
 //   zmp_stage refill                             every present player: full health, full magic, ammo to its bag size

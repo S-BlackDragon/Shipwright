@@ -36,7 +36,9 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h" // ZMP phase 6 scenario tests (f6_ganon.py)
 #include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h" // ZMP phase 6 scenario tests (f6_castle_rooms.py)
 extern PlayState* gPlayState;
-s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId); // z_scene.c (not in functions.h)
+s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);          // z_scene.c (not in functions.h)
+void func_80837948(PlayState* play, Player* thisx, s32 arg2);      // z_player.c: a melee swing starts (the B button)
+s32 Player_ZmpMount(PlayState* play, Player* thisx, Actor* horse); // z_player.c (test builds): mount a horse
 }
 
 namespace Zmp::Harness {
@@ -130,6 +132,40 @@ struct RoomArg {
     int room;
 };
 
+// Salas 2026-10-18 (V5, V7): "zmp_stage hammer <slot>", the hammer swung as the B button swings it (the forward blow
+// of func_80837818 with the stick released): the bots' B presses did not reach a blow the tests could see.
+struct HammerArg {
+    int ok;
+};
+
+void HammerInContext(void* p) {
+    Player* player = GET_PLAYER(gPlayState);
+    if (player->heldItemAction != PLAYER_IA_HAMMER) {
+        return;
+    }
+    func_80837948(gPlayState, player, PLAYER_MWA_HAMMER_FORWARD);
+    ((HammerArg*)p)->ok = 1;
+}
+
+// Salas 2026-10-18: "zmp_stage mount <slot>", that Link mounts the nearest free horse (within 300) from the side it
+// stands on, as A does beside it.
+void MountInContext(void* p) {
+    Player* player = GET_PLAYER(gPlayState);
+    Actor* best = nullptr;
+    f32 bestD = 300.0f;
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->id != ACTOR_EN_HORSE) {
+            continue;
+        }
+        f32 d = Actor_WorldDistXZToActor(a, &player->actor);
+        if (d < bestD) {
+            bestD = d;
+            best = a;
+        }
+    }
+    ((HammerArg*)p)->ok = best != nullptr && Player_ZmpMount(gPlayState, player, best);
+}
+
 // Morpha (f6_water.py, test_f6_morpha.py): BossMo_ZmpStage in the context of a player.
 struct MorphaArg {
     int what;
@@ -179,11 +215,20 @@ void RoomDoneInContext(void* p) {
 }
 
 bool SceneFlag(int scene, const std::string& type, int flag) {
-    if (scene < 0 || scene >= (int)ARRAY_COUNT(gSaveContext.sceneFlags) || flag < 0 || flag > 31) {
+    if (scene < 0 || scene >= (int)ARRAY_COUNT(gSaveContext.sceneFlags) || flag < 0 || flag > 63) {
         return false;
     }
     bool current = gPlayState != nullptr && gPlayState->sceneNum == scene;
-    if (type == "swch") {
+    if (flag > 31) {
+        // Salas 2026-10-18 (F11): switch flags 32 to 63 are temporary (actorCtx.flags.tempSwch): they exist only in
+        // the scene being played and are lost when it is left, as in the game ("swch" or "tswch").
+        if ((type != "swch" && type != "tswch") || !current) {
+            return false;
+        }
+        Flags_SetSwitch(gPlayState, flag);
+        return true;
+    }
+    if (type == "swch" || type == "tswch") {
         gSaveContext.sceneFlags[scene].swch |= 1u << flag;
         if (current) {
             Flags_SetSwitch(gPlayState, flag);
@@ -271,6 +316,16 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
     } else if (op == "sflag" && w.size() == 5) {
         if (!SceneFlag(Num(w[2]), w[3], Num(w[4]))) {
             return Bad(cmd, "bad scene flag");
+        }
+    } else if ((op == "hammer" || op == "mount") && w.size() == 3) {
+        int target = Num(w[2]);
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        HammerArg a{ 0 };
+        Zmp::Players::RunInContext(target, op == "hammer" ? HammerInContext : MountInContext, &a);
+        if (!a.ok) {
+            return Bad(cmd, op == "hammer" ? "that player does not hold the hammer" : "no free horse within 300");
         }
     } else if (op == "owned" && w.size() == 3) {
         // D-194 (block 9, a new game): "zmp_stage owned <mask>": the equipment the group owns (inventory.equipment).

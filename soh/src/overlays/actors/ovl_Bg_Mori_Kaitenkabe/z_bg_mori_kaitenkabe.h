@@ -17,6 +17,7 @@ typedef struct BgMoriKaitenkabe {
     /* 0x0174 */ f32 rotYdeg;
     /* 0x0178 */ Vec3f lockedPlayerPos;
     /* 0x0184 */ s8 moriTexObjIndex;
+    s8 zmpPusherSlot; // ZMP (F8, D-199): 1 + the slot of the Link that turns it (0: the player of its context)
 } BgMoriKaitenkabe; // size = 0x0188
 
 #endif

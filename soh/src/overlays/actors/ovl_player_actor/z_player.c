@@ -7206,7 +7206,36 @@ static struct_80854578 D_80854578[] = {
     { &gPlayerAnim_link_uma_right_up, -34.16f, 7.91f },
 };
 
+static void Player_MountRideActor(Player* this, PlayState* play); // ZMP (test builds: zmp_stage mount)
+
 s32 Player_ActionHandler_3(Player* this, PlayState* play) {
+    EnHorse* rideActor = (EnHorse*)this->rideActor;
+
+    if ((rideActor != NULL) && CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
+        Player_MountRideActor(this, play); // ZMP: the body below, shared with Player_ZmpMount
+        return 1;
+    }
+
+    return 0;
+}
+
+// ZMP (salas 2026-10-18): the harness's "zmp_stage mount <slot>" mounts `horse` as A beside it does, from the side
+// the Link stands on (the horse's own side check, EnHorse_MountSideCheck, only offers itself to "the player").
+s32 Player_ZmpMount(PlayState* play, Player* this, Actor* horse) {
+    f32 lx = (this->actor.world.pos.x - horse->world.pos.x) * Math_CosS(horse->shape.rot.y) -
+             (this->actor.world.pos.z - horse->world.pos.z) * Math_SinS(horse->shape.rot.y);
+
+    if (this->rideActor != NULL && this->rideActor != horse) {
+        return 0;
+    }
+    if (!Actor_SetRideActor(play, horse, lx > 0.0f ? -1 : 1)) {
+        return 0;
+    }
+    Player_MountRideActor(this, play);
+    return 1;
+}
+
+static void Player_MountRideActor(Player* this, PlayState* play) {
     EnHorse* rideActor = (EnHorse*)this->rideActor;
     f32 unk_04;
     f32 unk_08;
@@ -7214,7 +7243,7 @@ s32 Player_ActionHandler_3(Player* this, PlayState* play) {
     f32 sp34;
     s32 temp;
 
-    if ((rideActor != NULL) && CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
+    {
         sp38 = Math_CosS(rideActor->actor.shape.rot.y);
         sp34 = Math_SinS(rideActor->actor.shape.rot.y);
 
@@ -7245,10 +7274,7 @@ s32 Player_ActionHandler_3(Player* this, PlayState* play) {
         this->actor.parent = this->rideActor;
         func_80832224(this);
         Actor_DisableLens(play);
-        return 1;
     }
-
-    return 0;
 }
 
 void Player_GetSlopeDirection(CollisionPoly* floorPoly, Vec3f* slopeNormal, s16* downwardSlopeYaw) {

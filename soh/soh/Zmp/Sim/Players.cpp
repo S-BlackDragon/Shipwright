@@ -2300,6 +2300,28 @@ extern "C" s32 Zmp_PlayerOutsideRoom(Player* player, s32 room) {
     return Present(k) && Slot(k).room >= 0 && Slot(k).room != room ? 1 : 0;
 }
 
+// F10, F11 (D-198): what the Forest Temple's elevator and well water ask with "curRoom is N" (the room the player is
+// in) asked of the group: some present Link (downed too: it is still there) stands in room N. In multiplayer curRoom is
+// the room of the player in context, the nearest one: with the nearest Link in another room the elevator lost its
+// drop for ever and the well's water killed itself while others stood in the courtyard. (Mutant "sala_del_contexto":
+// curRoom, as before.)
+extern "C" s32 Zmp_AnyPlayerInRoom(PlayState* play, s32 room) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("sala_del_contexto")) {
+        return play->roomCtx.curRoom.num == room;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (Present(k) && Slot(k).room == room) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// F10 (D-198): the room a present Link stands in (-1: not present).
+extern "C" s32 Zmp_SlotRoomOf(s32 slot) {
+    return Present(slot) ? Slot(slot).room : -1;
+}
+
 // A door asks "is the player standing in front of me?" once per tick, and "the player" of an actor is the nearest
 // one: a player standing next to a door kept every other player from using it while it stood nearer (a fighter
 // leaning on the bars of a combat room from inside kept its companions out: D-086). The door asks about each player

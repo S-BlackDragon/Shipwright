@@ -380,6 +380,9 @@ s32 Zmp_OtherPlayerInBoxXZ(Player* except, f32 x, f32 z, f32 half);
 // Phase 5b, barred doors (z_door_shutter.c): 1 when this player stands in another room than `room` (the room whose
 // fight closed the bars): the door lets it in.
 s32 Zmp_PlayerOutsideRoom(Player* player, s32 room);
+// F10, F11 (D-198): 1 when some present Link stands in room `room` (outside a session: curRoom is `room`).
+s32 Zmp_AnyPlayerInRoom(PlayState* play, s32 room);
+s32 Zmp_SlotRoomOf(s32 slot); // the room a present Link stands in (-1: not present)
 // Doors (z_door_shutter.c, z_en_door.c): a door offers itself to every player standing at it, not only to the nearest
 // one (D-086). Loop: `s32 it = -1; while (Zmp_DoorNextPlayer(play, door, &it)) { ... GET_PLAYER(play) ... }`. The
 // first pass is the door's own context (the only pass outside a ZMP session); the next ones are the other players

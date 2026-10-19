@@ -67,6 +67,8 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(BgHidanRock)               \
     X(BgMenkuriEye)              \
     X(BgMoriHineri)              \
+    X(BgMoriElevator)            \
+    X(BgMoriIdomizu)             \
     X(BgPoEvent)                 \
     X(BgRelayObjects)            \
     X(BgSpot18Basket)            \

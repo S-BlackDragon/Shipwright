@@ -5,6 +5,8 @@
  */
 
 #include "z_bg_mori_kaitenkabe.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "objects/object_mori_objects/object_mori_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -88,17 +90,75 @@ void BgMoriKaitenkabe_SetupWait(BgMoriKaitenkabe* this) {
     this->timer = 0;
 }
 
+// ZMP (F8, D-199): the wall froze, locked in place and let go "the player" of its context, the Link nearest to its
+// centre, and took the way to turn from where that Link stood: with a partner standing nearer to the axis than the
+// Link that pushed, the partner was frozen and dragged round in the pusher's place (moved 263) and the pusher was
+// never frozen; the frozen one could be let go by another Link's turn or never. Now the wall turns for the Link that
+// pushes it (its wall is this one and it is pushing; the first in slot order), kept while it turns: that Link is
+// frozen, locked, gives the way to turn and is let go. The others feel the wall's collision as anything else. (Mutant
+// "pared_al_mas_cercano": as before.)
+static s32 BgMoriKaitenkabe_ZmpOff(void) {
+    return !Zmp_MultiActive() || Zmp_TestMutant("pared_al_mas_cercano");
+}
+
+// The Link the wall acts on, made the player of its context: the one turning it, else one that pushes it.
+static Player* BgMoriKaitenkabe_ZmpPlayer(BgMoriKaitenkabe* this, PlayState* play) {
+    s32 k = -1;
+
+    if (BgMoriKaitenkabe_ZmpOff()) {
+        return GET_PLAYER(play);
+    }
+    if (this->zmpPusherSlot > 0) {
+        Player* held = Zmp_HeldPlayer(play, this->zmpPusherSlot - 1);
+
+        if (held != NULL) {
+            return held;
+        }
+        this->zmpPusherSlot = 0;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.wallBgId == this->dyna.bgId) &&
+            (link->stateFlags2 & PLAYER_STATE2_MOVING_DYNAPOLY)) {
+            return Zmp_HeldPlayer(play, k);
+        }
+    }
+    return GET_PLAYER(play);
+}
+
+// Every Link pushing this wall stops pushing (the original cleared it for "the player" only).
+static void BgMoriKaitenkabe_ZmpLetGo(BgMoriKaitenkabe* this, PlayState* play, Player* player) {
+    s32 k = -1;
+
+    player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+    if (BgMoriKaitenkabe_ZmpOff()) {
+        return;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+
+        if ((link != NULL) && (link->actor.wallBgId == this->dyna.bgId)) {
+            link->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        }
+    }
+}
+
 void BgMoriKaitenkabe_Wait(BgMoriKaitenkabe* this, PlayState* play) {
     Vec3f push;
     Vec3f leverArm;
     Vec3f torque;
-    Player* player = GET_PLAYER(play);
+    Player* player = BgMoriKaitenkabe_ZmpPlayer(this, play); // ZMP (D-199)
 
     if (this->dyna.unk_150 > 0.001f) {
         this->timer++;
         if ((this->timer > (28 - CVarGetInteger(CVAR_ENHANCEMENT("FasterBlockPush"), 0) * 4)) &&
             !Player_InCsMode(play)) {
             BgMoriKaitenkabe_SetupRotate(this);
+            this->zmpPusherSlot = (s8)(Zmp_SlotOfPlayer(player) + 1); // ZMP (D-199): 0 outside a session
+            if (BgMoriKaitenkabe_ZmpOff()) {
+                this->zmpPusherSlot = 0;
+            }
             if (GameInteractor_Should(VB_FREEZE_LINK_FOR_FOREST_PILLARS, true)) {
                 Player_SetCsActionWithHaltedActors(play, &this->dyna.actor, 8);
             }
@@ -117,7 +177,7 @@ void BgMoriKaitenkabe_Wait(BgMoriKaitenkabe* this, PlayState* play) {
     }
     if (fabsf(this->dyna.unk_150) > 0.001f) {
         this->dyna.unk_150 = 0.0f;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        BgMoriKaitenkabe_ZmpLetGo(this, play, player); // ZMP (D-199)
     }
 }
 
@@ -128,7 +188,8 @@ void BgMoriKaitenkabe_SetupRotate(BgMoriKaitenkabe* this) {
 }
 
 void BgMoriKaitenkabe_Rotate(BgMoriKaitenkabe* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = BgMoriKaitenkabe_ZmpPlayer(this, play); // ZMP (D-199)
+    s32 done = false;                                        // ZMP (D-199)
     Actor* thisx = &this->dyna.actor;
     s16 rotY;
 
@@ -138,6 +199,7 @@ void BgMoriKaitenkabe_Rotate(BgMoriKaitenkabe* this, PlayState* play) {
         if (GameInteractor_Should(VB_FREEZE_LINK_FOR_FOREST_PILLARS, true)) {
             Player_SetCsActionWithHaltedActors(play, thisx, 7);
         }
+        done = true; // ZMP (D-199): the pusher is let go below, after its last locked position
         if (this->rotDirection > 0.0f) {
             thisx->home.rot.y += 0x2000;
         } else {
@@ -152,10 +214,13 @@ void BgMoriKaitenkabe_Rotate(BgMoriKaitenkabe* this, PlayState* play) {
     }
     if (fabsf(this->dyna.unk_150) > 0.001f) {
         this->dyna.unk_150 = 0.0f;
-        player->stateFlags2 &= ~PLAYER_STATE2_MOVING_DYNAPOLY;
+        BgMoriKaitenkabe_ZmpLetGo(this, play, player); // ZMP (D-199)
     }
     if (GameInteractor_Should(VB_FREEZE_LINK_FOR_FOREST_PILLARS, true)) {
         Math_Vec3f_Copy(&player->actor.world.pos, &this->lockedPlayerPos);
+    }
+    if (done) {
+        this->zmpPusherSlot = 0; // ZMP (D-199)
     }
 }
 

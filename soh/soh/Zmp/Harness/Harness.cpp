@@ -73,6 +73,9 @@ extern "C" {
 #include "overlays/actors/ovl_Obj_Syokudai/z_obj_syokudai.h"     // ZMP phase 6 (f6_castle_rooms.py)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
+#include "overlays/actors/ovl_Bg_Mori_Hineri/z_bg_mori_hineri.h"         // salas 2026-10-18 (F7)
+#include "overlays/actors/ovl_Bg_Mori_Kaitenkabe/z_bg_mori_kaitenkabe.h" // salas 2026-10-18 (F8)
+#include "overlays/actors/ovl_Bg_Mori_Elevator/z_bg_mori_elevator.h"     // salas 2026-10-18 (F10)
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
@@ -710,6 +713,21 @@ json ActorsJson(const json& cmd) {
                 list.back()["ganon_ring"] = info[5];
                 list.back()["ganon_head"] = Vec3(head);
                 list.back()["ganon_sword_pos"] = Vec3(sword);
+            }
+            if (a->id == ACTOR_BG_MORI_HINERI) {
+                // Salas 2026-10-18 (F7): Init rewrites params (0-3: which corridor, turned or not); the switch flag the
+                // twisted corridor turns by is kept in its own field.
+                list.back()["switch_flag"] = ((const BgMoriHineri*)a)->switchFlag;
+            }
+            if (a->id == ACTOR_BG_MORI_KAITENKABE) {
+                // Salas 2026-10-18 (F8): the turning wall's state (1: turning) and the Link that turns it (-1: none).
+                const BgMoriKaitenkabe* w = (const BgMoriKaitenkabe*)a;
+                list.back()["kabe_turning"] = w->rotYdeg != 0.0f ? 1 : 0;
+                list.back()["kabe_pusher"] = w->zmpPusherSlot - 1;
+            }
+            if (a->id == ACTOR_BG_MORI_ELEVATOR) {
+                // Salas 2026-10-18 (F10): the switch state the elevator last acted on (D-198).
+                list.back()["elevator_seen_switch"] = ((const BgMoriElevator*)a)->unk_16C;
             }
             if (a->id == ACTOR_OBJ_SYOKUDAI) {
                 // f6_castle_rooms.py: a torch is lit while its timer is not 0 (negative: lit for good).

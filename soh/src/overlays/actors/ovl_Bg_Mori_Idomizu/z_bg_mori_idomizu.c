@@ -5,6 +5,8 @@
  */
 
 #include "z_bg_mori_idomizu.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-198)
+#include "soh/Zmp/Sim/ZmpPlayers.h"               // ZMP
 #include "objects/object_mori_objects/object_mori_objects.h"
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
@@ -20,6 +22,9 @@ void BgMoriIdomizu_SetupMain(BgMoriIdomizu* this);
 void BgMoriIdomizu_Main(BgMoriIdomizu* this, PlayState* play);
 
 static s16 sKankyoIsSpawned = false;
+// ZMP (F11, D-198): whether the well's water exists (it is of no room): who entered the group had its own.
+#define BG_MORI_IDOMIZU_ZMP_NEW_FIELDS(F) F(sKankyoIsSpawned)
+ZMP_SAVESTATE_DEFINE(BgMoriIdomizu, ZMP_SAVESTATE_NONE, BG_MORI_IDOMIZU_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 const ActorInit Bg_Mori_Idomizu_InitVars = {
     ACTOR_BG_MORI_IDOMIZU,
@@ -127,7 +132,11 @@ void BgMoriIdomizu_Main(BgMoriIdomizu* this, PlayState* play) {
         thisx->world.pos.y = 0.0f;
     }
     this->drainTimer--;
-    if ((roomNum == 7) || (roomNum == 8) || (roomNum == 9)) {
+    // ZMP (F11, D-198): the water stays while somebody stands in the courtyard or the well (rooms 7 to 9), not only
+    // while the nearest Link does: killed with others still there, nobody spawned it again (their rooms stay loaded)
+    // and the switch no longer moved the water. (Mutant "sala_del_contexto": curRoom, as before.)
+    (void)roomNum;
+    if (Zmp_AnyPlayerInRoom(play, 7) || Zmp_AnyPlayerInRoom(play, 8) || Zmp_AnyPlayerInRoom(play, 9)) {
         if (this->drainTimer < 70) {
             Math_StepToF(&thisx->world.pos.y, this->targetWaterLevel, 3.5f);
             BgMoriIdomizu_SetWaterLevel(play, thisx->world.pos.y);
