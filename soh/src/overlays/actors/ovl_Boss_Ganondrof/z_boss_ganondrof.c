@@ -13,6 +13,7 @@
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -985,6 +986,7 @@ void BossGanondrof_Death(BossGanondrof* this, PlayState* play) {
                     this->cameraNextEye.y = GND_BOSSROOM_CENTER_Y + 233.0f;
                     player->actor.world.pos.x = GND_BOSSROOM_CENTER_X - 200.0f;
                     player->actor.world.pos.z = GND_BOSSROOM_CENTER_Z;
+                    Zmp_ScriptPutsCutscenePlayer(play, player, GND_BOSSROOM_CENTER_Y); // ZMP (D-201)
                     holdCamera = true;
                     bodyDecayLevel = 1;
                 }

@@ -319,6 +319,31 @@ void MaintainArc(PlayState* play) {
     if (moved && (step < 1.0f || away > 120.0f)) {
         gZmpSim.csArcPlaced = 0;
     }
+#ifdef ZMP_HARNESS
+    // (D-201, diagnosis: a Link the arc placed that stands farther than its widest ring from the centre now; once per
+    // cutscene and slot, with what it was doing, for the next one who reads a "stands 16x from the arc's centre")
+    static u8 sFarLogged = 0;
+    if (gZmpSim.csArcPlaced == 0) {
+        sFarLogged = 0;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp::Players::SlotPlayer(k);
+        if (p == nullptr || !(gZmpSim.csArcPlaced & (1 << k)) || (sFarLogged & (1 << k))) {
+            continue;
+        }
+        f32 fx = p->actor.world.pos.x - gZmpSim.csArcCentre[0];
+        f32 fz = p->actor.world.pos.z - gZmpSim.csArcCentre[2];
+        if (sqrtf(fx * fx + fz * fz) > 160.0f) {
+            sFarLogged |= (u8)(1 << k);
+            Zmp::Log("zmp: cutscene: slot " + std::to_string(k) + " left its arc spot: " +
+                     std::to_string((int)sqrtf(fx * fx + fz * fz)) + " from the centre, flags " +
+                     std::to_string(p->stateFlags1) + "/" + std::to_string(p->stateFlags2) + ", parent " +
+                     std::to_string(p->actor.parent ? p->actor.parent->id : -1) + ", speed " +
+                     std::to_string((int)p->linearVelocity) + ", vy " + std::to_string((int)p->actor.velocity.y) +
+                     ", cs action " + std::to_string(p->csAction));
+        }
+    }
+#endif
     u8 todo = held & (u8)~gZmpSim.csArcPlaced;
     if (todo != 0) {
         if (gZmpSim.csArcPlaced == 0) {
@@ -783,6 +808,47 @@ extern "C" void Zmp_OnCutsceneStart(void) {
         LogCutsceneStart("segment or state", gZmpSim.csStarter);
         gZmpSim.csTriggerBy = 0;
     }
+}
+
+// D-201 (the death-cutscene arc family: Bongo Bongo, Phantom Ganon, Volvagia): a boss's death script puts the player
+// of its cutscene at a spot of its own (Bongo Bongo: on the drum, 400 in front of the head and 120 aside; Phantom
+// Ganon: 200 from the middle; Volvagia: (40, 90, 150)) by writing its position once, as if that Link stood on the
+// floor. Bongo Bongo and Phantom Ganon write x and z only: a Link the hands had thrown off the drum (on the floor 100
+// below) was put under the drum, its wall pushed it out to the edge of the room and there it stayed, the arc around it
+// found no spot at its height and the other five stayed where they were. A Link still flying (thrown, knocked back)
+// went on flying from there, and one held by a hand was carried back. Now, in a group, the Link the script puts is
+// put on the floor of that spot (probed from the height the script's spot is meant for), still and let go, and the arc
+// is laid out again around it in this same tick: it follows the script every time the script moves its player,
+// whatever the "moved 40 and still" rule of D-111 sees.
+extern "C" void Zmp_ScriptPutsCutscenePlayer(PlayState* play, Player* player, f32 floorFromY) {
+    if (!Zmp_MultiActive() || play == nullptr || player == nullptr || Zmp_TestMutant("arco_no_sigue_traslado")) {
+        return; // (mutant: as before, the position the script wrote and the arc by D-111's rule alone)
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    Vec3f probe = player->actor.world.pos;
+    probe.y = floorFromY + 50.0f;
+    CollisionPoly* poly = nullptr;
+    s32 bgId = 0;
+    f32 y = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
+    if (y != BGCHECK_Y_MIN && poly != nullptr && probe.y - y < 400.0f) {
+        player->actor.world.pos.y = y;
+    }
+    if (player->actor.parent != nullptr && player->actor.parent->category == ACTORCAT_BOSS) {
+        player->actor.parent = nullptr; // (let go by the hand that held it, as the hand's own hit does)
+        player->av2.actionVar2 = 100;
+    }
+    player->actor.prevPos = player->actor.world.pos;
+    player->actor.home.pos = player->actor.world.pos;
+    player->actor.velocity.x = player->actor.velocity.y = player->actor.velocity.z = 0.0f;
+    player->actor.speedXZ = 0.0f;
+    player->linearVelocity = 0.0f;
+    bool follow = gZmpSim.globalCs && k >= 0 && k == gZmpSim.csTrigger;
+    if (follow) {
+        gZmpSim.csArcPlaced = 0; // (MaintainArc, later in this tick, lays it out around the new spot)
+    }
+    Zmp::Log("zmp: cutscene: the script puts slot " + std::to_string(k) + " at (" +
+             std::to_string((int)player->actor.world.pos.x) + ", " + std::to_string((int)player->actor.world.pos.y) +
+             ", " + std::to_string((int)player->actor.world.pos.z) + ")" + (follow ? ", the arc follows" : ""));
 }
 
 extern "C" void Zmp_OnCutsceneTriggered(void) {

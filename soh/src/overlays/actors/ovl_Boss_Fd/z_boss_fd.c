@@ -851,6 +851,7 @@ void BossFd_Fly(BossFd* this, PlayState* play) {
                 player->actor.world.pos.y = 90.0f;
                 player->actor.world.pos.x = 40.0f;
                 player->actor.world.pos.z = 150.0f;
+                Zmp_ScriptPutsCutscenePlayer(play, player, 90.0f); // ZMP (D-201): still there, and the arc follows
             }
             break;
         case BOSSFD_SKULL_PAUSE:

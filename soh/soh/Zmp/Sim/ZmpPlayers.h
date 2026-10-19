@@ -466,6 +466,10 @@ s32 Zmp_NextPresentSlot(s32 after);
 // The Link of a present slot (NULL if none): for an actor that has to look at every Link, not only at "the player" of
 // its context (Bongo Bongo's drum bounces whoever stands on it, D-119).
 Player* Zmp_SlotPlayer(s32 slot);
+// D-201: a boss's death script has just put the player of its cutscene somewhere (Bongo Bongo, Phantom Ganon,
+// Volvagia): that Link stands on the floor there (probed from floorFromY + 50), still, let go by a hand, and the arc of
+// the group cutscene is laid out again around it in this same tick.
+void Zmp_ScriptPutsCutscenePlayer(PlayState* play, Player* player, f32 floorFromY);
 // G3 (D-166): calls fn in the context of every present Link that is not downed (just the player out of a group).
 void Zmp_ForEachStanding(PlayState* play, void (*fn)(PlayState*, void*), void* arg);
 // Family T1 (D-134): the Link an actor holds by its slot, made the player in context (nullptr: not present).

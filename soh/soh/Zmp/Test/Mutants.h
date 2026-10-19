@@ -145,6 +145,9 @@
 //                          (greyed for ever after the Water Temple's entrance) and never lose them under the water
 //   agua_al_mas_cercano    the Water Temple's water closes the text box of the player nearest to it (A8, D-143): the
 //                          one who played the Lullaby stays frozen with the ocarina
+//   arco_no_sigue_traslado  a boss's death script puts the player of its cutscene by writing its position alone
+//                          (D-201): thrown off Bongo Bongo's drum it stays below, out of its spot, and the arc of the
+//                          other five is not laid out around it
 //   bloque_sala_del_contexto  a platform of the Water Temple moves its hookshot block only when the player in its
 //                          context stands in its room (A14, D-144): the block stays behind
 //   ruto_lector_mas_cercano  Ruto's encounter in the Water Temple reads the text box of the player nearest to her (A15,

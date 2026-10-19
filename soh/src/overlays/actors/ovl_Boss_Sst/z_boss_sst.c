@@ -1124,6 +1124,7 @@ void BossSst_HeadDeath(BossSst* this, PlayState* play) {
         player->actor.world.pos.z = sRoomCenter.z + (400.0f * Math_CosS(this->actor.shape.rot.y)) -
                                     (Math_SinS(this->actor.shape.rot.y) * -120.0f);
         player->actor.shape.rot.y = Actor_WorldYawTowardPoint(&player->actor, &sRoomCenter);
+        Zmp_ScriptPutsCutscenePlayer(play, player, ROOM_CENTER_Y); // ZMP (D-201): on the drum, and the arc follows
         Actor_WorldToActorCoords(&this->actor, &sSubCamEye, &GET_ACTIVE_CAM(play)->eye);
         Actor_WorldToActorCoords(&this->actor, &sSubCamAt, &GET_ACTIVE_CAM(play)->at);
         this->radius = -350.0f;
