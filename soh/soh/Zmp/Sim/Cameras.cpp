@@ -841,6 +841,23 @@ extern "C" s32 Zmp_CutsceneContextBegin(PlayState* play) {
     return saved;
 }
 
+// D-196 (Sheik's Bolero with six, slot 3 in the box): the song a group cutscene teaches is shown and played back in a
+// text box of its own (an ocarina command). It ran in the anchor's context, so the anchor's staff waited for the
+// anchor's notes while the cutscene, its camera and its Link were the player's who started it: that player played to
+// nobody, the lesson asked again and again, and the six stayed held. Now the command runs in that player's context:
+// the staff is that player's (every screen shows it, ScreenShowsText) and it waits for that player's notes. Text boxes
+// of the cutscene that are not songs stay the anchor's, as before.
+extern "C" s32 Zmp_CutsceneOcarinaBegin(PlayState* play, s32 textboxType) {
+    if (textboxType != 2 || !Zmp_MultiActive() || !gZmpSim.globalCs || !Present(gZmpSim.csTrigger) ||
+        gZmpSim.csTrigger == gZmpSim.ctx || gZmpSim.slots[gZmpSim.csTrigger].downed ||
+        Zmp_TestMutant("ocarina_del_ancla")) {
+        return -1;
+    }
+    int saved = gZmpSim.ctx;
+    Zmp::Players::SwitchContext(play, gZmpSim.csTrigger);
+    return saved;
+}
+
 extern "C" void Zmp_CutsceneContextEnd(PlayState* play, s32 saved) {
     if (saved >= 0 && Present(saved)) {
         Zmp::Players::SwitchContext(play, saved);

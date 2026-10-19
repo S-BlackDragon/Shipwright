@@ -2041,7 +2041,10 @@ void Cutscene_ProcessCommands(PlayState* play, CutsceneContext* csCtx, u8* cutsc
                 for (j = 0; j < cmdEntries; j++) {
                     cmd = (CsCmdBase*)cutscenePtr;
                     if (cmd->base != 0xFFFF) {
+                        // ZMP (D-196): a song the cutscene teaches is played back by the player it is about
+                        s32 zmpOcaCtx = Zmp_CutsceneOcarinaBegin(play, ((CsCmdTextbox*)cutscenePtr)->type);
                         Cutscene_Command_Textbox(play, csCtx, (void*)cutscenePtr);
+                        Zmp_CutsceneContextEnd(play, zmpOcaCtx); // ZMP
                     }
                     cutscenePtr += sizeof(CutsceneData) * 3;
                 }

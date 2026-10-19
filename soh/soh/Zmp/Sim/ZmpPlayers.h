@@ -438,6 +438,9 @@ s32 Zmp_EndCutsceneNow(PlayState* play);
 // anchor is in another room (its camera relative to "the" Link, its cues); answers the context to restore (-1: none).
 s32 Zmp_CutsceneContextBegin(PlayState* play);
 void Zmp_CutsceneContextEnd(PlayState* play, s32 saved);
+// D-196: a group cutscene's ocarina command (a song taught, then played back) runs in the context of the player the
+// cutscene is about; returns the context to give back to Zmp_CutsceneContextEnd (-1: nothing changed).
+s32 Zmp_CutsceneOcarinaBegin(PlayState* play, s32 textboxType);
 // Cutscene_Command_Terminator: the host (anchor) skips a scripted cutscene with START in multiplayer.
 s32 Zmp_HostSkipsCutscene(PlayState* play);
 
