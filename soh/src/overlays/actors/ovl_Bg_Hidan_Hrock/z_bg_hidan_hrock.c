@@ -6,6 +6,8 @@
 
 #include "z_bg_hidan_hrock.h"
 #include "objects/object_hidan_objects/object_hidan_objects.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS 0
 
@@ -189,7 +191,12 @@ void func_8088960C(BgHidanHrock* this, PlayState* play) {
         Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_BLOCK_BOUND);
 
         if (this->dyna.actor.params == 0) {
-            if (play->roomCtx.curRoom.num == 10) {
+            // ZMP (V7, D-203): the pillar that lands in room 10 stays there if somebody is in room 10, not only if the
+            // nearest Link is (curRoom is the room of the tick's context player). Before, with the one who struck it
+            // still above, it was killed under the partners waiting below. (Mutant "pilar_sala_del_contexto": as
+            // before.)
+            if ((Zmp_MultiActive() && !Zmp_TestMutant("pilar_sala_del_contexto")) ? Zmp_AnyPlayerInRoom(play, 10)
+                                                                                  : (play->roomCtx.curRoom.num == 10)) {
                 this->dyna.actor.room = 10;
             } else {
                 Actor_Kill(&this->dyna.actor);

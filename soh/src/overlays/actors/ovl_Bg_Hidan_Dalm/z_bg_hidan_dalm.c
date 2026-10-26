@@ -7,6 +7,7 @@
 #include "z_bg_hidan_dalm.h"
 #include "objects/object_hidan_objects/object_hidan_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
 
 #define FLAGS 0
 
@@ -141,6 +142,7 @@ void BgHidanDalm_Wait(BgHidanDalm* this, PlayState* play) {
         this->dyna.actor.world.pos.x += 32.5f * Math_SinS(this->dyna.actor.world.rot.y);
         this->dyna.actor.world.pos.z += 32.5f * Math_CosS(this->dyna.actor.world.rot.y);
 
+        this->zmpOwner = Zmp_ContextSlotTag(); // ZMP (V5, D-203): frozen now, let go when it is gone: the same player
         Player_SetCsActionWithHaltedActors(play, &this->dyna.actor, 8);
         this->dyna.actor.flags |= ACTOR_FLAG_UPDATE_CULLING_DISABLED;
         this->actionFunc = BgHidanDalm_Shrink;

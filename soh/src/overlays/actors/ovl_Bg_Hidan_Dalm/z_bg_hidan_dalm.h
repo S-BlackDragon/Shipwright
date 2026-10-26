@@ -14,6 +14,7 @@ typedef struct BgHidanDalm {
     /* 0x0168 */ u8 switchFlag;
     /* 0x016C */ ColliderTris collider;
     /* 0x018C */ ColliderTrisElement colliderItems[4];
-} BgHidanDalm; // size = 0x02FC
+    s8 zmpOwner; // ZMP (V5, D-203): 1 + the player whose hammer blow it is falling to (0: none yet)
+} BgHidanDalm;   // size = 0x02FC
 
 #endif

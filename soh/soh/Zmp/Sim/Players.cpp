@@ -21,9 +21,10 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
-#include "overlays/actors/ovl_En_Du/z_en_du.h"             // S7-A, V8 (D-177)
-#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"       // B8b-B (D-184)
-#include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h" // castle T1 (D-188)
+#include "overlays/actors/ovl_En_Du/z_en_du.h"                 // S7-A, V8 (D-177)
+#include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"           // B8b-B (D-184)
+#include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h"     // castle T1 (D-188)
+#include "overlays/actors/ovl_Bg_Hidan_Dalm/z_bg_hidan_dalm.h" // V5 (D-203)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -477,6 +478,25 @@ int ContextSlot(const Actor* actor) {
         }
         if (!Present(who)) {
             who = nearest;
+        }
+        if (Present(who)) {
+            return who;
+        }
+    }
+    // V5 (D-203): the Fire Temple's hammer totem runs, in the tick of the blow, with the Link whose hammer hit it (its
+    // collider's attacker): the hammer animation it asks for, the freeze (cs 8) and the release (cs 7) when it has
+    // shrunk away are all that Link's. Before, the nearest Link at each moment: a partner standing nearer kept the blow
+    // from counting, and when the nearest changed during the 25 ticks of the shrinking the one who struck stayed
+    // frozen.
+    if (actor->id == ACTOR_BG_HIDAN_DALM && !Zmp_TestMutant("totem_suelta_al_mas_cercano")) {
+        const BgHidanDalm* dalm = (const BgHidanDalm*)actor;
+        int who = dalm->zmpOwner - 1;
+        if (!Present(who) && (dalm->collider.base.acFlags & AC_HIT) && dalm->collider.base.ac != nullptr) {
+            const Actor* by = dalm->collider.base.ac;
+            who = Zmp::Players::SlotOf(by);
+            if (who < 0 && by->parent != nullptr) {
+                who = Zmp::Players::SlotOf(by->parent);
+            }
         }
         if (Present(who)) {
             return who;
