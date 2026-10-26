@@ -265,7 +265,7 @@ void EnDaiku_UpdateText(EnDaiku* this, PlayState* play) {
     } else if (Actor_ProcessTalkRequest(&this->actor, play)) {
         this->talkState = ENDAIKU_STATE_TALKING;
     } else {
-        Actor_GetScreenPos(play, &this->actor, &sp2E, &sp2C);
+        Actor_GetTalkScreenPos(play, &this->actor, &sp2E, &sp2C, 0, 320, 0, 240); // ZMP (D-206): per player
         if (sp2E >= 0 && sp2E <= 320 && sp2C >= 0 && sp2C <= 240 && this->talkState == ENDAIKU_STATE_CAN_TALK &&
             Actor_OfferTalk(&this->actor, play, 100.0f) == 1) {
             if (play->sceneNum == SCENE_THIEVES_HIDEOUT) {

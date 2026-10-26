@@ -248,7 +248,7 @@ s32 EnKz_UpdateTalking(PlayState* play, EnKz* this, s16* talkState, f32 interact
 
     this->actor.flags |= ACTOR_FLAG_ATTENTION_ENABLED;
 
-    Actor_GetScreenPos(play, &this->actor, &x, &y);
+    Actor_GetTalkScreenPos(play, &this->actor, &x, &y, -30, 360, -10, 240); // ZMP (D-206): per player
     if (!((x >= -30) && (x < 361) && (y >= -10) && (y < 241))) {
         return false;
     }

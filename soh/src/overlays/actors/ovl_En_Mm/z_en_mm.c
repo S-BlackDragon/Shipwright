@@ -299,7 +299,7 @@ void func_80AADCD0(EnMm* this, PlayState* play) {
                 }
             }
         } else {
-            Actor_GetScreenPos(play, &this->actor, &sp26, &sp24);
+            Actor_GetTalkScreenPos(play, &this->actor, &sp26, &sp24, 0, 0x140, 0, 0xF0); // ZMP (D-206): per player
             yawDiff = ABS((s16)(this->actor.yawTowardsPlayer - this->actor.shape.rot.y));
 
             if ((sp26 >= 0) && (sp26 <= 0x140) && (sp24 >= 0) && (sp24 <= 0xF0) && (yawDiff <= 17152.0f) &&

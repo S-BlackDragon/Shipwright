@@ -330,7 +330,7 @@ void EnToryo_HandleTalking(EnToryo* this, PlayState* play) {
             return;
         }
 
-        Actor_GetScreenPos(play, &this->actor, &sp32, &sp30);
+        Actor_GetTalkScreenPos(play, &this->actor, &sp32, &sp30, 0, 0x140, 0, 0xF0); // ZMP (D-206): per player
         if ((sp32 >= 0) && (sp32 < 0x141) && (sp30 >= 0) && (sp30 < 0xF1)) {
             this->actor.textId = EnToryo_GetTextId(this, play);
             Actor_OfferTalkExchangeEquiCylinder(&this->actor, play, 100.0f, 10);

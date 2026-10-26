@@ -1969,6 +1969,48 @@ u32 Actor_ProcessTalkRequest(Actor* actor, PlayState* play) {
     return false;
 }
 
+// ZMP (D-206): "is the actor on screen?" before offering to talk is asked per player, with the picture of the player
+// who would talk (its own camera), not the canonical one (the anchor's): with the anchor far away the others could not
+// talk to what it does not see. Actor_GetTalkScreenPos leaves the test pending for this actor; the offer below makes it
+// for each player in reach. Transient within one actor's update (cleared after it), never simulation state.
+static Actor* sZmpTalkScreenActor = NULL;
+static s16 sZmpTalkScreenBox[4];
+
+static s32 Zmp_TalkOnScreenOf(PlayState* play, Actor* actor, s32 slot) {
+    Vec3f projectedPos;
+    f32 w;
+    s16 x;
+    s16 y;
+
+    MtxF vp;
+
+    Zmp_SlotViewProjection(play, slot, &vp);
+    SkinMatrix_Vec3fMtxFMultXYZW(&vp, &actor->focus.pos, &projectedPos, &w);
+    w = (w < 1.0f) ? 1.0f : (1.0f / w);
+    x = projectedPos.x * w * (SCREEN_WIDTH / 2) + (SCREEN_WIDTH / 2);
+    y = projectedPos.y * w * -(SCREEN_HEIGHT / 2) + (SCREEN_HEIGHT / 2);
+    return (x >= sZmpTalkScreenBox[0]) && (x <= sZmpTalkScreenBox[1]) && (y >= sZmpTalkScreenBox[2]) &&
+           (y <= sZmpTalkScreenBox[3]);
+}
+
+void Actor_GetTalkScreenPos(PlayState* play, Actor* actor, s16* x, s16* y, s16 minX, s16 maxX, s16 minY, s16 maxY) {
+    if (Zmp_MultiActive() && !Zmp_TestMutant("hablar_con_camara_del_ancla")) {
+        sZmpTalkScreenActor = actor;
+        sZmpTalkScreenBox[0] = minX;
+        sZmpTalkScreenBox[1] = maxX;
+        sZmpTalkScreenBox[2] = minY;
+        sZmpTalkScreenBox[3] = maxY;
+        *x = minX; // (inside the box: the caller goes on to the offer, which tests each player's screen)
+        *y = minY;
+        return;
+    }
+    Actor_GetScreenPos(play, actor, x, y);
+}
+
+static void Zmp_TalkScreenDone(void) {
+    sZmpTalkScreenActor = NULL;
+}
+
 s32 Actor_OfferTalkExchange(Actor* actor, PlayState* play, f32 arg2, f32 arg3, u32 exchangeItemId) {
     Player* player = GET_PLAYER(play);
 
@@ -1993,6 +2035,9 @@ s32 Actor_OfferTalkExchange(Actor* actor, PlayState* play, f32 arg2, f32 arg3, u
             if ((p->actor.flags & ACTOR_FLAG_TALK) ||
                 ((exchangeItemId != EXCH_ITEM_NONE) && (Player_InBlockingCsMode(play, p) || p->unk_6AD == 4)) ||
                 (p->focusActor != actor && ((arg3 < fabsf(y)) || (p->talkActorDistance < xz) || (arg2 < xz)))) {
+                continue;
+            }
+            if ((sZmpTalkScreenActor == actor) && !Zmp_TalkOnScreenOf(play, actor, k)) { // ZMP (D-206)
                 continue;
             }
             p->talkActor = actor;
@@ -2798,6 +2843,7 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
                         u8 zmpCsTrigger = gSaveContext.cutsceneTrigger; // ZMP (S7-A, D-176)
                         actor->update(actor, play);
                         Zmp_NoteCutsceneTrigger(zmpCsTrigger); // ZMP: a cutscene this actor starts is its player's
+                        Zmp_TalkScreenDone();                  // ZMP (D-206)
                         GameInteractor_ExecuteOnActorUpdate(actor);
                     }
                     func_8003F8EC(play, &play->colCtx.dyna, actor);
@@ -4450,7 +4496,7 @@ s32 Npc_UpdateTalking(PlayState* play, Actor* actor, s16* talkState, f32 interac
         return false;
     }
 
-    Actor_GetScreenPos(play, actor, &x, &y);
+    Actor_GetTalkScreenPos(play, actor, &x, &y, 0, SCREEN_WIDTH, 0, SCREEN_HEIGHT); // ZMP (D-206): per player
 
     if ((x < 0) || (x > SCREEN_WIDTH) || (y < 0) || (y > SCREEN_HEIGHT)) {
         // Actor is offscreen

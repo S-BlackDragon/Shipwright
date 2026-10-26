@@ -185,7 +185,7 @@ void func_80A4E648(EnGs* this, PlayState* play) {
     } else if (Actor_ProcessTalkRequest(&this->actor, play)) {
         this->unk_19C = 2;
     } else {
-        Actor_GetScreenPos(play, &this->actor, &sp26, &sp24);
+        Actor_GetTalkScreenPos(play, &this->actor, &sp26, &sp24, 0, SCREEN_WIDTH, 0, SCREEN_HEIGHT); // ZMP (D-206)
         if ((sp26 >= 0) && (sp26 <= SCREEN_WIDTH) && (sp24 >= 0) && (sp24 <= SCREEN_HEIGHT) && (this->unk_19C != 3)) {
             if (Actor_OfferTalk(&this->actor, play, 40.0f) == 1) {
                 if (IS_RANDO) {

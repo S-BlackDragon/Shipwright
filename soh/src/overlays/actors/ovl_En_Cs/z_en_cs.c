@@ -251,7 +251,7 @@ void EnCs_HandleTalking(EnCs* this, PlayState* play) {
 
         this->talkState = 1;
     } else {
-        Actor_GetScreenPos(play, &this->actor, &sp2A, &sp28);
+        Actor_GetTalkScreenPos(play, &this->actor, &sp2A, &sp28, 0, 320, 0, 240); // ZMP (D-206): per player
 
         if ((sp2A >= 0) && (sp2A <= 320) && (sp28 >= 0) && (sp28 <= 240) &&
             (Actor_OfferTalk(&this->actor, play, 100.0f))) {

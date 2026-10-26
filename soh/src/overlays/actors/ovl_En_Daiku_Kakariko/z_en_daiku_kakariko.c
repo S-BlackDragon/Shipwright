@@ -236,7 +236,7 @@ void EnDaikuKakariko_HandleTalking(EnDaikuKakariko* this, PlayState* play) {
     } else if (Actor_ProcessTalkRequest(&this->actor, play)) {
         this->talkState = 2;
     } else {
-        Actor_GetScreenPos(play, &this->actor, &sp26, &sp24);
+        Actor_GetTalkScreenPos(play, &this->actor, &sp26, &sp24, 0, 320, 0, 240); // ZMP (D-206): per player
 
         if ((sp26 >= 0) && (sp26 <= 320) && (sp24 >= 0) && (sp24 <= 240) && (this->talkState == 0) &&
             (Actor_OfferTalk(&this->actor, play, 100.0f) == 1)) {

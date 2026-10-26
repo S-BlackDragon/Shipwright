@@ -456,6 +456,8 @@ s32 Actor_OfferTalkNearColChkInfoCylinder(Actor* actor, PlayState* play);
 u32 Actor_TextboxIsClosing(Actor* actor, PlayState* play);
 s8 Actor_GetPlayerExchangeItemId(PlayState* play);
 void Actor_GetScreenPos(PlayState* play, Actor* actor, s16* x, s16* y);
+void Actor_GetTalkScreenPos(PlayState* play, Actor* actor, s16* x, s16* y, s16 minX, s16 maxX, s16 minY,
+                            s16 maxY); // ZMP (D-206)
 u32 Actor_HasParent(Actor* actor, PlayState* play);
 // TODO: Rename the follwing 3 functions using whatever scheme we use when we rename Actor_OfferGetItem and Actor_OfferGetItemNearby.
 s32 GiveItemEntryWithoutActor(PlayState* play, GetItemEntry getItemEntry);
