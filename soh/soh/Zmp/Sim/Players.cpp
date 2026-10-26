@@ -1325,7 +1325,11 @@ extern "C" void Zmp_UpdateMainCameras(PlayState* play) {
                 // the picture (the original does it at the end of the draw, for its one camera: the anchor's here).
                 // The cameras of the other players do it now; before, they never got that update and a player who
                 // was not the first of the scene could not look around in first person.
-                Camera_Update(&play->mainCamera);
+                // D-202 (crawl tunnels): that second update is the one of the player's ACTIVE camera, as the original's
+                // (GET_ACTIVE_CAM). Leaving a tunnel, the active camera is the exit's one-point camera and the main
+                // one (the tunnel's rail camera, which puts its Link on the rail facing along it) only waits: it ran
+                // here anyway and dragged every Link but the anchor's back into the tunnel's mouth, turned round.
+                Zmp_SecondCameraUpdate(play, k);
                 play->view.unk_124 = 0;
             }
             if (Present(t)) {

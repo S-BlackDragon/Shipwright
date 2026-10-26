@@ -674,6 +674,20 @@ extern "C" void Zmp_OnAllSubCamerasCleared(PlayState* play) {
     }
 }
 
+extern "C" void Zmp_SecondCameraUpdate(PlayState* play, s32 k) {
+    int a = play->activeCamera;
+    if (a == CAM_ID_MAIN || Zmp_TestMutant("gatera_del_primero")) { // (mutant: the main camera, as before D-202)
+        Camera_Update(&play->mainCamera);
+    } else if (IsSub(a) && play->cameraPtrs[a] != nullptr && gZmpSim.camScope[a] == k) {
+        // (its own sub camera, as the anchor's in Play_Draw; a camera everybody watches gets its update there)
+        Camera_Update(play->cameraPtrs[a]);
+        if (play->cameraPtrs[a] != nullptr) {
+            sSubView[a] = play->view;
+            sSubViewValid[a] = true;
+        }
+    }
+}
+
 extern "C" void Zmp_UpdateCameras(PlayState* play) {
     int anchor = gZmpSim.anchor;
     Sanitize(play);

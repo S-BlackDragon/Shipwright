@@ -421,6 +421,8 @@ void Zmp_OnAllSubCamerasCleared(PlayState* play);
 void Zmp_UpdateCameras(PlayState* play);
 // Play_Draw tail: Camera_Finish of every player's active sub camera, in its context.
 void Zmp_FinishCameras(PlayState* play);
+// D-202: the update after the picture of player k's active camera (k in context, not the anchor).
+void Zmp_SecondCameraUpdate(PlayState* play, s32 k);
 // Cutscene_SetSegment / manual cutscene start: remembers who started a scripted cutscene.
 void Zmp_OnCutsceneStart(void);
 void Zmp_NoteCutsceneTrigger(u8 before);
