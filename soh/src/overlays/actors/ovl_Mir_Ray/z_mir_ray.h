@@ -42,6 +42,11 @@ typedef struct MirRay {
     /* 0x029C */ LightNode* lightNode;
     /* 0x02A0 */ LightInfo lightInfo;
     /* 0x02AE */ u8 unLit; // Conditioned on. set in Cobra?
-} MirRay; // size = 0x02B0
+    // ZMP (R2, D-212): the reflection of each player's Mirror Shield, computed in the tick (index: slot). The original
+    // computed it while drawing, with the shield of "the player" (the actor's context player).
+    f32 zmpIntensity[6];
+    f32 zmpRange[6];
+    ColliderQuad zmpShieldRay[6];
+} MirRay;
 
 #endif

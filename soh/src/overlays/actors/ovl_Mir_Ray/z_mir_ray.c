@@ -8,6 +8,7 @@
 #include "objects/object_mir_ray/object_mir_ray.h"
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (R2, D-212)
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -17,6 +18,7 @@ void MirRay_Update(Actor* thisx, PlayState* play);
 void MirRay_Draw(Actor* thisx, PlayState* play);
 
 s32 MirRay_CheckInFrustum(Vec3f* vecA, Vec3f* vecB, f32 pointx, f32 pointy, f32 pointz, s16 radiusA, s16 radiusB);
+static void MirRay_ZmpReflect(MirRay* this, PlayState* play); // ZMP (R2, D-212)
 
 // Locations of light beams in sMirRayData
 typedef enum {
@@ -220,6 +222,12 @@ void MirRay_Init(Actor* thisx, PlayState* play) {
 
     Collider_InitQuad(play, &this->shieldRay);
     Collider_SetQuad(play, &this->shieldRay, &this->actor, &sQuadInit);
+    for (s32 k = 0; k < ZMP_MAX_PLAYERS; k++) { // ZMP (R2, D-212): one reflected beam per player
+        this->zmpIntensity[k] = 0.0f;
+        this->zmpRange[k] = 1.0f;
+        Collider_InitQuad(play, &this->zmpShieldRay[k]);
+        Collider_SetQuad(play, &this->zmpShieldRay[k], &this->actor, &sQuadInit);
+    }
 
     // Spirit Temple top room mirrors
     if ((this->actor.params == 5) || (this->actor.params == 7) || (this->actor.params == 8)) {
@@ -237,6 +245,9 @@ void MirRay_Destroy(Actor* thisx, PlayState* play) {
     }
 
     Collider_DestroyQuad(play, &this->shieldRay);
+    for (s32 k = 0; k < ZMP_MAX_PLAYERS; k++) { // ZMP (R2, D-212)
+        Collider_DestroyQuad(play, &this->zmpShieldRay[k]);
+    }
 }
 
 void MirRay_Update(Actor* thisx, PlayState* play) {
@@ -253,27 +264,33 @@ void MirRay_Update(Actor* thisx, PlayState* play) {
             }
             CollisionCheck_SetAT(play, &play->colChkCtx, &this->colliderSph.base);
         }
-        if (this->reflectIntensity > 0.0f) {
+        if (Zmp_MultiActive()) {
+            MirRay_ZmpReflect(this, play); // ZMP (R2, D-212): every player's shield, in the tick
+        } else if (this->reflectIntensity > 0.0f) {
             CollisionCheck_SetAT(play, &play->colChkCtx, &this->shieldRay.base);
         }
         MirRay_MakeShieldLight(this, play);
 
-        if (this->reflectIntensity > 0.0f) {
+        if (!Zmp_MultiActive() && (this->reflectIntensity > 0.0f)) {
             Actor_PlaySfx_Flagged2(&player->actor, NA_SE_IT_SHIELD_BEAM - SFX_FLAG);
+        }
+    } else if (Zmp_MultiActive()) {
+        for (s32 k = 0; k < ZMP_MAX_PLAYERS; k++) { // ZMP (R2, D-212): a beam that is off reflects nowhere
+            this->zmpIntensity[k] = 0.0f;
         }
     }
 }
 
-void MirRay_SetIntensity(MirRay* this, PlayState* play) {
+// ZMP (R2, D-212): for the given player, into the given intensity and range (the original: GET_PLAYER, this's fields).
+static void MirRay_IntensityFor(MirRay* this, Player* player, f32* reflectIntensity, f32* reflectRange) {
     f32 sp4C[3];
     f32 temp_f0;
     f32 temp_f0_2;
     f32 temp_f2_2;
     s32 pad;
-    Player* player = GET_PLAYER(play);
     MtxF* shieldMtx = &player->shieldMf;
 
-    this->reflectIntensity = 0.0f;
+    *reflectIntensity = 0.0f;
 
     if (MirRay_CheckInFrustum(&this->sourcePt, &this->poolPt, shieldMtx->xw, shieldMtx->yw, shieldMtx->zw,
                               this->sourceEndRad, this->poolEndRad)) {
@@ -281,14 +298,14 @@ void MirRay_SetIntensity(MirRay* this, PlayState* play) {
         temp_f0 = sqrtf(SQ(shieldMtx->zz) + (SQ(shieldMtx->xz) + SQ(shieldMtx->yz)));
 
         if (temp_f0 == 0.0f) {
-            this->reflectRange = 1.0f;
+            *reflectRange = 1.0f;
         } else {
-            this->reflectRange = 1.0f / temp_f0;
+            *reflectRange = 1.0f / temp_f0;
         }
 
         // If light beam is adirectional, always reflect, else only reflect if shield is pointing in correct direction
         if (sMirRayData[this->actor.params].params & 1) {
-            this->reflectIntensity = 1.0f;
+            *reflectIntensity = 1.0f;
         } else {
             sp4C[0] = this->poolPt.x - this->sourcePt.x;
             sp4C[1] = this->poolPt.y - this->sourcePt.y;
@@ -299,17 +316,21 @@ void MirRay_SetIntensity(MirRay* this, PlayState* play) {
             if (temp_f2_2 < 0.0f) {
                 temp_f0_2 = sqrtf(SQ(sp4C[0]) + SQ(sp4C[1]) + SQ(sp4C[2]));
                 if ((temp_f0 != 0.0f) && (temp_f0_2 != 0.0f)) {
-                    this->reflectIntensity = -temp_f2_2 / (temp_f0 * temp_f0_2);
+                    *reflectIntensity = -temp_f2_2 / (temp_f0 * temp_f0_2);
                 }
             }
         }
     }
 }
 
+void MirRay_SetIntensity(MirRay* this, PlayState* play) {
+    MirRay_IntensityFor(this, GET_PLAYER(play), &this->reflectIntensity, &this->reflectRange);
+}
+
 // Draws six images, one for each corner of the shield, by finding the intersection of a line segment from the corner
 // perpendicular to the shield with the nearest collision (if any).
-void MirRay_SetupReflectionPolys(MirRay* this, PlayState* play, MirRayShieldReflection* reflection) {
-    Player* player = GET_PLAYER(play);
+void MirRay_SetupReflectionPolys(MirRay* this, PlayState* play, MirRayShieldReflection* reflection, Player* player,
+                                 f32 reflectIntensity, f32 reflectRange) { // ZMP (R2, D-212): whose shield, explicit
     MtxF* shieldMtx;
     s32 i;
     Vec3f posA;
@@ -320,9 +341,9 @@ void MirRay_SetupReflectionPolys(MirRay* this, PlayState* play, MirRayShieldRefl
 
     shieldMtx = &player->shieldMf;
 
-    sp60.x = -((*shieldMtx).xz * this->reflectRange) * this->reflectIntensity * 400.0f;
-    sp60.y = -((*shieldMtx).yz * this->reflectRange) * this->reflectIntensity * 400.0f;
-    sp60.z = -((*shieldMtx).zz * this->reflectRange) * this->reflectIntensity * 400.0f;
+    sp60.x = -((*shieldMtx).xz * reflectRange) * reflectIntensity * 400.0f;
+    sp60.y = -((*shieldMtx).yz * reflectRange) * reflectIntensity * 400.0f;
+    sp60.z = -((*shieldMtx).zz * reflectRange) * reflectIntensity * 400.0f;
 
     sp60 = sp60; // Need something involving sp60 or the whole function changes
 
@@ -365,8 +386,8 @@ void MirRay_RemoveSimilarReflections(MirRayShieldReflection* reflection) {
 }
 
 // Creates the reflected beam's collider (to interact with objects) and places and orients the shield images
-void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection* reflection) {
-    Player* player = GET_PLAYER(play);
+void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection* reflection, Player* player,
+                          f32 reflectIntensity, f32 reflectRange, ColliderQuad* beam) { // ZMP (R2, D-212)
     s32 i;
     f32 temp_f0;
     Vec3f vecB;
@@ -384,9 +405,9 @@ void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection*
 
     shieldMtx = &player->shieldMf;
 
-    spE8.x = -(shieldMtx->xz * this->reflectRange) * this->reflectIntensity * 400.0f;
-    spE8.y = -(shieldMtx->yz * this->reflectRange) * this->reflectIntensity * 400.0f;
-    spE8.z = -(shieldMtx->zz * this->reflectRange) * this->reflectIntensity * 400.0f;
+    spE8.x = -(shieldMtx->xz * reflectRange) * reflectIntensity * 400.0f;
+    spE8.y = -(shieldMtx->yz * reflectRange) * reflectIntensity * 400.0f;
+    spE8.z = -(shieldMtx->zz * reflectRange) * reflectIntensity * 400.0f;
 
     vecB.x = shieldMtx->xw;
     vecB.y = shieldMtx->yw;
@@ -404,7 +425,12 @@ void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection*
     vecC.y = vecD.y + (shieldMtx->yx * 300.0f);
     vecC.z = vecD.z + (shieldMtx->zx * 300.0f);
 
-    Collider_SetQuadVertices(&this->shieldRay, &vecA, &vecB, &vecC, &vecD);
+    if (beam != NULL) { // ZMP (R2, D-212): the collider is the tick's (NULL from the draw in a session)
+        Collider_SetQuadVertices(beam, &vecA, &vecB, &vecC, &vecD);
+    }
+    if (reflection == NULL) {
+        return;
+    }
 
     for (i = 0; i < 6; i++) {
         currentReflection = &reflection[i];
@@ -422,7 +448,7 @@ void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection*
 
                 temp_f0 = sqrtf(SQ(sp118.x - vecB.x) + SQ(sp118.y - vecB.y) + SQ(sp118.z - vecB.z));
 
-                if (temp_f0 < (this->reflectIntensity * 600.0f)) {
+                if (temp_f0 < (reflectIntensity * 600.0f)) {
                     currentReflection->opacity = 200;
                 } else {
                     currentReflection->opacity = (s32)(800.0f - temp_f0);
@@ -477,58 +503,123 @@ void MirRay_ReflectedBeam(MirRay* this, PlayState* play, MirRayShieldReflection*
     }
 }
 
-void MirRay_Draw(Actor* thisx, PlayState* play) {
-    MirRay* this = (MirRay*)thisx;
-    Player* player = GET_PLAYER(play);
+// ZMP (R2, D-212): a reflection drawn for one player's shield with that player's intensity and range. `beam` is the
+// reflected beam's collider the original set while drawing; NULL in a session, where the tick sets it.
+static void MirRay_DrawReflection(MirRay* this, PlayState* play, Player* player, f32 reflectIntensity, f32 reflectRange,
+                                  ColliderQuad* beam, s32 id) {
     s32 i;
     MirRayShieldReflection reflection[6];
     s32 temp;
 
+    Matrix_Mult(&player->shieldMf, MTXMODE_NEW);
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+    Matrix_Scale(1.0f, 1.0f, reflectIntensity * 5.0f, MTXMODE_APPLY);
+    gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 150, (s16)(temp = reflectIntensity * 100.0f));
+    gSPDisplayList(POLY_XLU_DISP++, gShieldBeamGlowDL);
+    MirRay_SetupReflectionPolys(this, play, reflection, player, reflectIntensity, reflectRange);
+    MirRay_RemoveSimilarReflections(reflection);
+    MirRay_ReflectedBeam(this, play, reflection, player, reflectIntensity, reflectRange, beam);
+
+    if (reflection[0].reflectionPoly == NULL) {
+        reflection[0].opacity = 0;
+    }
+    for (i = 1; i < 6; i++) {
+        if (reflection[i].reflectionPoly != NULL) {
+            if (reflection[0].opacity < reflection[i].opacity) {
+                reflection[0].opacity = reflection[i].opacity;
+            }
+        }
+    }
+    for (i = 0; i < 6; i++) {
+        if (GameInteractor_Should(VB_MIRRAY_DRAW_REFLECTION, reflection[i].reflectionPoly != NULL, &reflection[i])) {
+            FrameInterpolation_RecordOpenChild(&reflection[i], id * 6 + i);
+            Matrix_Translate(reflection[i].pos.x, reflection[i].pos.y, reflection[i].pos.z, MTXMODE_NEW);
+            Matrix_Scale(0.01f, 0.01f, 0.01f, MTXMODE_APPLY);
+            Matrix_Mult(&reflection[i].mtx, MTXMODE_APPLY);
+            gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+            gDPSetRenderMode(POLY_XLU_DISP++, G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_DECAL2);
+            gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 150, reflection[0].opacity);
+            gSPDisplayList(POLY_XLU_DISP++, gShieldBeamImageDL);
+            FrameInterpolation_RecordCloseChild();
+        }
+    }
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// ZMP (R2, D-212): whether an earlier Mir_Ray (in the update order) already reflects off this player's shield this
+// tick. The original reflected one beam per frame (D_80B8E670, set by the first one drawn): the same, per player.
+static s32 MirRay_ZmpTakenBefore(MirRay* this, PlayState* play, s32 k) {
+    Actor* a;
+
+    for (a = play->actorCtx.actorLists[this->actor.category].head; (a != NULL) && (a != &this->actor); a = a->next) {
+        if ((a->id == ACTOR_MIR_RAY) && (a->update != NULL) && (((MirRay*)a)->zmpIntensity[k] > 0.0f)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ZMP (R2, D-212): the reflection is simulation (its beam lights the suns and the statue): computed in the tick, for
+// every Link holding up a Mirror Shield, from that Link's shield (`shieldMf`, which every machine computes alike when
+// it draws the players: the tick reads last tick's, as the original's draw did). Before, it was computed while
+// drawing, with the shield of the actor's context player (the Link nearest to the Mir_Ray actor): with a partner
+// nearer to the actor, the shield in the beam reflected nothing. (mutant "reflejo_del_ancla": only the context
+// player's shield, as before)
+static void MirRay_ZmpReflect(MirRay* this, PlayState* play) {
+    s32 k;
+    Player* ctx = GET_PLAYER(play);
+
+    for (k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* p = Zmp_SlotPlayer(k);
+
+        this->zmpIntensity[k] = 0.0f;
+        if ((p == NULL) || Zmp_IsDowned(p) || (p->rightHandType != PLAYER_MODELTYPE_RH_SHIELD) ||
+            (p->currentShield != PLAYER_SHIELD_MIRROR)) {
+            continue;
+        }
+        if (Zmp_TestMutant("reflejo_del_ancla") && (p != ctx)) {
+            continue;
+        }
+        if (MirRay_ZmpTakenBefore(this, play, k)) {
+            continue;
+        }
+        MirRay_IntensityFor(this, p, &this->zmpIntensity[k], &this->zmpRange[k]);
+        if (this->zmpIntensity[k] > 0.0f) {
+            MirRay_ReflectedBeam(this, play, NULL, p, this->zmpIntensity[k], this->zmpRange[k], &this->zmpShieldRay[k]);
+            CollisionCheck_SetAT(play, &play->colChkCtx, &this->zmpShieldRay[k].base);
+            Actor_PlaySfx_Flagged2(&p->actor, NA_SE_IT_SHIELD_BEAM - SFX_FLAG);
+        }
+    }
+}
+
+void MirRay_Draw(Actor* thisx, PlayState* play) {
+    MirRay* this = (MirRay*)thisx;
+    Player* player = GET_PLAYER(play);
+
+    if (Zmp_MultiActive()) {
+        // ZMP (R2, D-212): the tick's reflections, one per player whose shield reflects this beam; the draw writes
+        // nothing the tick reads (D-192).
+        if (!this->unLit) {
+            for (s32 k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                Player* p = Zmp_SlotPlayer(k);
+                if ((p != NULL) && (this->zmpIntensity[k] > 0.0f)) {
+                    MirRay_DrawReflection(this, play, p, this->zmpIntensity[k], this->zmpRange[k], NULL, k);
+                }
+            }
+        }
+        return;
+    }
     this->reflectIntensity = 0.0f;
     if ((D_80B8E670 == 0) && !this->unLit && Player_HasMirrorShieldSetToDraw(play)) {
         Matrix_Mult(&player->shieldMf, MTXMODE_NEW);
         MirRay_SetIntensity(this, play);
         if (!(this->reflectIntensity <= 0.0f)) {
-            OPEN_DISPS(play->state.gfxCtx);
-
-            Gfx_SetupDL_25Xlu(play->state.gfxCtx);
-            Matrix_Scale(1.0f, 1.0f, this->reflectIntensity * 5.0f, MTXMODE_APPLY);
-            gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-            gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 150, (s16)(temp = this->reflectIntensity * 100.0f));
-            gSPDisplayList(POLY_XLU_DISP++, gShieldBeamGlowDL);
-            MirRay_SetupReflectionPolys(this, play, reflection);
-            MirRay_RemoveSimilarReflections(reflection);
-            MirRay_ReflectedBeam(this, play, reflection);
-
-            if (reflection[0].reflectionPoly == NULL) {
-                reflection[0].opacity = 0;
-            }
-            for (i = 1; i < 6; i++) {
-                if (reflection[i].reflectionPoly != NULL) {
-                    if (reflection[0].opacity < reflection[i].opacity) {
-                        reflection[0].opacity = reflection[i].opacity;
-                    }
-                }
-            }
-            for (i = 0; i < 6; i++) {
-                if (GameInteractor_Should(VB_MIRRAY_DRAW_REFLECTION, reflection[i].reflectionPoly != NULL,
-                                          &reflection[i])) {
-                    FrameInterpolation_RecordOpenChild(&reflection[i], i);
-                    Matrix_Translate(reflection[i].pos.x, reflection[i].pos.y, reflection[i].pos.z, MTXMODE_NEW);
-                    Matrix_Scale(0.01f, 0.01f, 0.01f, MTXMODE_APPLY);
-                    Matrix_Mult(&reflection[i].mtx, MTXMODE_APPLY);
-                    gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx),
-                              G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-                    gDPSetRenderMode(POLY_XLU_DISP++, G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_DECAL2);
-                    gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 150, reflection[0].opacity);
-                    gSPDisplayList(POLY_XLU_DISP++, gShieldBeamImageDL);
-                    FrameInterpolation_RecordCloseChild();
-                }
-            }
-
+            MirRay_DrawReflection(this, play, player, this->reflectIntensity, this->reflectRange, &this->shieldRay, 0);
             D_80B8E670 = 1;
-
-            CLOSE_DISPS(play->state.gfxCtx);
         }
     }
 }

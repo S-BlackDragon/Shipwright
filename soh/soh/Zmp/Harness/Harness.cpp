@@ -71,6 +71,7 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"         // ZMP phase 6 scenario tests (f6_ganon.py)
 #include "overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h"       // ZMP phase 6 scenario tests (f6_ganon.py)
 #include "overlays/actors/ovl_Obj_Syokudai/z_obj_syokudai.h"     // ZMP phase 6 (f6_castle_rooms.py)
+#include "overlays/actors/ovl_Mir_Ray/z_mir_ray.h"               // R2 (D-212)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 #include "overlays/actors/ovl_Bg_Mori_Hineri/z_bg_mori_hineri.h"         // salas 2026-10-18 (F7)
@@ -589,6 +590,8 @@ json ActorsJson(const json& cmd) {
                 { "room", a->room },
                 { "freeze_timer", a->freezeTimer },
                 { "proj", Vec3(a->projectedPos) },
+                { "home", Vec3(a->home.pos) },           // (prep 5: the adult King Zora measures from it)
+                { "drawn", a->draw != nullptr ? 1 : 0 }, // (D-213: a Poe sister that is not out has no draw)
                 // The player its logic acts on and the yaw to that player computed by the simulation this tick.
                 { "target_slot", Zmp::Players::ActorTargetSlot(a) },
                 { "yaw_to_player", a->yawTowardsPlayer },
@@ -754,6 +757,26 @@ json ActorsJson(const json& cmd) {
                 // inactive, not in the world: waiting to be called).
                 list.back()["horse_action"] = (int)((const EnHorse*)a)->action;
                 list.back()["horse_flags"] = (uint64_t)((const EnHorse*)a)->stateFlags;
+            }
+            if (a->id == ACTOR_MIR_RAY) {
+                // R2 (D-212): the beam's reflection per slot, computed in the tick (0: none), whether the beam is off,
+                // and per slot whether that Link holds up a Mirror Shield and where the shield is (shieldMf).
+                const MirRay* m = (const MirRay*)a;
+                json in = json::array(), sh = json::array(), at = json::array();
+                for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+                    Player* p = Zmp_SlotPlayer(k);
+                    in.push_back(m->zmpIntensity[k]);
+                    sh.push_back(p != nullptr && p->rightHandType == PLAYER_MODELTYPE_RH_SHIELD &&
+                                         p->currentShield == PLAYER_SHIELD_MIRROR
+                                     ? 1
+                                     : 0);
+                    at.push_back(p != nullptr ? json::array({ p->shieldMf.xw, p->shieldMf.yw, p->shieldMf.zw })
+                                              : json::array());
+                }
+                list.back()["reflect_intensity"] = in;
+                list.back()["un_lit"] = m->unLit;
+                list.back()["mirror_shield"] = sh;
+                list.back()["shield_pos"] = at;
             }
             if (a->id == ACTOR_OBJ_SYOKUDAI) {
                 // f6_castle_rooms.py: a torch is lit while its timer is not 0 (negative: lit for good).

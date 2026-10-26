@@ -26,6 +26,7 @@ extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Heishi1/z_en_heishi1.h"       // D-210
 #include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h"     // castle T1 (D-188)
 #include "overlays/actors/ovl_Bg_Hidan_Dalm/z_bg_hidan_dalm.h" // V5 (D-203)
+#include "overlays/actors/ovl_En_Po_Sisters/z_en_po_sisters.h" // F12 (D-213)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -509,6 +510,16 @@ int ContextSlot(const Actor* actor) {
         }
         if (Present(who)) {
             return who;
+        }
+    }
+    // F12 (D-213): Meg's three copies make one circle with her around the Link she haunts: each copy stands at Meg's
+    // distance from "the player" (z_en_po_sisters.c, func_80AD97C8), so it runs with Meg's player. Before, each copy
+    // ran with the Link nearest to itself: with two Links apart, the copies circled one and Meg the other.
+    if (actor->id == ACTOR_EN_PO_SISTERS && actor->parent != nullptr && actor->parent->id == ACTOR_EN_PO_SISTERS &&
+        ((const EnPoSisters*)actor)->unk_195 != 0 && !Zmp_TestMutant("copias_de_meg_al_mas_cercano")) {
+        int m = ContextSlot(actor->parent);
+        if (Present(m)) {
+            return m;
         }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
