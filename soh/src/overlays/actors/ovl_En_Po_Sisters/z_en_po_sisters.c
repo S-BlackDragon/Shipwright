@@ -9,6 +9,7 @@
 #include "objects/object_po_sisters/object_po_sisters.h"
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/savestate_serialize.h" // ZMP (D-209)
 
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -137,6 +138,12 @@ static DamageTable sDamageTable = {
 };
 
 static s32 D_80ADD784 = 0;
+
+// ZMP (F12, D-209): the intro's count of the sisters that appeared (1 once the intro starts, a bit per sister, 15 when
+// the four are out). Who joined later had 0 while who lived the intro had 15: the next sister to appear read another
+// count. It travels with the group's state (family 1, D-116).
+#define EN_PO_SISTERS_ZMP_NEW_FIELDS(F) F(D_80ADD784)
+ZMP_SAVESTATE_DEFINE(EnPoSisters, ZMP_SAVESTATE_NONE, EN_PO_SISTERS_ZMP_NEW_FIELDS, ZMP_SAVESTATE_NONE)
 
 static InitChainEntry sInitChain[] = {
     ICHAIN_VEC3F_DIV1000(scale, 7, ICHAIN_CONTINUE),

@@ -190,6 +190,10 @@
 //   espada_al_mas_cercano  only the Link nearest to Ganon can pick Zelda's sword up (G5, D-167)
 //   golpe_final_al_mas_cercano  only the Link nearest to Ganon's body can deal the final blow (G6, D-167)
 //   anillo_al_mas_cercano  Ganon's ring of fire burns and throws back only the Link nearest to Ganon (G6, D-167)
+//   hablar_con_camara_del_ancla  an NPC's talk offer asks "on screen?" with the anchor's picture (D-206): far from
+//                          the anchor nobody else can talk to Mido
+//   guardia_al_grupo       a courtyard guard's capture takes the whole group out of the courtyard (D-210)
+//   dos_salidas_un_tick    the second exit order of one tick is dropped (D-207): only the first Link leaves
 
 #ifdef __cplusplus
 extern "C" {

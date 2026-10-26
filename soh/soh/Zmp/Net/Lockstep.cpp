@@ -1142,6 +1142,43 @@ void ResumeHealthInContext(void* p) {
     gSaveContext.healthAccumulator = 0;
 }
 
+// Tests (phase 5): the slot's Link walks into an exit to that entrance (same effect as the collision exit: the
+// transition is its own). False when it cannot start now (no Link, or another scene change already started).
+bool StartExit(int slot, int entrance) {
+    Player* p = Players::SlotPlayer(slot);
+    if (p == nullptr || gPlayState == nullptr || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        return false;
+    }
+    gPlayState->nextEntranceIndex = (s16)entrance;
+    gPlayState->transitionTrigger = TRANS_TRIGGER_START;
+    gPlayState->transitionType = TRANS_TYPE_FADE_BLACK;
+    gSaveContext.nextTransitionType = TRANS_TYPE_FADE_BLACK;
+    p->stateFlags1 |= PLAYER_STATE1_LOADING | PLAYER_STATE1_IN_CUTSCENE;
+    Zmp_NoteTransitionBy(p);
+    return true;
+}
+
+// D-207: the exit orders that waited (StartExit), in slot order, one per tick, before this tick's events.
+void StartPendingExits() {
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        ZmpPlayerSlot& s = gZmpSim.slots[k];
+        if (s.exitPending == 0) {
+            continue;
+        }
+        if (Players::SlotPlayer(k) == nullptr) {
+            s.exitPending = 0;
+            continue;
+        }
+        int entrance = s.exitPending - 1;
+        if (StartExit(k, entrance)) {
+            s.exitPending = 0;
+            Log("zmp: D-207: slot " + std::to_string(k) + " takes its waiting exit to entrance " +
+                std::to_string(entrance));
+        }
+        return;
+    }
+}
+
 bool ApplyGameEvent(int slot, const std::string& cmd) {
 #ifdef ZMP_HARNESS
     if (cmd.rfind("zmp_stage ", 0) == 0) {
@@ -1150,18 +1187,29 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         return true;
     }
 #endif
+#ifdef ZMP_HARNESS
+    if (cmd.rfind("zmp_exit_as ", 0) == 0) {
+        // D-207 tests: "zmp_exit_as <slot> <entrance>", the exit order of another slot (two of them in one event: two
+        // Links walk into two exits in the same tick).
+        int k = -1;
+        char ent[32] = {};
+        if (sscanf(cmd.c_str() + 12, "%d %31s", &k, ent) == 2 && k >= 0 && k < ZMP_MAX_PLAYERS) {
+            return ApplyGameEvent(k, std::string("zmp_exit ") + ent);
+        }
+        return true;
+    }
+#endif
     if (cmd.rfind("zmp_exit ", 0) == 0) {
         // Tests (phase 5): the sender's Link walks into an exit to that entrance (same effect as the collision exit:
         // the transition is its own).
         int entrance = (int)strtol(cmd.c_str() + 9, nullptr, 0);
-        Player* p = Players::SlotPlayer(slot);
-        if (p != nullptr && gPlayState != nullptr && gPlayState->transitionTrigger == TRANS_TRIGGER_OFF) {
-            gPlayState->nextEntranceIndex = (s16)entrance;
-            gPlayState->transitionTrigger = TRANS_TRIGGER_START;
-            gPlayState->transitionType = TRANS_TYPE_FADE_BLACK;
-            gSaveContext.nextTransitionType = TRANS_TYPE_FADE_BLACK;
-            p->stateFlags1 |= PLAYER_STATE1_LOADING | PLAYER_STATE1_IN_CUTSCENE;
-            Zmp_NoteTransitionBy(p);
+        if (!StartExit(slot, entrance) && Players::SlotPlayer(slot) != nullptr && slot >= 0 && slot < ZMP_MAX_PLAYERS &&
+            !Zmp_TestMutant("dos_salidas_un_tick")) {
+            // D-207: another scene change already started in this tick (a second exit order in the same tick): this one
+            // waits for the next tick with none, as a Link standing on an exit does (mutant: dropped, as before).
+            gZmpSim.slots[slot].exitPending = (s16)(entrance + 1);
+            Log("zmp: D-207: slot " + std::to_string(slot) + "'s exit to entrance " + std::to_string(entrance) +
+                " waits: another scene change started in this tick");
         }
         return true;
     }
@@ -1671,6 +1719,7 @@ void OnPadRead(void* padsV) {
             }
         }
     }
+    StartPendingExits(); // D-207
     for (auto& e : b.events) {
         if (e.kind == "SPAWN") {
             Players::Spawn(e.slot, e.cmd);

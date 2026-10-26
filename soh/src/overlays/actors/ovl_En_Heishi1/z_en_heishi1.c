@@ -9,6 +9,8 @@
 #include "vt.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -33,6 +35,8 @@ void EnHeishi1_Kick(EnHeishi1* this, PlayState* play);
 void EnHeishi1_WaitNight(EnHeishi1* this, PlayState* play);
 
 static s32 sPlayerIsCaught = false;
+static s32 EnHeishi1_ZmpOwnCapture(void);                   // ZMP (D-210)
+static s32 EnHeishi1_ZmpCaptureTransition(EnHeishi1* this); // ZMP (D-210)
 
 #define EN_HEISHI1_SHIP_SAVESTATE_FIELDS(F) F(sPlayerIsCaught)
 
@@ -373,15 +377,44 @@ void EnHeishi1_Kick(EnHeishi1* this, PlayState* play) {
             Message_CloseTextbox(play);
             if (!this->loadStarted) {
                 Flags_SetEventChkInf(EVENTCHKINF_CAUGHT_BY_CASTLE_GUARDS);
+                if (EnHeishi1_ZmpCaptureTransition(this)) { // ZMP (D-210): only the caught Link goes
+                    return;
+                }
                 play->nextEntranceIndex = ENTR_HYRULE_CASTLE_3;
                 play->transitionTrigger = TRANS_TRIGGER_START;
-                this->loadStarted = true;
+                this->loadStarted = !EnHeishi1_ZmpOwnCapture(); // ZMP (D-210): the guard goes on with its round
                 sPlayerIsCaught = false;
                 play->transitionType = TRANS_TYPE_CIRCLE(TCA_STARBURST, TCC_WHITE, TCS_FAST);
                 gSaveContext.nextTransitionType = TRANS_TYPE_CIRCLE(TCA_STARBURST, TCC_WHITE, TCS_FAST);
             }
         }
     }
+}
+
+// ZMP (D-210): a guard that catches a Link sends THAT Link out of the courtyard, alone; the others stay hidden and go
+// on (the Gerudo guards' rule, D-171). The original's scene change took the whole group. The guard goes back to its
+// round on every machine (the caught Link is no longer there). True when nobody is to be sent (the caught Link left
+// the group meanwhile): the caller starts no scene change.
+static s32 EnHeishi1_ZmpOwnCapture(void) {
+    // (mutant "guardia_al_grupo": the capture takes the whole group out, as before D-210)
+    return Zmp_MultiActive() && !Zmp_TestMutant("guardia_al_grupo");
+}
+
+static s32 EnHeishi1_ZmpCaptureTransition(EnHeishi1* this) {
+    Player* caught;
+
+    if (!EnHeishi1_ZmpOwnCapture()) {
+        return false;
+    }
+    caught = (this->zmpCaughtSlot > 0) ? Zmp_SlotPlayer(this->zmpCaughtSlot - 1) : NULL;
+    this->zmpCaughtSlot = 0;
+    sPlayerIsCaught = false;
+    this->actionFunc = (this->type == 5) ? EnHeishi1_SetupWaitNight : EnHeishi1_SetupWalk;
+    if (caught == NULL) {
+        return true;
+    }
+    Zmp_NoteSoloTransitionBy(caught);
+    return false;
 }
 
 void EnHeishi1_SetupWaitNight(EnHeishi1* this, PlayState* play) {
@@ -399,6 +432,7 @@ void EnHeishi1_WaitNight(EnHeishi1* this, PlayState* play) {
         Sfx_PlaySfxCentered(NA_SE_SY_FOUND);
         osSyncPrintf(VT_FGCOL(GREEN) "☆☆☆☆☆ 発見！ ☆☆☆☆☆ \n" VT_RST); // "Discovered!"
         Player_SetCsActionWithHaltedActors(play, &this->actor, 1);
+        this->zmpCaughtSlot = Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1; // ZMP (D-210)
         this->actionFunc = EnHeishi1_SetupKick;
     }
 }
@@ -484,6 +518,7 @@ void EnHeishi1_Update(Actor* thisx, PlayState* play) {
                                     osSyncPrintf(VT_FGCOL(GREEN) "☆☆☆☆☆ 発見！ ☆☆☆☆☆ \n" VT_RST);
                                     Player_SetCsActionWithHaltedActors(play, &this->actor, 1);
                                     sPlayerIsCaught = true;
+                                    this->zmpCaughtSlot = Zmp_SlotOfPlayer(player) + 1; // ZMP (D-210)
                                     this->actionFunc = EnHeishi1_SetupMoveToLink;
                                 }
                             }

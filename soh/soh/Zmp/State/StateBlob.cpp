@@ -89,6 +89,7 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
     X(EnIshi)                    \
     X(EnNiw)                     \
     X(EnPoField)                 \
+    X(EnPoSisters)               \
     X(EnTakaraMan)               \
     X(EnXc)                      \
     X(EnZf)                      \

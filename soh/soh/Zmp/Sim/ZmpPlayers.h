@@ -106,6 +106,9 @@ typedef struct {
     // B8b-B (D-195): this player's viewpoint in a scene with fixed cameras (play->unk_1242B while it is the context:
     // a shop's shelves, a house's two cameras). 0: the scene's own (what Play_Init sets).
     s8 viewpoint;
+    // D-207: a test's exit order ("zmp_exit") that found another scene change already started in its tick: 1 + the
+    // entrance, started at the first tick with no scene change in the way (0: none).
+    s16 exitPending;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -542,6 +545,8 @@ MtxF* Zmp_SimViewProjection(PlayState* play);
 // Phase 5b: the view an actor's projected position is taken from (the player who has it best in sight), a box test
 // against every player's picture, and the pre-rendered room pictures per player (z_actor.c, z_boss_goma.c, z_room.c).
 MtxF* Zmp_ActorViewProjection(PlayState* play, Actor* actor);
+// D-206: the view of one player (its own active camera), for the talk offer's "on screen" test per player.
+void Zmp_SlotViewProjection(PlayState* play, s32 slot, MtxF* out);
 s32 Zmp_AnyViewBox(PlayState* play, Actor* actor, f32 maxX, f32 maxY, f32 minZ, f32 maxZ);
 void Zmp_RoomImageBegin(PlayState* play, Room* room);
 void Zmp_RoomImageEnd(PlayState* play);

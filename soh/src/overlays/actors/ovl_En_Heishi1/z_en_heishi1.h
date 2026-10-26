@@ -50,6 +50,7 @@ typedef struct EnHeishi1 {
         s16 timers[3];
     };
     /* 0x02AA */ s16 waypoint;
+    s8 zmpCaughtSlot; // ZMP (D-210): 1 + the slot of the Link this guard caught (0: nobody)
 } EnHeishi1; // size = 0x02AC
 
 #endif

@@ -23,6 +23,7 @@ extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
 #include "overlays/actors/ovl_En_Du/z_en_du.h"                 // S7-A, V8 (D-177)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"           // B8b-B (D-184)
+#include "overlays/actors/ovl_En_Heishi1/z_en_heishi1.h"       // D-210
 #include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h"     // castle T1 (D-188)
 #include "overlays/actors/ovl_Bg_Hidan_Dalm/z_bg_hidan_dalm.h" // V5 (D-203)
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
@@ -450,6 +451,14 @@ int ContextSlot(const Actor* actor) {
         int o = ((const EnOssan*)actor)->zmpOwner - 1;
         if (Present(o)) {
             return o;
+        }
+    }
+    // D-210: a courtyard guard that caught a Link walks up to it, turns to it, reads its text box and sends it out:
+    // that Link's, whoever stands nearer meanwhile.
+    if (actor->id == ACTOR_EN_HEISHI1) {
+        int c = ((const EnHeishi1*)actor)->zmpCaughtSlot - 1;
+        if (Present(c)) {
+            return c;
         }
     }
     // Castle T1 (D-188): a trial's barrier broken by a Link's light arrow runs, in the tick of the hit, with that Link
@@ -2860,6 +2869,29 @@ const float* Zmp::Players::SlotViewProjectionForDump(int slot) {
         return sDrawBegun ? &sSimVP.mf[0][0] : nullptr;
     }
     return (slot < ZMP_MAX_PLAYERS && sSlotVPValid[slot]) ? &sSlotVP[slot].mf[0][0] : nullptr;
+}
+
+// D-206: the picture of one player, for "is this actor on the screen of the player who talks to it?" (z_actor.c),
+// computed now, during the tick, from that player's own active camera (its view is simulation: every machine has the
+// same numbers), as the per-player pictures of the draw are (Zmp_DrawBegin). The anchor, a slot without a view of
+// its own and everybody during a cutscene everybody watches: the canonical picture (the anchor's), as the original.
+extern "C" void Zmp_SlotViewProjection(PlayState* play, s32 slot, MtxF* out) {
+    bool cutscene = play->csCtx.state != CS_STATE_IDLE || gSaveContext.cutsceneIndex >= 0xFFF0;
+    // (only its main camera's view, kept in the simulation by the camera update; a sub camera's picture is only known
+    // to the draw, which a machine catching up may skip)
+    const View* own = nullptr;
+    if (Zmp_MultiActive() && !cutscene && slot != gZmpSim.anchor && Present(slot)) {
+        const ZmpPlayerSlot& s = Slot(slot);
+        s16 active = (slot == gZmpSim.ctx) ? play->activeCamera : s.activeCam;
+        own = (active == CAM_ID_MAIN && s.hasView) ? &s.view : nullptr;
+    }
+    if (own == nullptr) {
+        *out = play->viewProjectionMtxF;
+        return;
+    }
+    View v = *own;
+    MtxF unused;
+    ComputeViewMatrices(&v, Zmp_SimFogFar(play), out, &unused);
 }
 
 // An actor waits to be looked at (Gohma on the ceiling): true when it is inside that box of the picture of any player.
