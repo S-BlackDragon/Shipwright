@@ -9,6 +9,7 @@
 #include "objects/object_ge1/object_ge1.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-211)
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY)
 
@@ -246,6 +247,23 @@ void EnGe1_KickPlayer(EnGe1* this, PlayState* play) {
             Entrance_OverrideGerudoGuardCapture();
         }
 
+        // ZMP (D-211): a gate guard that spotted a Link sends THAT Link to the jail, alone (as En_Ge2, D-171), and goes
+        // back to watching on every machine. Before, the scene change was nobody's: the whole group's, and while the
+        // group's exits were locked the guard asked for it on every tick and held the Link in its capture pose
+        // (cs action 95) for ever. (mutant "captura_de_la_puerta_al_grupo": as before)
+        if (Zmp_MultiActive() && !Zmp_TestMutant("captura_de_la_puerta_al_grupo") && (this->zmpCaughtSlot > 0)) {
+            Player* caught = Zmp_SlotPlayer(this->zmpCaughtSlot - 1);
+
+            this->zmpCaughtSlot = 0;
+            this->stateFlags &= ~GE1_STATE_TALKING;
+            if (this->zmpWatchFunc != NULL) {
+                this->actionFunc = this->zmpWatchFunc;
+            }
+            if (caught == NULL) {
+                return;
+            }
+            Zmp_NoteSoloTransitionBy(caught);
+        }
         play->transitionType = TRANS_TYPE_CIRCLE(TCA_STARBURST, TCC_BLACK, TCS_FAST);
         play->transitionTrigger = TRANS_TRIGGER_START;
     }
@@ -253,6 +271,8 @@ void EnGe1_KickPlayer(EnGe1* this, PlayState* play) {
 
 void EnGe1_SpotPlayer(EnGe1* this, PlayState* play) {
     this->cutsceneTimer = 30;
+    this->zmpWatchFunc = this->actionFunc;                        // ZMP (D-211)
+    this->zmpCaughtSlot = Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1; // ZMP (D-211): -1 outside a group
     this->actionFunc = EnGe1_KickPlayer;
     Player_SetCsActionWithHaltedActors(play, &this->actor, 0x5F);
     Sfx_PlaySfxCentered(NA_SE_SY_FOUND);

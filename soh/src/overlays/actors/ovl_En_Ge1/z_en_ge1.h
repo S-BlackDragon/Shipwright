@@ -53,6 +53,8 @@ typedef struct EnGe1 {
     /* 0x02AF */ u8 cutsceneTimer;
     /* 0x02B0 */ AnimationHeader* animation;
     /* 0x02B4 */ EnGe1ActionFunc actionFunc;
+    EnGe1ActionFunc zmpWatchFunc; // ZMP (D-211): what the guard did before it spotted a Link (it goes back to it)
+    s8 zmpCaughtSlot;             // ZMP (D-211): 1 + the slot of the Link this guard spotted (0: nobody)
     /* 0x02B8 */ EnGe1AnimFunc animFunc;
 } EnGe1; // size = 0x02BC
 
