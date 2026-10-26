@@ -76,6 +76,7 @@ extern "C" {
 #include "overlays/actors/ovl_Bg_Mori_Hineri/z_bg_mori_hineri.h"         // salas 2026-10-18 (F7)
 #include "overlays/actors/ovl_Bg_Mori_Kaitenkabe/z_bg_mori_kaitenkabe.h" // salas 2026-10-18 (F8)
 #include "overlays/actors/ovl_Bg_Mori_Elevator/z_bg_mori_elevator.h"     // salas 2026-10-18 (F10)
+#include "overlays/actors/ovl_En_Horse/z_en_horse.h"                     // D-208 (R4, Epona)
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
@@ -643,6 +644,25 @@ json ActorsJson(const json& cmd) {
                 list.back()["ru1_carrier"] = carrier;
                 list.back()["ru1_room2"] = r->roomNum2;
             }
+            if (a->id == ACTOR_EN_MD || a->id == ACTOR_EN_KO) {
+                // D-206: where each player's own picture shows the actor's focus (the talk offer's "on screen",
+                // 320x240), as the simulation computes it, and the canonical (anchor's) picture.
+                json sc = json::array();
+                for (int k = -1; k < ZMP_MAX_PLAYERS; k++) {
+                    Vec3f pp;
+                    f32 w;
+                    MtxF vp = gPlayState->viewProjectionMtxF;
+                    if (k >= 0) {
+                        Zmp_SlotViewProjection(gPlayState, k, &vp);
+                    }
+                    SkinMatrix_Vec3fMtxFMultXYZW(&vp, &a->focus.pos, &pp, &w);
+                    w = (w < 1.0f) ? 1.0f : 1.0f / w;
+                    sc.push_back(
+                        json::array({ (int)(pp.x * w * 160.0f + 160.0f), (int)(pp.y * w * -120.0f + 120.0f) }));
+                }
+                list.back()["screen_by_slot"] = sc; // (first: the canonical picture; then slots 0..5)
+                list.back()["focus"] = Vec3(a->focus.pos);
+            }
             if (a->id == ACTOR_EN_MD) {
                 // Block 7 (S7-D, Mido): his action (an offset in the executable) and his conversation state.
                 const EnMd* m = (const EnMd*)a;
@@ -728,6 +748,12 @@ json ActorsJson(const json& cmd) {
             if (a->id == ACTOR_BG_MORI_ELEVATOR) {
                 // Salas 2026-10-18 (F10): the switch state the elevator last acted on (D-198).
                 list.back()["elevator_seen_switch"] = ((const BgMoriElevator*)a)->unk_16C;
+            }
+            if (a->id == ACTOR_EN_HORSE) {
+                // D-208 (R4): the horse's action (EnHorseAction: 0 frozen, 2 mounted idle...) and state flags (0x2000:
+                // inactive, not in the world: waiting to be called).
+                list.back()["horse_action"] = (int)((const EnHorse*)a)->action;
+                list.back()["horse_flags"] = (uint64_t)((const EnHorse*)a)->stateFlags;
             }
             if (a->id == ACTOR_OBJ_SYOKUDAI) {
                 // f6_castle_rooms.py: a torch is lit while its timer is not 0 (negative: lit for good).

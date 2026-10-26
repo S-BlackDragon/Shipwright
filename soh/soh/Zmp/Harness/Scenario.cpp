@@ -30,6 +30,7 @@ extern "C" {
 #include "overlays/actors/ovl_Boss_Mo/z_boss_mo.h"
 #include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"
 #include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h"
+#include "overlays/actors/ovl_En_Horse/z_en_horse.h" // D-208
 #include "overlays/actors/ovl_Boss_Sst/z_boss_sst.h"
 #include "overlays/actors/ovl_Bg_Haka_Gate/z_bg_haka_gate.h"
 #include "overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"   // ZMP phase 6 scenario tests (f6_ganon.py)
@@ -154,7 +155,9 @@ void MountInContext(void* p) {
     Actor* best = nullptr;
     f32 bestD = 300.0f;
     for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
-        if (a->id != ACTOR_EN_HORSE) {
+        // D-208: never a horse that is not in the world (ENHORSE_INACTIVE: Epona waiting for her song; it is not drawn,
+        // so its rider's place was never worked out and the Link went to twice the horse's coordinates)
+        if (a->id != ACTOR_EN_HORSE || (((EnHorse*)a)->stateFlags & ENHORSE_INACTIVE)) {
             continue;
         }
         f32 d = Actor_WorldDistXZToActor(a, &player->actor);
@@ -327,6 +330,10 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         if (!a.ok) {
             return Bad(cmd, op == "hammer" ? "that player does not hold the hammer" : "no free horse within 300");
         }
+    } else if (op == "epona" && w.size() == 2) {
+        // D-208: "zmp_stage epona", Epona's Song heard (what z_message_PAL.c does when it is played): an Epona waiting
+        // in this scene (params 2, inactive) comes running.
+        DREG(53) = 1;
     } else if (op == "owned" && w.size() == 3) {
         // D-194 (block 9, a new game): "zmp_stage owned <mask>": the equipment the group owns (inventory.equipment).
         gSaveContext.inventory.equipment = (u16)Num(w[2]);
