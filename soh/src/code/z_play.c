@@ -1,6 +1,7 @@
 #include "global.h"
 #include "soh/Zmp/Sim/ZmpSim.h"     // ZMP
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 #include "vt.h"
 
 #include <string.h>
@@ -1389,11 +1390,18 @@ void Play_Draw(PlayState* play) {
     static bool lastAltAssets;
     static bool hasCapturedPauseBuffer;
     bool recapturePauseBuffer = false;
+    // ZMP (D-224): in a session the pause of the simulation (the group game over: the world is stopped) does not draw
+    // the world from a picture captured on this PC. Whether this PC has that picture (its window size, frames it did
+    // not present while catching up, D-191, or it entered the group after the capture) is presentation; drawing the
+    // world again to capture it ran the actors' draw (the culling flag, draw side effects) on that PC only: whoever
+    // entered a group in game over resynchronized (Death Mountain Trail, block 10d). Every machine draws the stopped
+    // world live every tick instead, as with the local pause menu.
+    bool zmpLivePauseBg = Zmp_MultiActive() && !Zmp_TestMutant("pausa_fondo_local");
 
     // If the size has changed, alt assets toggled, or dropped frames leading to the buffer not being copied,
     // set the prerender state back to setup to copy a new frame.
     // This requires not rendering kaleido during this copy to avoid kaleido itself being copied too.
-    if ((R_PAUSE_MENU_MODE == 2 || R_PAUSE_MENU_MODE == 3) &&
+    if (!zmpLivePauseBg && (R_PAUSE_MENU_MODE == 2 || R_PAUSE_MENU_MODE == 3) && // ZMP (D-224)
         (lastPauseWidth != OTRGetGameRenderWidth() || lastPauseHeight != OTRGetGameRenderHeight() ||
          lastAltAssets != ResourceMgr_IsAltAssetsEnabled() || !hasCapturedPauseBuffer)) {
         R_PAUSE_MENU_MODE = 1;
@@ -1523,7 +1531,7 @@ void Play_Draw(PlayState* play) {
             R_PAUSE_MENU_MODE = 0;
         }
 
-        if (R_PAUSE_MENU_MODE == 3) {
+        if (R_PAUSE_MENU_MODE == 3 && !zmpLivePauseBg) { // ZMP (D-224): in a session the world is drawn live
             Gfx* gfxP = POLY_OPA_DISP;
 
             // SOH [Port] Draw game framebuffer using our custom handling

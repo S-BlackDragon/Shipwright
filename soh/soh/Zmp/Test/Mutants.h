@@ -194,6 +194,9 @@
 //                          the anchor nobody else can talk to Mido
 //   guardia_al_grupo       a courtyard guard's capture takes the whole group out of the courtyard (D-210)
 //   dos_salidas_un_tick    the second exit order of one tick is dropped (D-207): only the first Link leaves
+//   pausa_fondo_local      in a session the group game over draws the world from the picture captured on each PC,
+//                          and a PC without it (it entered the group meanwhile, a new window size) draws the world
+//                          again to capture it (D-224): the actors' draw runs there only, whoever enters resynchronizes
 
 #ifdef __cplusplus
 extern "C" {
