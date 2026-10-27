@@ -356,6 +356,61 @@ extern "C" s32 Zmp_DoActionIsLocal(void) {
     return (!Zmp_MultiActive() || gZmpSim.ctx == Local()) ? 1 : 0;
 }
 
+// D-220: the HUD's A button label is presentation (only the local player's update sets it), but one actor of the
+// simulation reads it: the horse gallops faster with A only while its rider's label SHOWS "Faster" (EnHorse_CheckBoost,
+// interfaceCtx.unk_1EE). It read the local screen's: the rider's own machine spurred the horse and the others did not
+// (the group resynchronised and the six Navis, which fly to the rider's head, were the first thing that differed).
+// Each player's label is now kept here, asked for by its own update and turned in the tick with the HUD's own steps.
+extern "C" void Zmp_SimDoAction(Player* player, u16 action) {
+    if (!Zmp_MultiActive()) {
+        return;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (k < 0 || k >= ZMP_MAX_PLAYERS) {
+        return;
+    }
+    ZmpPlayerSlot& s = gZmpSim.slots[k];
+    if (s.doActionReq != action) { // (Interface_SetDoAction: a new label starts turning)
+        s.doActionReq = action;
+        s.doActionTurn = 1;
+        s.doActionAngle = 0.0f;
+    }
+}
+
+extern "C" void Zmp_StepDoActionLabels(PlayState* play) {
+    (void)play;
+    if (!Zmp_MultiActive()) {
+        return;
+    }
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        ZmpPlayerSlot& s = gZmpSim.slots[k];
+        if (s.doActionTurn == 0) {
+            continue;
+        }
+        // (Interface_Update, unk_1EC 1 then 2: half a turn to the edge, the new label from the other edge)
+        s.doActionAngle += 31400.0f / WREG(5);
+        if (s.doActionTurn == 1) {
+            if (s.doActionAngle >= 15700.0f) {
+                s.doActionAngle = -15700.0f;
+                s.doActionTurn = 2;
+            }
+        } else if (s.doActionAngle >= 0.0f) {
+            s.doActionAngle = 0.0f;
+            s.doActionTurn = 0;
+            s.doActionShown = s.doActionReq;
+        }
+    }
+}
+
+extern "C" u16 Zmp_ShownDoAction(PlayState* play) {
+    // (mutation test "espuela_de_la_pantalla": the label of this machine's screen, as before D-220)
+    if (!Zmp_MultiActive() || Zmp_TestMutant("espuela_de_la_pantalla")) {
+        return play->interfaceCtx.unk_1EE;
+    }
+    int k = gZmpSim.ctx;
+    return (k >= 0 && k < ZMP_MAX_PLAYERS) ? gZmpSim.slots[k].doActionShown : (u16)DO_ACTION_NONE;
+}
+
 namespace Zmp::Players {
 
 int HudHealth() {

@@ -1140,6 +1140,10 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
     for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
         Slot(j).lensActive = 0; // T3 (D-146): a new scene starts with every lens off (Actor_InitContext's)
         Slot(j).viewpoint = 0;  // B8b-B (D-195): and with the scene's own viewpoint
+        // D-220: and with the A button label of Interface_Init (nothing asked for, nothing turning)
+        Slot(j).doActionReq = Slot(j).doActionShown = 0;
+        Slot(j).doActionTurn = 0;
+        Slot(j).doActionAngle = 0.0f;
     }
     gZmpSim.waterSongBy = 0;
     gZmpSim.inviteBy = -1;

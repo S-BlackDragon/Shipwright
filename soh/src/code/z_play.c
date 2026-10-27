@@ -1268,6 +1268,7 @@ void Play_Update(PlayState* play) {
 
             PLAY_LOG(3742);
             Interface_Update(play);
+            Zmp_StepDoActionLabels(play);       // ZMP (D-220): every player's A button label turns in the tick
             Zmp_UpdateHealthAccumulators(play); // ZMP: heart refills of the other players
 
             PLAY_LOG(3765);

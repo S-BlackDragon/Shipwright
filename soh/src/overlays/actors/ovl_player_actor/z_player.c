@@ -11177,6 +11177,7 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
             }
         }
 
+        Zmp_SimDoAction(this, doAction); // ZMP (D-220): every player's label, for the simulation (the horse)
         // ZMP: the A button label and Navi's call are the local player's (presentation)
         if (Zmp_IsLocalAudioPlayer(this)) {
             Interface_SetDoAction(play, doAction);

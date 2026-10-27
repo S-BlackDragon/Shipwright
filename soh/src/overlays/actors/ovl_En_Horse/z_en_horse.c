@@ -10,6 +10,7 @@
 #include "objects/object_hni/object_hni.h"
 #include "scenes/overworld/spot09/spot09_scene.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-220)
 #include <assert.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 
@@ -3329,7 +3330,8 @@ void EnHorse_CheckBoost(EnHorse* thisx, PlayState* play2) {
 
     if (this->action == ENHORSE_ACT_MOUNTED_WALK || this->action == ENHORSE_ACT_MOUNTED_TROT ||
         this->action == ENHORSE_ACT_MOUNTED_GALLOP) {
-        if (CHECK_BTN_ALL(play->state.input[0].press.button, BTN_A) && (play->interfaceCtx.unk_1EE == 8)) {
+        // ZMP (D-220): the label its rider is shown, kept by the simulation (the HUD's is the local screen's)
+        if (CHECK_BTN_ALL(play->state.input[0].press.button, BTN_A) && (Zmp_ShownDoAction(play) == 8)) {
             if (!(this->stateFlags & ENHORSE_BOOST) && !(this->stateFlags & ENHORSE_FLAG_8) &&
                 !(this->stateFlags & ENHORSE_FLAG_9)) {
                 if (this->numBoosts > 0) {

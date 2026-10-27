@@ -109,6 +109,14 @@ typedef struct {
     // D-207: a test's exit order ("zmp_exit") that found another scene change already started in its tick: 1 + the
     // entrance, started at the first tick with no scene change in the way (0: none).
     s16 exitPending;
+    // D-220: this player's A button label as the simulation knows it. The original's interfaceCtx unk_1F0 (asked
+    // for), unk_1EE (shown, once the label has turned) and the turn (unk_1EC, unk_1F4) are only the local player's HUD
+    // in a group; the horse reads "the label says Faster" for its rider.
+    u16 doActionReq;
+    u16 doActionShown;
+    u8 doActionTurn; // 0 still, 1 first half of the turn, 2 second half
+    u8 pad2[3];
+    f32 doActionAngle;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
     u8 hasView;
@@ -523,6 +531,11 @@ s32 Zmp_QuakeCount(void);
 s32 Zmp_QuakeHashData(s16* out, s32 max);
 // Interface_SetDoAction: the A button label is the local player's (called in its context).
 s32 Zmp_DoActionIsLocal(void);
+// D-220: the A button label a player asks for (Player_UpdateInterface, every player), turned for every player as the
+// HUD turns its own (Interface_Update), and the label shown to the player in context (what the horse reads).
+void Zmp_SimDoAction(Player* player, u16 action);
+void Zmp_StepDoActionLabels(PlayState* play);
+u16 Zmp_ShownDoAction(PlayState* play);
 s32 Zmp_QuakeShakesCamera(s32 owner, Camera* camera);
 // Play_Draw: a camera updated outside the camera loop drives its owner's letterbox and HUD.
 void Zmp_CameraInterfaceOwnerBegin(Camera* camera);

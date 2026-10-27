@@ -774,6 +774,7 @@ json ActorsJson(const json& cmd) {
                 // inactive, not in the world: waiting to be called).
                 list.back()["horse_action"] = (int)((const EnHorse*)a)->action;
                 list.back()["horse_flags"] = (uint64_t)((const EnHorse*)a)->stateFlags;
+                list.back()["horse_boosts"] = (int)((const EnHorse*)a)->numBoosts; // D-220
             }
             if (a->id == ACTOR_MIR_RAY) {
                 // R2 (D-212): the beam's reflection per slot, computed in the tick (0: none), whether the beam is off,
