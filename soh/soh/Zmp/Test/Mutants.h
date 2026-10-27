@@ -200,6 +200,9 @@
 //   texto_npc_del_mas_cercano  a character's text (Npc_UpdateTalking) is computed for the Link nearest to it only and
 //                          opened by whoever presses A (D-223): with a Link on foot nearer, Ingo asks the rider to
 //                          mount
+//   impa_linea_del_mas_cercano  Impa's line (the Lullaby's lesson) is checked with the Link nearest to her only
+//                          (D-226): a partner by her just west of the line keeps a Link who walks past it from
+//                          starting it
 
 #ifdef __cplusplus
 extern "C" {

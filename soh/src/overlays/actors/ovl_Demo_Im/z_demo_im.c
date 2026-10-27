@@ -12,6 +12,8 @@
 #include "vt.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -845,8 +847,44 @@ s32 func_809869F8(DemoIm* this, PlayState* play) {
     }
 }
 
+// ZMP (D-226): Impa's line (x > her x - 130) is crossed by any Link, not only by the one she watches (the Link nearest
+// to her). With six, a partner standing by her just west of the line kept her watching it: a Link who walked past the
+// line farther from her never started the lesson (and could walk out of the courtyard without the Lullaby). Now the
+// nearest Link past the line and outside a cutscene is "the player" of this check: its context is set here, so the
+// lesson's cutscene is about it (D-176) and the song is taught to it. No Link past the line: Impa's player, as before.
+static Player* DemoIm_ZmpLinePlayer(DemoIm* this, PlayState* play, Player* player) {
+    f32 line = this->actor.world.pos.x - (kREG(17) + 130.0f);
+    s32 back = Zmp_SlotOfPlayer(player);
+    s32 best = -1;
+    f32 bestDist = 0.0f;
+    s32 k = -1;
+
+    if (!Zmp_MultiActive() || Zmp_TestMutant("impa_linea_del_mas_cercano")) { // (mutant: her nearest Link, as before)
+        return player;
+    }
+    while ((k = Zmp_NextPresentSlot(k)) >= 0) {
+        Player* link = Zmp_SlotPlayer(k);
+        f32 d;
+
+        if ((link == NULL) || Zmp_IsDowned(link) || !(link->actor.world.pos.x > line)) {
+            continue;
+        }
+        Zmp_SetContext(play, k);
+        if (Play_InCsMode(play)) {
+            continue;
+        }
+        d = Actor_WorldDistXZToActor(&this->actor, &link->actor);
+        if ((best < 0) || (d < bestDist)) {
+            best = k;
+            bestDist = d;
+        }
+    }
+    Zmp_SetContext(play, (best >= 0) ? best : back);
+    return GET_PLAYER(play);
+}
+
 s32 func_80986A5C(DemoIm* this, PlayState* play) {
-    Player* player = GET_PLAYER(play);
+    Player* player = DemoIm_ZmpLinePlayer(this, play, GET_PLAYER(play)); // ZMP (D-226): any Link past her line
     f32 playerPosX = player->actor.world.pos.x;
     f32 thisPosX = this->actor.world.pos.x;
 
