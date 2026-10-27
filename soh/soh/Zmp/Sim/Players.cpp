@@ -555,6 +555,17 @@ int ContextSlot(const Actor* actor) {
             }
         }
     }
+    // D-223: after the race (eventInf 3: Ingo won, 4: the Link won) Ingo waits with a talk that is accepted by itself
+    // (who won, the 50 rupees): it is the race's, so he runs with the Link who rode it (the one who accepted it, put
+    // on the race horse: Zmp_StoryHorseSetup). Before, with the Link nearest to him after the ranch loaded again.
+    if (actor->id == ACTOR_EN_IN && gZmpSim.horseGameBy != 0 &&
+        ((gSaveContext.eventInf[0] & 0xF) == 3 || (gSaveContext.eventInf[0] & 0xF) == 4) &&
+        !Zmp_TestMutant("charla_de_ingo_al_mas_cercano")) {
+        int r = gZmpSim.horseGameBy - 1;
+        if (Present(r) && !Slot(r).downed) {
+            return r;
+        }
+    }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
         k = Zmp::Players::SlotOf(actor->parent);
         if (k >= 0) {
@@ -1155,6 +1166,7 @@ extern "C" void Zmp_PlayInitBegin(PlayState* play) {
         Slot(j).doActionReq = Slot(j).doActionShown = 0;
         Slot(j).doActionTurn = 0;
         Slot(j).doActionAngle = 0.0f;
+        Slot(j).talkTextValid = 0; // D-223
     }
     gZmpSim.waterSongBy = 0;
     gZmpSim.inviteBy = -1;
@@ -2221,12 +2233,66 @@ extern "C" void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setu
     }
     int back = gZmpSim.ctx;
     Zmp::Log("zmp: D-222: the scene's story horse goes to slot " + std::to_string(c));
+    gZmpSim.horseGameBy = (u8)(c + 1); // D-223: Ingo talks to this Link after the race
     SwitchTo(play, c);
     setup(play, Slot(c).player);
     if (Present(back)) {
         SwitchTo(play, back);
     } else {
         Zmp_RestoreAnchor(play);
+    }
+}
+
+// D-223: a character's text (Npc_UpdateTalking: getTextId reads "the player": equipment, horse, mask, age, items) is
+// computed for every player the character offers to talk to, each in its own context, in the tick of the offer; the
+// one who presses A opens its own (Zmp_TalkTextIdFor). Before, the text was the one computed for the Link the character
+// runs with (the nearest): with a Link on foot nearer to Ingo, he asked "get on a horse first" of the one on the horse.
+// The context it was called in is the character's own (the original computes that one's text right after).
+extern "C" void Zmp_NpcTalkTextIds(PlayState* play, Actor* actor, u16 (*getTextId)(PlayState*, Actor*)) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("texto_del_mas_cercano")) {
+        return;
+    }
+    int back = gZmpSim.ctx;
+    bool moved = false;
+    for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        if (k == back || !Present(k) || Slot(k).player->talkActor != actor ||
+            (Slot(k).player->actor.flags & ACTOR_FLAG_TALK)) {
+            continue;
+        }
+        SwitchTo(play, k);
+        moved = true;
+        u16 id = getTextId(play, actor);
+        Slot(k).talkTextId = id;
+        Slot(k).talkTextValid = 1;
+    }
+    if (moved) {
+        if (Present(back)) {
+            SwitchTo(play, back);
+        } else {
+            Zmp_RestoreAnchor(play);
+        }
+        LensShare(play, actor); // (the lens of the room again for the rest of the character's update)
+    }
+}
+
+// D-223: an offer to talk was made to this player (Actor_OfferTalkExchange): whatever text an earlier offer of this
+// tick came with is not this one's.
+extern "C" void Zmp_TalkOffered(Player* player) {
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (Present(k)) {
+        Slot(k).talkTextValid = 0;
+    }
+}
+
+// D-223: the player presses A (or the talk is accepted by itself) for the character that offered it: the text is the
+// one computed for this player (Zmp_NpcTalkTextIds), when there is one.
+extern "C" void Zmp_TalkTextIdFor(Player* player, Actor* actor) {
+    if (!Zmp_MultiActive() || player->talkActor != actor) {
+        return;
+    }
+    int k = Zmp::Players::SlotOf(&player->actor);
+    if (Present(k) && Slot(k).talkTextValid) {
+        actor->textId = Slot(k).talkTextId;
     }
 }
 

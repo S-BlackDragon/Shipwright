@@ -6272,6 +6272,7 @@ s32 Player_ActionHandler_Talk(Player* this, PlayState* play) {
                     // text will be used. This is especially important to prevent unwanted behavior with regards to mask
                     // trading.
                     this->currentMask = sSavedCurrentMask;
+                    Zmp_TalkTextIdFor(this, talkOfferActor); // ZMP (D-223): the text computed for this player
                     if (GameInteractor_Should(VB_SKIP_TALKING, true)) {
                         Player_StartTalking(play, talkOfferActor);
                     }

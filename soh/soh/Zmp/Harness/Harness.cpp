@@ -786,6 +786,31 @@ json ActorsJson(const json& cmd) {
                 list.back()["horse_flags"] = (uint64_t)((const EnHorse*)a)->stateFlags;
                 list.back()["horse_boosts"] = (int)((const EnHorse*)a)->numBoosts; // D-220
             }
+            if (a->id == ACTOR_EN_HORSE_GAME_CHECK) {
+                // D-223: Ingo's race checker (type 1): the checkpoints it counted for "the player"'s horse, its start
+                // flags (1: the player's horse was let go) and the result (0: none yet). (The actor's header does not
+                // build as C++, its function type names a parameter `this`: the layout of EnHorseGameCheckIngoRace.)
+                struct Base {
+                    Actor actor;
+                    s32 type;
+                };
+                struct IngoRace {
+                    Base base; // (padded as the C struct: startFlags does not follow type directly)
+                    s32 startFlags;
+                    s32 playerCheck[3];
+                    s32 ingoCheck[3];
+                    Actor* ingoHorse;
+                    s32 startTimer;
+                    s32 result;
+                };
+                const IngoRace* r = (const IngoRace*)a;
+                list.back()["hgc_type"] = r->base.type;
+                if (r->base.type == 1) {
+                    list.back()["hgc_player_check"] = { r->playerCheck[0], r->playerCheck[1], r->playerCheck[2] };
+                    list.back()["hgc_start_flags"] = r->startFlags;
+                    list.back()["hgc_result"] = r->result;
+                }
+            }
             if (a->id == ACTOR_MIR_RAY) {
                 // R2 (D-212): the beam's reflection per slot, computed in the tick (0: none), whether the beam is off,
                 // and per slot whether that Link holds up a Mirror Shield and where the shield is (shieldMf).

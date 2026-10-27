@@ -2056,6 +2056,15 @@ s32 Actor_OfferTalkExchange(Actor* actor, PlayState* play, f32 arg2, f32 arg3, u
             if ((sZmpTalkScreenActor == actor) && !Zmp_TalkOnScreenOf(play, actor, k)) { // ZMP (D-206)
                 continue;
             }
+            // ZMP (D-223): a talk that is accepted by itself (no A: Ingo after the race, a cow after Epona's Song, a
+            // guard who catches you) starts with whoever it is offered to: it is offered only to the player the actor
+            // runs with, as the original offers it to its one Link. Offered to everybody in reach, it started with all
+            // of them at once and held for ever those the actor did not go on with.
+            if ((actor->flags & ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED) && (p != player) &&
+                !Zmp_TestMutant("charla_auto_a_todos")) {
+                continue;
+            }
+            Zmp_TalkOffered(p); // ZMP (D-223): the text an earlier offer came with is not this one's
             p->talkActor = actor;
             p->talkActorDistance = xz;
             p->exchangeItemId = exchangeItemId;
@@ -4503,6 +4512,7 @@ s32 Npc_UpdateTalking(PlayState* play, Actor* actor, s16* talkState, f32 interac
                       NpcUpdateTalkStateFunc updateTalkState) {
     s16 x;
     s16 y;
+    s32 offered; // ZMP (D-223)
 
     if (Actor_ProcessTalkRequest(actor, play)) {
         *talkState = NPC_TALK_STATE_TALKING;
@@ -4521,7 +4531,9 @@ s32 Npc_UpdateTalking(PlayState* play, Actor* actor, s16* talkState, f32 interac
         return false;
     }
 
-    if (!Actor_OfferTalk(actor, play, interactRange)) {
+    offered = Actor_OfferTalk(actor, play, interactRange);
+    Zmp_NpcTalkTextIds(play, actor, getTextId); // ZMP (D-223): the text of each other player it was offered to
+    if (!offered) {
         return false;
     }
 

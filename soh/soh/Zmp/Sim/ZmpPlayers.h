@@ -115,7 +115,11 @@ typedef struct {
     u16 doActionReq;
     u16 doActionShown;
     u8 doActionTurn; // 0 still, 1 first half of the turn, 2 second half
-    u8 pad2[3];
+    // D-223: the text a character (Npc_UpdateTalking) offers this player, computed in this player's context in the
+    // tick of the offer (talkTextValid: 1 when the offer standing for this player came with it). The one who presses
+    // A opens it, not the text computed for the Link nearest to the character.
+    u8 talkTextValid;
+    u16 talkTextId;
     f32 doActionAngle;
     Vec3f restorePos;
     /* render helper, not hashed: view computed by this slot's camera in the last tick */
@@ -246,7 +250,9 @@ typedef struct {
     // Castle T1 (D-188): a group cutscene is for the Links of one room: the room of the player it is about when it
     // starts, 1 + room (0: every room).
     u8 csRoom;
-    u8 pad5;
+    // D-223: 1 + the slot of the Link put on the horse of Ingo's race (the one who accepted it, D-222; 0: none). After
+    // the race Ingo talks to that Link (his auto-accepted talk: who won, the 50 rupees).
+    u8 horseGameBy;
     u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
@@ -485,6 +491,9 @@ Player* Zmp_SlotPlayer(s32 slot);
 // D-222: runs setup (Horse_SetupInCutscene) for the Link of the story the scene started with (Ingo's race), in its
 // context; else for `player`.
 void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setup)(PlayState*, Player*));
+void Zmp_NpcTalkTextIds(PlayState* play, Actor* actor, u16 (*getTextId)(PlayState*, Actor*));
+void Zmp_TalkTextIdFor(Player* player, Actor* actor);
+void Zmp_TalkOffered(Player* player);
 // D-201: a boss's death script has just put the player of its cutscene somewhere (Bongo Bongo, Phantom Ganon,
 // Volvagia): that Link stands on the floor there (probed from floorFromY + 50), still, let go by a hand, and the arc of
 // the group cutscene is laid out again around it in this same tick.
