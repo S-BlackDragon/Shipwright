@@ -27,6 +27,7 @@ extern PlayState* gPlayState;
 #include "overlays/actors/ovl_Demo_Kekkai/z_demo_kekkai.h"     // castle T1 (D-188)
 #include "overlays/actors/ovl_Bg_Hidan_Dalm/z_bg_hidan_dalm.h" // V5 (D-203)
 #include "overlays/actors/ovl_En_Po_Sisters/z_en_po_sisters.h" // F12 (D-213)
+#include "overlays/actors/ovl_En_Arrow/z_en_arrow.h"           // D-216
 void Attention_Init(TargetContext* targetCtx, Actor* actor, PlayState* play);
 void Interface_UpdateMagicBar(PlayState* play);
 void Interface_ZmpUpdateButtons(PlayState* play);
@@ -520,6 +521,27 @@ int ContextSlot(const Actor* actor) {
         int m = ContextSlot(actor->parent);
         if (Present(m)) {
             return m;
+        }
+    }
+    // D-216: a seed, an arrow or a Deku nut runs, from the moment it leaves the hand, with the Link who shot it.
+    // Before, with the Link nearest to it: EnArrow_Shoot killed it on its first free tick when that Link had not just
+    // shot (with six in a row a partner nearer to the hand killed every seed), and its "blocking cutscene" was that
+    // Link's.
+    if (actor->id == ACTOR_EN_ARROW && !Zmp_TestMutant("semilla_al_mas_cercano")) {
+        int o = ((const EnArrow*)actor)->zmpOwner - 1;
+        if (Present(o)) {
+            return o;
+        }
+    }
+    // D-216: the boomerang flies back to the Link who threw it (the one still waiting for it: the pointer is only
+    // compared, never followed or sent), and only that Link catches it. Before, it flew back to the Link nearest to it
+    // when it turned: a partner ahead "caught" it and the thrower waited for it with its hand out until a cutscene.
+    if (actor->id == ACTOR_EN_BOOM && !Zmp_TestMutant("bumeran_al_mas_cercano")) {
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (Present(j) && Slot(j).player->boomerangActor == actor &&
+                (Slot(j).player->stateFlags1 & PLAYER_STATE1_BOOMERANG_THROWN)) {
+                return j;
+            }
         }
     }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {

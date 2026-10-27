@@ -10,6 +10,7 @@
 
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-216)
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -209,6 +210,13 @@ void EnArrow_Destroy(Actor* thisx, PlayState* play) {
 
 void EnArrow_Shoot(EnArrow* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
+
+    // ZMP (D-216): while a Link holds it, its slot is kept; once shot, the seed or arrow runs with that Link to the
+    // end (Players.cpp, ContextSlot), not with the Link nearest to it, who killed it here when it had not just shot.
+    if ((this->actor.parent != NULL) && (this->actor.parent->id == ACTOR_PLAYER) &&
+        (Zmp_SlotOfPlayer((Player*)this->actor.parent) >= 0)) {
+        this->zmpOwner = (s8)(1 + Zmp_SlotOfPlayer((Player*)this->actor.parent));
+    }
 
     if (this->actor.parent == NULL) {
         if ((this->actor.params != ARROW_NUT) && (player->unk_A73 == 0)) {

@@ -73,6 +73,7 @@ extern "C" {
 #include "overlays/actors/ovl_Obj_Syokudai/z_obj_syokudai.h"     // ZMP phase 6 (f6_castle_rooms.py)
 #include "overlays/actors/ovl_Mir_Ray/z_mir_ray.h"               // R2 (D-212)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"
+#include "overlays/actors/ovl_En_Arrow/z_en_arrow.h" // D-216
 #include "overlays/actors/ovl_En_GirlA/z_en_girla.h"
 #include "overlays/actors/ovl_Bg_Mori_Hineri/z_bg_mori_hineri.h"         // salas 2026-10-18 (F7)
 #include "overlays/actors/ovl_Bg_Mori_Kaitenkabe/z_bg_mori_kaitenkabe.h" // salas 2026-10-18 (F8)
@@ -597,6 +598,14 @@ json ActorsJson(const json& cmd) {
                 { "yaw_to_player", a->yawTowardsPlayer },
                 { "dist_to_player", a->xzDistToPlayer },
             });
+            if (a->id == ACTOR_EN_ARROW) {
+                // D-216: 1 + the slot of the Link who shot it (0: not a player's), its action (an offset in the
+                // executable) and its timer.
+                const EnArrow* ar = (const EnArrow*)a;
+                list.back()["arrow_owner"] = ar->zmpOwner;
+                list.back()["arrow_action"] = (uint64_t)((uintptr_t)ar->actionFunc - (uintptr_t)&__ImageBase);
+                list.back()["arrow_timer"] = ar->timer;
+            }
             if (a->id == ACTOR_EN_OSSAN) {
                 // Phase 5 tests (shop): the shopkeeper's state and the shelf slot under the cursor.
                 const EnOssan* o = (const EnOssan*)a;
@@ -647,7 +656,7 @@ json ActorsJson(const json& cmd) {
                 list.back()["ru1_carrier"] = carrier;
                 list.back()["ru1_room2"] = r->roomNum2;
             }
-            if (a->id == ACTOR_EN_MD || a->id == ACTOR_EN_KO) {
+            if (a->id == ACTOR_EN_MD || a->id == ACTOR_EN_KO || a->id == ACTOR_EN_KZ) { // (prep 6: King Zora too)
                 // D-206: where each player's own picture shows the actor's focus (the talk offer's "on screen",
                 // 320x240), as the simulation computes it, and the canonical (anchor's) picture.
                 json sc = json::array();
@@ -1524,6 +1533,7 @@ void Dispatch(const RequestPtr& req) {
               { "magic_level", gSaveContext.magicLevel },
               { "magic_acquired", gSaveContext.isMagicAcquired },
               { "double_magic", gSaveContext.isDoubleMagicAcquired },
+              { "double_defense", gSaveContext.isDoubleDefenseAcquired }, // (prep 6: the Great Fairy's gift)
               { "item_get_inf", json(std::vector<int>(gSaveContext.itemGetInf, gSaveContext.itemGetInf + 4)) },
               { "scene", scene },
               { "scene_flags", flags },

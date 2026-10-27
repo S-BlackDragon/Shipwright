@@ -23,7 +23,8 @@ typedef struct EnArrow {
     /* 0x024C */ Actor* hitActor;
     /* 0x0250 */ Vec3f unk_250;
     /* 0x025C */ EnArrowActionFunc actionFunc;
-} EnArrow; // size = 0x0260
+    s8 zmpOwner; // ZMP (D-216): 1 + the slot of the Link who holds it or shot it (0: not a player's)
+} EnArrow;
 
 typedef enum {
     /* -10 */ ARROW_CS_NUT = -10, // cutscene deku nuts are allowed to update in blocking mode
