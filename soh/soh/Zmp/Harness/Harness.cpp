@@ -81,6 +81,7 @@ extern "C" {
 #include "overlays/actors/ovl_En_Horse/z_en_horse.h"                     // D-208 (R4, Epona)
 #include "overlays/actors/ovl_En_Zl4/z_en_zl4.h"                         // D-219 (Zelda's talk)
 #include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"                       // D-222 (Twinrova's shield charge)
+#include "overlays/actors/ovl_Obj_Lightswitch/z_obj_lightswitch.h"       // D-225 (the Spirit Temple's suns)
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
@@ -830,6 +831,22 @@ json ActorsJson(const json& cmd) {
                 list.back()["un_lit"] = m->unLit;
                 list.back()["mirror_shield"] = sh;
                 list.back()["shield_pos"] = at;
+                if (m->colliderSph.elements != nullptr) { // (only the beams with a sphere, params & 2)
+                    // D-225: the sphere the window's own beam lights things with (a sun standing in its pool).
+                    const ColliderJntSphElement* e = &m->colliderSphItem;
+                    list.back()["ray_sphere"] = { e->dim.worldSphere.center.x, e->dim.worldSphere.center.y,
+                                                  e->dim.worldSphere.center.z, e->dim.worldSphere.radius };
+                }
+            }
+            if (a->id == ACTOR_OBJ_LIGHTSWITCH) {
+                // D-225: a sun: its face (0 eyes closed, 1 open, 2 smiling: on), whether a light beam hit it last tick
+                // (AC_HIT), and its sphere (moved when it is drawn: a sun on a block follows the block a tick late).
+                const ObjLightswitch* l = (const ObjLightswitch*)a;
+                const ColliderJntSphElement* e = &l->colliderItems[0];
+                list.back()["sun_face"] = l->faceTextureIndex;
+                list.back()["sun_hit"] = (l->prevFrameACflags & AC_HIT) ? 1 : 0;
+                list.back()["sun_sphere"] = { e->dim.worldSphere.center.x, e->dim.worldSphere.center.y,
+                                              e->dim.worldSphere.center.z, e->dim.worldSphere.radius };
             }
             if (a->id == ACTOR_OBJ_SYOKUDAI) {
                 // f6_castle_rooms.py: a torch is lit while its timer is not 0 (negative: lit for good).
@@ -1549,6 +1566,7 @@ void Dispatch(const RequestPtr& req) {
             if (InPlay() && gPlayState->sceneNum == scene) {
                 flags["live_chest"] = gPlayState->actorCtx.flags.chest;
                 flags["live_swch"] = gPlayState->actorCtx.flags.swch;
+                flags["live_tswch"] = gPlayState->actorCtx.flags.tempSwch; // D-225: switch flags 0x20 to 0x3F
                 flags["live_clear"] = gPlayState->actorCtx.flags.clear;
                 flags["live_collect"] = gPlayState->actorCtx.flags.collect;
             }

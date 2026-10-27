@@ -2249,7 +2249,7 @@ extern "C" void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setu
 // runs with (the nearest): with a Link on foot nearer to Ingo, he asked "get on a horse first" of the one on the horse.
 // The context it was called in is the character's own (the original computes that one's text right after).
 extern "C" void Zmp_NpcTalkTextIds(PlayState* play, Actor* actor, u16 (*getTextId)(PlayState*, Actor*)) {
-    if (!Zmp_MultiActive() || Zmp_TestMutant("texto_del_mas_cercano")) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("texto_npc_del_mas_cercano")) {
         return;
     }
     int back = gZmpSim.ctx;

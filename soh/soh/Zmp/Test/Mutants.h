@@ -197,6 +197,9 @@
 //   pausa_fondo_local      in a session the group game over draws the world from the picture captured on each PC,
 //                          and a PC without it (it entered the group meanwhile, a new window size) draws the world
 //                          again to capture it (D-224): the actors' draw runs there only, whoever enters resynchronizes
+//   texto_npc_del_mas_cercano  a character's text (Npc_UpdateTalking) is computed for the Link nearest to it only and
+//                          opened by whoever presses A (D-223): with a Link on foot nearer, Ingo asks the rider to
+//                          mount
 
 #ifdef __cplusplus
 extern "C" {
