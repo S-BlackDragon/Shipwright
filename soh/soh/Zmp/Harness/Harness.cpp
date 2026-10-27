@@ -79,6 +79,7 @@ extern "C" {
 #include "overlays/actors/ovl_Bg_Mori_Kaitenkabe/z_bg_mori_kaitenkabe.h" // salas 2026-10-18 (F8)
 #include "overlays/actors/ovl_Bg_Mori_Elevator/z_bg_mori_elevator.h"     // salas 2026-10-18 (F10)
 #include "overlays/actors/ovl_En_Horse/z_en_horse.h"                     // D-208 (R4, Epona)
+#include "overlays/actors/ovl_En_Zl4/z_en_zl4.h"                         // D-219 (Zelda's talk)
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
@@ -681,6 +682,13 @@ json ActorsJson(const json& cmd) {
                 list.back()["md_action"] = (uint64_t)((uintptr_t)m->actionFunc - (uintptr_t)&__ImageBase);
                 list.back()["talk_state"] = m->interactInfo.talkState;
                 list.back()["text_id"] = a->textId;
+            }
+            if (a->id == ACTOR_EN_ZL4) {
+                // D-219: Zelda's talk in the courtyard (her scripted conversation, before and after the vision).
+                const EnZl4* z = (const EnZl4*)a;
+                list.back()["zl4_cs_state"] = z->csState;
+                list.back()["zl4_talk_state"] = z->talkState;
+                list.back()["zl4_talk_timer2"] = z->talkTimer2;
             }
             if (a->id == ACTOR_EN_HEISHI1) {
                 // Block 7 (S7-C, courtyard guards): their route and whether they saw a Link.

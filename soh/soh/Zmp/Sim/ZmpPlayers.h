@@ -429,6 +429,9 @@ void Zmp_SecondCameraUpdate(PlayState* play, s32 k);
 // Cutscene_SetSegment / manual cutscene start: remembers who started a scripted cutscene.
 void Zmp_OnCutsceneStart(void);
 void Zmp_NoteCutsceneTrigger(u8 before);
+// D-219: an actor that starts a scene change with a scripted cutscene in the destination (Zelda's vision) carries the
+// story to the player of its context: the cutscene of the new scene is about that player.
+void Zmp_NoteActorTransition(s8 before, s16 actorCategory);
 void Zmp_OnCutsceneTriggered(void); // S7-A (D-176): a scripted cutscene starts from the trigger (z_demo.c) // S7-A
                                     // (D-176): after an actor update, with the cutscene trigger before it
 // Player_UpdateCommon: whether this player follows the scripted cutscene's Link cues (only the one it is about).

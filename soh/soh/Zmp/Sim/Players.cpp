@@ -571,6 +571,24 @@ int ContextSlot(const Actor* actor) {
             return j;
         }
     }
+    // D-219: a character (an NPC) that holds a Link in a cutscene action it set (Zelda halts the Link she tells the
+    // legend to, after her vision) acts on that Link until it lets go, whoever stands nearer. Before, the nearest: her
+    // text boxes opened for one Link and were waited for in another's, and her talk never went on.
+    if (actor->category == ACTORCAT_NPC && !Zmp_TestMutant("zelda_al_mas_cercano")) {
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (Present(j) && Slot(j).player->csActor == actor && Slot(j).player->csAction != 0) {
+                return j;
+            }
+        }
+    }
+    // D-219: the actors a new scene spawns with, while the story of the previous scene is pending for one player
+    // (D-187), start in that player's context: Zelda, back from her vision, halts and speaks to the Link of the story.
+    if (actor->init != nullptr && gZmpSim.csCarry != 0 && !Zmp_TestMutant("vision_del_ancla")) {
+        int c = gZmpSim.csCarry - 1;
+        if (Present(c) && !Slot(c).downed) {
+            return c;
+        }
+    }
     // B9 (D-152): a spot that listens to the ocarina (En_Okarina_Tag) runs with the player who takes the ocarina out
     // for it, the nearest of them, until its song starts (then the rule below): it starts that player's song check.
     // Before, it ran with the player nearest to it, and the one who played two steps further was never heard.

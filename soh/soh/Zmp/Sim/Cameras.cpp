@@ -496,7 +496,10 @@ void UpdateGlobalCutscene(PlayState* play) {
     if (active && gZmpSim.globalCs) {
         MaintainArc(play);
     }
-    if (!active && gZmpSim.csCarry != 0 && ++gZmpSim.csCarryTicks > 3) {
+    // (D-219: the ticks are counted once the new scene runs; a scene change an actor started without a cutscene of
+    // its own fades out first)
+    if (!active && gZmpSim.csCarry != 0 && play->transitionTrigger == TRANS_TRIGGER_OFF &&
+        play->transitionMode == TRANS_MODE_OFF && ++gZmpSim.csCarryTicks > 3) {
         gZmpSim.csCarry = 0; // (D-187: the new scene started without a cutscene of its own)
     }
     // Outside the events everybody watches the shared letterbox and HUD are the normal ones (the players' own cameras
@@ -886,6 +889,27 @@ extern "C" void Zmp_NoteCutsceneTrigger(u8 before) {
         gZmpSim.csTriggerBy = (u8)(gZmpSim.ctx + 1);
         LogCutsceneStart("trigger set", gZmpSim.ctx);
     }
+}
+
+// D-219: an actor (not a Link) that, in its update, starts a scene change of the group into a scripted cutscene (Zelda
+// at the end of her talk: the cutscene map with her vision, 0xFFF7) takes its story there: the cutscene the new scene
+// starts with is about the player of its context, as D-187 does for a cutscene whose own command changes the scene.
+// Before, about the anchor: the vision, and the courtyard after it (Zelda's talk goes on, she halts "the player"), were
+// about slot 0 or whoever stood nearest, not the Link who was talking with her.
+extern "C" void Zmp_NoteActorTransition(s8 before, s16 actorCategory) {
+    if (!gZmpSim.enabled || !gZmpSim.inPlay || gPlayState == nullptr || before != TRANS_TRIGGER_OFF ||
+        gPlayState->transitionTrigger == TRANS_TRIGGER_OFF || actorCategory == ACTORCAT_PLAYER || gZmpSim.globalCs ||
+        gSaveContext.nextCutsceneIndex < 0xFFF0 || Zmp_TestMutant("vision_del_ancla")) {
+        return; // (mutant: the new scene's cutscene is the anchor's, as before D-219)
+    }
+    int k = gZmpSim.ctx;
+    if (!Present(k) || Zmp::Players::SlotDowned(k)) {
+        return;
+    }
+    gZmpSim.csCarry = (u8)(k + 1);
+    gZmpSim.csCarryTicks = 0;
+    Zmp::Log("zmp: D-219: actor of category " + std::to_string(actorCategory) + " changes the scene into cutscene " +
+             std::to_string(gSaveContext.nextCutsceneIndex) + ": the story goes on about slot " + std::to_string(k));
 }
 
 extern "C" s32 Zmp_FollowsCutsceneScript(Player* player) {

@@ -2007,9 +2007,9 @@ void Actor_GetTalkScreenPos(PlayState* play, Actor* actor, s16* x, s16* y, s16 m
     Actor_GetScreenPos(play, actor, x, y);
 }
 
-// ZMP (D-217): King Zora (En_Kz, z_en_kz.c) offers the talk only to a Link in a narrow cone in front of his home and 265
-// or more away. Each Link is measured by its own position, not by the nearest Link's for everybody (who, standing nearer
-// or off the cone, kept every other Link from being offered the talk).
+// ZMP (D-217): King Zora (En_Kz, z_en_kz.c) offers the talk only to a Link in a narrow cone in front of his home and
+// 265 or more away. Each Link is measured by its own position, not by the nearest Link's for everybody (who, standing
+// nearer or off the cone, kept every other Link from being offered the talk).
 s32 Actor_ZmpKzInCone(Actor* actor, Player* p) {
     f32 yaw = Math_Vec3f_Yaw(&actor->home.pos, &p->actor.world.pos);
 
@@ -2857,9 +2857,11 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
                     }
                     if (GameInteractor_ShouldActorUpdate(actor)) {
                         u8 zmpCsTrigger = gSaveContext.cutsceneTrigger; // ZMP (S7-A, D-176)
+                        s8 zmpTransTrigger = play->transitionTrigger;   // ZMP (D-219)
                         actor->update(actor, play);
                         Zmp_NoteCutsceneTrigger(zmpCsTrigger); // ZMP: a cutscene this actor starts is its player's
-                        Zmp_TalkScreenDone();                  // ZMP (D-206)
+                        Zmp_NoteActorTransition(zmpTransTrigger, actor->category); // ZMP (D-219): and its story's
+                        Zmp_TalkScreenDone();                                      // ZMP (D-206)
                         GameInteractor_ExecuteOnActorUpdate(actor);
                     }
                     func_8003F8EC(play, &play->colCtx.dyna, actor);
