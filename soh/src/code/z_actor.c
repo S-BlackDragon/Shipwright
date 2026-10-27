@@ -2007,6 +2007,16 @@ void Actor_GetTalkScreenPos(PlayState* play, Actor* actor, s16* x, s16* y, s16 m
     Actor_GetScreenPos(play, actor, x, y);
 }
 
+// ZMP (D-217): King Zora (En_Kz, z_en_kz.c) offers the talk only to a Link in a narrow cone in front of his home and 265
+// or more away. Each Link is measured by its own position, not by the nearest Link's for everybody (who, standing nearer
+// or off the cone, kept every other Link from being offered the talk).
+s32 Actor_ZmpKzInCone(Actor* actor, Player* p) {
+    f32 yaw = Math_Vec3f_Yaw(&actor->home.pos, &p->actor.world.pos);
+
+    yaw -= actor->shape.rot.y;
+    return (fabsf(yaw) <= 1638.0f) && (Actor_WorldDistXZToActor(actor, &p->actor) >= 265.0f);
+}
+
 static void Zmp_TalkScreenDone(void) {
     sZmpTalkScreenActor = NULL;
 }
@@ -2032,6 +2042,12 @@ s32 Actor_OfferTalkExchange(Actor* actor, PlayState* play, f32 arg2, f32 arg3, u
             }
             xz = (p == player) ? actor->xzDistToPlayer : Actor_WorldDistXZToActor(actor, &p->actor);
             y = (p == player) ? actor->yDistToPlayer : Actor_HeightDiff(actor, &p->actor);
+            if ((actor->id == ACTOR_EN_KZ) && !Zmp_TestMutant("rey_zora_del_mas_cercano")) { // ZMP (D-217)
+                if (!Actor_ZmpKzInCone(actor, p)) {
+                    continue;
+                }
+                xz = Math_Vec3f_DistXZ(&actor->home.pos, &p->actor.world.pos); // (as z_en_kz.c measures it)
+            }
             if ((p->actor.flags & ACTOR_FLAG_TALK) ||
                 ((exchangeItemId != EXCH_ITEM_NONE) && (Player_InBlockingCsMode(play, p) || p->unk_6AD == 4)) ||
                 (p->focusActor != actor && ((arg3 < fabsf(y)) || (p->talkActorDistance < xz) || (arg2 < xz)))) {

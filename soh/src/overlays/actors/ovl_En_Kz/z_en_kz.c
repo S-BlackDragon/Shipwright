@@ -8,6 +8,11 @@
 #include "objects/object_kz/object_kz.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "soh/Zmp/Sim/ZmpSim.h"     // ZMP
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP
+
+s32 Actor_ZmpKzInCone(Actor* actor, Player* p); // ZMP (D-217, z_actor.c)
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY)
 
@@ -239,11 +244,27 @@ s32 EnKz_UpdateTalking(PlayState* play, EnKz* this, s16* talkState, f32 interact
         return false;
     }
 
-    yaw = Math_Vec3f_Yaw(&this->actor.home.pos, &player->actor.world.pos);
-    yaw -= this->actor.shape.rot.y;
-    if ((fabsf(yaw) > 1638.0f) || (this->actor.xzDistToPlayer < 265.0f)) {
-        this->actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
-        return false;
+    if (Zmp_MultiActive() && !Zmp_TestMutant("rey_zora_del_mas_cercano")) {
+        // ZMP (D-217): the cone in front of his home and the distance are asked of every standing Link (the offer,
+        // z_actor.c, asks them of each one again), not only of the nearest one for everybody.
+        s32 k = -1;
+        s32 anyone = false;
+
+        while (!anyone && ((k = Zmp_NextPresentSlot(k)) >= 0)) {
+            anyone = (gZmpSim.slots[k].player != NULL) && !gZmpSim.slots[k].downed &&
+                     Actor_ZmpKzInCone(&this->actor, gZmpSim.slots[k].player);
+        }
+        if (!anyone) {
+            this->actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+            return false;
+        }
+    } else {
+        yaw = Math_Vec3f_Yaw(&this->actor.home.pos, &player->actor.world.pos);
+        yaw -= this->actor.shape.rot.y;
+        if ((fabsf(yaw) > 1638.0f) || (this->actor.xzDistToPlayer < 265.0f)) {
+            this->actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+            return false;
+        }
     }
 
     this->actor.flags |= ACTOR_FLAG_ATTENTION_ENABLED;
