@@ -12,6 +12,9 @@
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/savestate_serialize.h"
 #include <assert.h>
+#include "soh/Zmp/Test/Mutants.h" // ZMP
+
+static u32 sZmpSnowRand[2] = { 1, 0 }; // ZMP (D-218): the snow's own random numbers (presentation)
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_UPDATE_DURING_OCARINA)
 
@@ -485,7 +488,20 @@ void ObjectKankyo_Draw(Actor* thisx, PlayState* play) {
             break;
 
         case 3:
-            ObjectKankyo_DrawSnow(this, play);
+            if (!Zmp_TestMutant("nieve_del_juego")) {
+                // ZMP (D-218): the snow is presentation (as the rain, D-156): how many random numbers its drawing takes
+                // depends on the eye of the picture, and with the game's numbers the group desynchronized for ever in
+                // the adult Zora's Domain. It draws with numbers of its own, kept between frames.
+                u32 zmpSimRand[2];
+
+                zmpSimRand[0] = Rand_ZmpGetState(&zmpSimRand[1]);
+                Rand_ZmpSetState(sZmpSnowRand[0], sZmpSnowRand[1]);
+                ObjectKankyo_DrawSnow(this, play);
+                sZmpSnowRand[0] = Rand_ZmpGetState(&sZmpSnowRand[1]);
+                Rand_ZmpSetState(zmpSimRand[0], zmpSimRand[1]);
+            } else {
+                ObjectKankyo_DrawSnow(this, play);
+            }
             break;
 
         case 4:
