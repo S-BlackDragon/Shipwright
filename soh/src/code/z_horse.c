@@ -1,5 +1,6 @@
 #include "global.h"
 #include "vt.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-222)
 #include <assert.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -266,7 +267,7 @@ void Horse_InitPlayerHorse(PlayState* play, Player* player) {
                  (gSaveContext.respawnFlag == 0)) ||
                 ((play->sceneNum == SCENE_LON_LON_RANCH) && ((gSaveContext.eventInf[0] & 0xF) == 6) &&
                  !Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) && (DREG(1) == 0))) {
-                Horse_SetupInCutscene(play, player);
+                Zmp_StoryHorseSetup(play, player, Horse_SetupInCutscene); // ZMP (D-222): the story's Link
             } else {
                 Horse_SetupInGameplay(play, player);
             }

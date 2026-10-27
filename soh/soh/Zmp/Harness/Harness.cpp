@@ -80,6 +80,7 @@ extern "C" {
 #include "overlays/actors/ovl_Bg_Mori_Elevator/z_bg_mori_elevator.h"     // salas 2026-10-18 (F10)
 #include "overlays/actors/ovl_En_Horse/z_en_horse.h"                     // D-208 (R4, Epona)
 #include "overlays/actors/ovl_En_Zl4/z_en_zl4.h"                         // D-219 (Zelda's talk)
+#include "overlays/actors/ovl_Boss_Tw/z_boss_tw.h"                       // D-222 (Twinrova's shield charge)
 extern u16 gTimeSpeed;
 void BossGanondrof_Stunned(BossGanondrof* self, PlayState* play); // (phase 6 tests: which action it runs)
 void BossGanondrof_Charge(BossGanondrof* self, PlayState* play);
@@ -682,6 +683,15 @@ json ActorsJson(const json& cmd) {
                 list.back()["md_action"] = (uint64_t)((uintptr_t)m->actionFunc - (uintptr_t)&__ImageBase);
                 list.back()["talk_state"] = m->interactInfo.talkState;
                 list.back()["text_id"] = a->textId;
+            }
+            if (a->id == ACTOR_BOSS_TW) {
+                // D-222 (row 3 of Twinrova): the Mirror Shield's charges and the ice freeze, statics of the fight.
+                s32 fire = 0, ice = 0, freeze = 0;
+                BossTw_ZmpCharges(&fire, &ice, &freeze);
+                list.back()["tw_fire_charge"] = fire;
+                list.back()["tw_ice_charge"] = ice;
+                list.back()["tw_freeze_state"] = freeze;
+                list.back()["tw_cs_state1"] = ((const BossTw*)a)->csState1;
             }
             if (a->id == ACTOR_EN_ZL4) {
                 // D-219: Zelda's talk in the courtyard (her scripted conversation, before and after the vision).
@@ -1325,6 +1335,11 @@ void Dispatch(const RequestPtr& req) {
             }
             resp["msg_mode"] = msg->msgMode;
             resp["msg_text_id"] = msg->textId;
+            // D-222 (Ingo's race): the answer chosen in the box, Ingo's ride/race state and the cutscene index
+            resp["msg_choice"] = msg->choiceIndex;
+            resp["event_inf0"] = gSaveContext.eventInf[0];
+            resp["cutscene_index"] = gSaveContext.cutsceneIndex;
+            resp["inf_table_a"] = gSaveContext.infTable[10];
             resp["talk_state"] = Message_GetState(msg);
             // The simulation's pause context: the group game over menu (D-058).
             resp["pause_state"] = gPlayState->pauseCtx.state;

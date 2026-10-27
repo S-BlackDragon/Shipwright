@@ -544,6 +544,17 @@ int ContextSlot(const Actor* actor) {
             }
         }
     }
+    // D-222: a horse game's checker (Ingo's race, Malon's obstacle course, the Gerudo archery) follows "the player"'s
+    // horse: it runs with the Link on a horse (the race horse is the story's Link's, Zmp_StoryHorsePlayer). Before,
+    // with the Link nearest to it: a Link on foot by the gate "left the ranch" and Ingo won at once, and the rider's
+    // checkpoints were never counted.
+    if (actor->id == ACTOR_EN_HORSE_GAME_CHECK && !Zmp_TestMutant("carrera_del_mas_cercano")) {
+        for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
+            if (Present(j) && Slot(j).player->rideActor != nullptr) {
+                return j;
+            }
+        }
+    }
     if (actor->parent != nullptr && actor->parent->id == ACTOR_PLAYER) {
         k = Zmp::Players::SlotOf(actor->parent);
         if (k >= 0) {
@@ -2194,6 +2205,29 @@ extern "C" Player* Zmp_SlotPlayer(s32 slot) {
         return nullptr;
     }
     return Slot(slot).player;
+}
+
+// D-222: the horse a scene starts with in a story (Horse_SetupInCutscene: Ingo's race, the Gerudo archery, ...) goes to
+// the Link of that story (D-187/D-219: the player of the actor that changed the scene, Ingo's rider who accepted the
+// race), not to the anchor, and in that Link's context (its main camera is the one set to follow the horse). Before,
+// the anchor was put on the race horse at the start line and the one who paid stood at the ranch gate.
+extern "C" void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setup)(PlayState*, Player*)) {
+    int c = (gZmpSim.enabled && gZmpSim.inPlay && gZmpSim.csCarry != 0 && !Zmp_TestMutant("carrera_del_ancla"))
+                ? gZmpSim.csCarry - 1
+                : -1;
+    if (!Present(c) || Slot(c).downed || Slot(c).player == nullptr || Slot(c).player == player) {
+        setup(play, player);
+        return;
+    }
+    int back = gZmpSim.ctx;
+    Zmp::Log("zmp: D-222: the scene's story horse goes to slot " + std::to_string(c));
+    SwitchTo(play, c);
+    setup(play, Slot(c).player);
+    if (Present(back)) {
+        SwitchTo(play, back);
+    } else {
+        Zmp_RestoreAnchor(play);
+    }
 }
 
 extern "C" s32 Zmp_AllowDeathCamera(void) {

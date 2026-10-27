@@ -482,6 +482,9 @@ s32 Zmp_NextPresentSlot(s32 after);
 // The Link of a present slot (NULL if none): for an actor that has to look at every Link, not only at "the player" of
 // its context (Bongo Bongo's drum bounces whoever stands on it, D-119).
 Player* Zmp_SlotPlayer(s32 slot);
+// D-222: runs setup (Horse_SetupInCutscene) for the Link of the story the scene started with (Ingo's race), in its
+// context; else for `player`.
+void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setup)(PlayState*, Player*));
 // D-201: a boss's death script has just put the player of its cutscene somewhere (Bongo Bongo, Phantom Ganon,
 // Volvagia): that Link stands on the floor there (probed from floorFromY + 50), still, let go by a hand, and the arc of
 // the group cutscene is laid out again around it in this same tick.

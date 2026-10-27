@@ -179,5 +179,7 @@ typedef struct BossTw {
 
 // ZMP phase 6 scenario tests (f6_spirit.py): what the bots cannot aim.
 s32 BossTw_ZmpStage(struct PlayState* play, s32 what);
+// ZMP (D-222): the shield charges and the freeze state, statics of the fight (they travel, D-116), for the harness
+void BossTw_ZmpCharges(s32* fire, s32* ice, s32* freeze);
 
 #endif

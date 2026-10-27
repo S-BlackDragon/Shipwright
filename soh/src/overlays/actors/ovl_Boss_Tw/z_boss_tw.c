@@ -5538,6 +5538,14 @@ void BossTw_Reset(void) {
 // names (Scenario.cpp):
 //   what 0, "stun": the charged blast sent back by a Mirror Shield reaches Twinrova (the flag the blast sets,
 //           BossTw_BlastUpdate; her own update stuns her), while she flies, charges, shoots or spins after the merge.
+// ZMP (D-222): read only, for the harness's query.actors (row 3 of Twinrova: the Mirror Shield's charge is one for
+// all).
+void BossTw_ZmpCharges(s32* fire, s32* ice, s32* freeze) {
+    *fire = sShieldFireCharge;
+    *ice = sShieldIceCharge;
+    *freeze = sFreezeState;
+}
+
 s32 BossTw_ZmpStage(PlayState* play, s32 what) {
     BossTw* tw = sTwinrovaPtr;
 
