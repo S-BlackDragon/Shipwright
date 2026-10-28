@@ -169,6 +169,56 @@ void MountInContext(void* p) {
     ((HammerArg*)p)->ok = best != nullptr && Player_ZmpMount(gPlayState, player, best);
 }
 
+// D-230 (test_f6_ingo_race.py): "zmp_stage horse <slot> <x> <y> <z> <yaw>", the free horse in the world nearest to that
+// Link (ridden by nobody) is stood at that spot facing yaw. A HARNESS shortcut, not play: the bot's ride up to Ingo did
+// not converge under the load of the parallel suite (p28..p31 of the 0.5.2 closure). A stage event like the others: it
+// travels through the lockstep and is applied on every machine at the same tick.
+struct HorseAtArg {
+    f32 x;
+    f32 y;
+    f32 z;
+    s16 yaw;
+    int ok;
+};
+
+void HorseAtInContext(void* p) {
+    HorseAtArg* a = (HorseAtArg*)p;
+    Player* player = GET_PLAYER(gPlayState);
+    Actor* best = nullptr;
+    f32 bestD = 1.0e9f;
+    for (Actor* ac = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; ac != nullptr; ac = ac->next) {
+        if (ac->id != ACTOR_EN_HORSE || (((EnHorse*)ac)->stateFlags & ENHORSE_INACTIVE)) {
+            continue;
+        }
+        bool ridden = false;
+        for (int i = 0; i < ZMP_MAX_PLAYERS; i++) {
+            if (gZmpSim.slots[i].present && gZmpSim.slots[i].player != nullptr &&
+                gZmpSim.slots[i].player->rideActor == ac) {
+                ridden = true;
+            }
+        }
+        if (ridden) {
+            continue;
+        }
+        f32 d = Actor_WorldDistXZToActor(ac, &player->actor);
+        if (d < bestD) {
+            bestD = d;
+            best = ac;
+        }
+    }
+    if (best == nullptr) {
+        a->ok = 0;
+        return;
+    }
+    best->world.pos.x = best->home.pos.x = best->prevPos.x = a->x;
+    best->world.pos.y = best->home.pos.y = best->prevPos.y = a->y;
+    best->world.pos.z = best->home.pos.z = best->prevPos.z = a->z;
+    best->world.rot.y = best->shape.rot.y = a->yaw;
+    best->speedXZ = 0.0f;
+    best->velocity.x = best->velocity.y = best->velocity.z = 0.0f;
+    a->ok = 1;
+}
+
 // Morpha (f6_water.py, test_f6_morpha.py): BossMo_ZmpStage in the context of a player.
 struct MorphaArg {
     int what;
@@ -329,6 +379,18 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         Zmp::Players::RunInContext(target, op == "hammer" ? HammerInContext : MountInContext, &a);
         if (!a.ok) {
             return Bad(cmd, op == "hammer" ? "that player does not hold the hammer" : "no free horse within 300");
+        }
+    } else if (op == "horse" && w.size() == 7) {
+        // D-230: "zmp_stage horse <slot> <x> <y> <z> <yaw>", see HorseAtInContext.
+        int target = Num(w[2]);
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        HorseAtArg a{ std::strtof(w[3].c_str(), nullptr), std::strtof(w[4].c_str(), nullptr),
+                      std::strtof(w[5].c_str(), nullptr), (s16)Num(w[6]), 0 };
+        Zmp::Players::RunInContext(target, HorseAtInContext, &a);
+        if (!a.ok) {
+            return Bad(cmd, "no free horse in the world");
         }
     } else if (op == "epona" && w.size() == 2) {
         // D-208: "zmp_stage epona", Epona's Song heard (what z_message_PAL.c does when it is played): an Epona waiting
