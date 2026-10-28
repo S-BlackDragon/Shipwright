@@ -752,11 +752,10 @@ void EnHorse_Init(Actor* thisx, PlayState* play2) {
     EnHorse* this = (EnHorse*)thisx;
     PlayState* play = play2;
 
-    Zmp_SetHorseEnter(0); // ZMP (D-233): AREG(6) of the player in context
+    AREG(6) = 0; // (ZMP, D-233: each player's own flag is cleared by Horse_SetupInGameplay, in its context)
     Actor_ProcessInitChain(&this->actor, sInitChain);
     EnHorse_ClearDustFlags(&this->dustFlags);
     DREG(53) = 0;
-    this->zmpOwner = 0; // ZMP (D-233): set below once the type is known
     this->riderPos = this->actor.world.pos;
     this->noInputTimer = 0;
     this->noInputTimerMax = 0;
@@ -900,12 +899,8 @@ void EnHorse_Init(Actor* thisx, PlayState* play2) {
         }
     }
     this->actor.home.rot.z = this->actor.world.rot.z = this->actor.shape.rot.z = 0;
-    // ZMP (D-233): an Epona spawned for a Link (in its context: Zmp_InitPlayerHorses, a riding entry, the race's end)
-    // is that Link's; it runs with it, its song calls her and only it mounts her. Nobody's in the mutant
-    // epona_de_todos.
-    if (this->type == HORSE_EPONA && Zmp_MultiActive() && !Zmp_TestMutant("epona_de_todos")) {
-        this->zmpOwner = (s8)(Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1);
-    }
+    // (ZMP, D-233: whose horse this is, zmpOwner, is set at the spawn, z_horse.c ZmpHorseSpawn: this init runs once the
+    // object is loaded, in whatever context an untagged horse gets)
 }
 
 void EnHorse_Destroy(Actor* thisx, PlayState* play) {

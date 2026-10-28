@@ -160,6 +160,10 @@ void MountInContext(void* p) {
         if (a->id != ACTOR_EN_HORSE || (((EnHorse*)a)->stateFlags & ENHORSE_INACTIVE)) {
             continue;
         }
+        // D-233: another Link's Epona is not for this one (as A beside her: she runs in her owner's context)
+        if (Zmp_HorseOwner(a) >= 0 && Zmp_HorseOwner(a) != Zmp_SlotOfPlayer(player)) {
+            continue;
+        }
         f32 d = Actor_WorldDistXZToActor(a, &player->actor);
         if (d < bestD) {
             bestD = d;

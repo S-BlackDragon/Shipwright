@@ -2232,6 +2232,33 @@ extern "C" void Zmp_EponaCalled(PlayState* play) {
     }
 }
 
+extern "C" void Zmp_TagHorse(Actor* horse) {
+    if (horse == nullptr || horse->id != ACTOR_EN_HORSE) {
+        return;
+    }
+    int k = EponaPerPlayer() ? CtxSlot() : -1;
+    ((EnHorse*)horse)->zmpOwner = (s8)(k + 1);
+}
+
+// D-233: the horses of a Link that leaves the scene go with it (the one it rides, and its Epona left waiting: when it
+// comes back its horse data puts her where it left her). Before, the horse it rode out on stayed behind at the exit,
+// a second one for the same Link, and its Epona could be mounted by anybody once its owner was gone.
+static void KillHorsesOf(PlayState* play, int slot) {
+    if (play == nullptr || !EponaPerPlayer()) {
+        return;
+    }
+    for (Actor* a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_EN_HORSE && ((EnHorse*)a)->zmpOwner == slot + 1) {
+            if (Present(slot) && Slot(slot).player->rideActor == a) {
+                Slot(slot).player->rideActor = nullptr;
+                Slot(slot).player->actor.parent = nullptr;
+            }
+            a->child = nullptr;
+            Actor_Kill(a);
+        }
+    }
+}
+
 extern "C" s32 Zmp_HorseOwner(Actor* horse) {
     if (horse == nullptr || horse->id != ACTOR_EN_HORSE) {
         return -1;
@@ -3766,6 +3793,7 @@ void Despawn(int slot) {
             return;
         }
     }
+    KillHorsesOf(play, slot); // D-233
     if (!Zmp_TestMutant("sale_con_carga")) {
         // Finding AJ (family 2 of reports/fase6/FAMILIAS.md): the Link that goes away lets go of what it carries, in
         // its own context (its items and equipment), and nothing keeps pointing at it as parent or child. Before, Ruto

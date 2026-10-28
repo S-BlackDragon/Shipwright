@@ -283,6 +283,7 @@ void Zmp_SetHorseEnter(s32 on);
 void Zmp_EponaCalled(PlayState* play);
 s32 Zmp_EponaCallFor(Actor* horse);
 s32 Zmp_HorseOwner(Actor* horse);
+void Zmp_TagHorse(Actor* horse); // at the spawn, in the owner's context
 void Zmp_InitPlayerHorses(PlayState* play);
 
 // 1 + the slot of the player in context (0: outside a session). For an actor that keeps "whose this is" in a field
