@@ -8,6 +8,7 @@
 #include "objects/object_ydan_objects/object_ydan_objects.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h"   // ZMP (Zmp_TestMutant is inline outside the test build: D-232, the dist link)
 
 #define FLAGS 0
 
