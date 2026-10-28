@@ -48,6 +48,12 @@ typedef struct {
     // T3 (D-146): ticks to this player's next unit of magic for its Lens of Truth (the original's
     // interfaceCtx.unk_230, live there while it is the context; one timer for all made one player pay for all)
     s16 lensTimer;
+    // D-233: this player's own Epona (the original has one player and one horse: gSaveContext.horseData, AREG(6) and
+    // DREG(53) are that player's). Where it left her, whether it enters the next scene riding, whether its song called
+    // her.
+    HorseData horse;
+    u8 horseEnter;
+    u8 eponaCalled;
 } ZmpPlayerBlock;
 
 // Downed state (PLAN.md 2.8).
@@ -268,6 +274,16 @@ extern s32 gZmpCameraInterfaceMuted;
 
 // True while the multiplayer simulation runs in a Play state.
 s32 Zmp_MultiActive(void);
+// D-233 (one Epona per player): the horse data of the player in context (gSaveContext.horseData alone); AREG(6) and
+// DREG(53) of the player in context; the owner of a horse (slot, -1 none); each present Link's horse at scene load.
+HorseData* Zmp_HorseData(void);
+#define ZMP_HORSE_DATA (*Zmp_HorseData())
+s32 Zmp_HorseEnter(void);
+void Zmp_SetHorseEnter(s32 on);
+void Zmp_EponaCalled(PlayState* play);
+s32 Zmp_EponaCallFor(Actor* horse);
+s32 Zmp_HorseOwner(Actor* horse);
+void Zmp_InitPlayerHorses(PlayState* play);
 
 // 1 + the slot of the player in context (0: outside a session). For an actor that keeps "whose this is" in a field
 // where zero must mean nobody (A15, D-145).

@@ -1,4 +1,5 @@
 #include "z_en_in.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-233)
 #include "overlays/actors/ovl_En_Horse/z_en_horse.h"
 #include "objects/object_in/object_in.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -438,7 +439,7 @@ void func_80A79BAC(EnIn* this, PlayState* play, s32 index, u32 transitionType) {
     Player_SetCsActionWithHaltedActors(play, &this->actor, 8);
     Interface_ChangeHudVisibilityMode(1);
     if (index == 0) {
-        AREG(6) = 0;
+        Zmp_SetHorseEnter(0); // ZMP (D-233)
     }
     gSaveContext.timerState = TIMER_STATE_OFF;
 }

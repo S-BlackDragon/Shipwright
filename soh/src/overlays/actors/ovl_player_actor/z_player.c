@@ -12068,7 +12068,7 @@ void Player_UpdateCommon(Player* this, PlayState* play, Input* input) {
                     if (DREG(25) != 0) {
                         DREG(25) = 0;
                     } else {
-                        AREG(6) = 1;
+                        Zmp_SetHorseEnter(1); // ZMP (D-233): this player enters the next scene riding
                     }
                 }
             }
@@ -13816,13 +13816,13 @@ void Player_Action_8084D3E4(Player* this, PlayState* play) {
         func_8083C0E8(this, play);
         this->stateFlags1 &= ~PLAYER_STATE1_ON_HORSE;
         this->actor.parent = NULL;
-        AREG(6) = 0;
+        Zmp_SetHorseEnter(0); // ZMP (D-233): this player's
 
         if (Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) || (DREG(1) != 0)) {
-            gSaveContext.horseData.pos.x = rideActor->actor.world.pos.x;
-            gSaveContext.horseData.pos.y = rideActor->actor.world.pos.y;
-            gSaveContext.horseData.pos.z = rideActor->actor.world.pos.z;
-            gSaveContext.horseData.angle = rideActor->actor.shape.rot.y;
+            ZMP_HORSE_DATA.pos.x = rideActor->actor.world.pos.x; // ZMP (D-233): where this player left its Epona
+            ZMP_HORSE_DATA.pos.y = rideActor->actor.world.pos.y;
+            ZMP_HORSE_DATA.pos.z = rideActor->actor.world.pos.z;
+            ZMP_HORSE_DATA.angle = rideActor->actor.shape.rot.y;
         }
     } else {
         Camera_RequestSetting(Play_GetCamera(play, 0), CAM_SET_NORMAL0);

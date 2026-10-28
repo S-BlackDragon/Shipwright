@@ -1,6 +1,6 @@
 #include "global.h"
 #include "vt.h"
-#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-222)
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-222; D-233: ZMP_HORSE_DATA and Zmp_HorseEnter are the player's in context)
 #include <assert.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -20,20 +20,20 @@ s32 Horse_CanSpawn(s32 scene) {
 }
 
 void Horse_ResetHorseData(PlayState* play) {
-    gSaveContext.horseData.scene = SCENE_HYRULE_FIELD;
-    gSaveContext.horseData.pos.x = -1840;
-    gSaveContext.horseData.pos.y = 72;
-    gSaveContext.horseData.pos.z = 5497;
-    gSaveContext.horseData.angle = -27353;
+    ZMP_HORSE_DATA.scene = SCENE_HYRULE_FIELD;
+    ZMP_HORSE_DATA.pos.x = -1840;
+    ZMP_HORSE_DATA.pos.y = 72;
+    ZMP_HORSE_DATA.pos.z = 5497;
+    ZMP_HORSE_DATA.angle = -27353;
 }
 
 void Horse_FixLakeHyliaPosition(PlayState* play) {
-    if (gSaveContext.horseData.scene == SCENE_LAKE_HYLIA) {
-        gSaveContext.horseData.scene = SCENE_LAKE_HYLIA;
-        gSaveContext.horseData.pos.x = -2065;
-        gSaveContext.horseData.pos.y = -863;
-        gSaveContext.horseData.pos.z = 1839;
-        gSaveContext.horseData.angle = 0;
+    if (ZMP_HORSE_DATA.scene == SCENE_LAKE_HYLIA) {
+        ZMP_HORSE_DATA.scene = SCENE_LAKE_HYLIA;
+        ZMP_HORSE_DATA.pos.x = -2065;
+        ZMP_HORSE_DATA.pos.y = -863;
+        ZMP_HORSE_DATA.pos.z = 1839;
+        ZMP_HORSE_DATA.angle = 0;
     }
 }
 
@@ -52,7 +52,7 @@ void Horse_SetupInGameplay(PlayState* play, Player* player) {
         { SCENE_LON_LON_RANCH, 928, 0, -2280, 0, 2 },
     };
 
-    if ((AREG(6) != 0) && (Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) || (DREG(1) != 0))) {
+    if ((Zmp_HorseEnter() != 0) && (Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) || (DREG(1) != 0))) {
         player->rideActor = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_HORSE, player->actor.world.pos.x,
                                         player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.x,
                                         player->actor.shape.rot.y, player->actor.shape.rot.z, 9);
@@ -61,7 +61,7 @@ void Horse_SetupInGameplay(PlayState* play, Player* player) {
 
         Actor_MountHorse(play, player, player->rideActor);
         Actor_RequestHorseCameraSetting(play, player);
-        gSaveContext.horseData.scene = play->sceneNum;
+        ZMP_HORSE_DATA.scene = play->sceneNum;
 
         if (play->sceneNum == SCENE_GERUDOS_FORTRESS) {
             player->rideActor->room = -1;
@@ -76,7 +76,7 @@ void Horse_SetupInGameplay(PlayState* play, Player* player) {
         Actor* horseActor =
             Actor_Spawn(&play->actorCtx, play, ACTOR_EN_HORSE, -25.0f, 0.0f, -1600.0f, 0, -0x4000, 0, 1);
         assert(horseActor != NULL);
-    } else if ((play->sceneNum == gSaveContext.horseData.scene) &&
+    } else if ((play->sceneNum == ZMP_HORSE_DATA.scene) &&
                (((Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) != 0) &&
                  (!IS_RANDO || (IS_RANDO && CHECK_QUEST_ITEM(QUEST_SONG_EPONA) &&
                                 GameInteractor_Should(VB_HAVE_OCARINA_NOTE_D5, true) &&
@@ -85,13 +85,12 @@ void Horse_SetupInGameplay(PlayState* play, Player* player) {
                                 (INV_CONTENT(ITEM_OCARINA_FAIRY) != ITEM_NONE)))) ||
                 DREG(1) != 0)) {
         // "Set by existence of horse %d %d %d"
-        osSyncPrintf("馬存在によるセット %d %d %d\n", gSaveContext.horseData.scene,
+        osSyncPrintf("馬存在によるセット %d %d %d\n", ZMP_HORSE_DATA.scene,
                      Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED), DREG(1));
 
-        if (Horse_CanSpawn(gSaveContext.horseData.scene)) {
-            Actor* horseActor = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_HORSE, gSaveContext.horseData.pos.x,
-                                            gSaveContext.horseData.pos.y, gSaveContext.horseData.pos.z, 0,
-                                            gSaveContext.horseData.angle, 0, 1);
+        if (Horse_CanSpawn(ZMP_HORSE_DATA.scene)) {
+            Actor* horseActor = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_HORSE, ZMP_HORSE_DATA.pos.x,
+                                            ZMP_HORSE_DATA.pos.y, ZMP_HORSE_DATA.pos.z, 0, ZMP_HORSE_DATA.angle, 0, 1);
             assert(horseActor != NULL);
             if (play->sceneNum == SCENE_GERUDOS_FORTRESS) {
                 horseActor->room = -1;
@@ -99,7 +98,7 @@ void Horse_SetupInGameplay(PlayState* play, Player* player) {
         } else {
             osSyncPrintf(VT_COL(RED, WHITE));
             // "Horse_SetNormal():%d set spot is no good."
-            osSyncPrintf("Horse_SetNormal():%d セットスポットまずいです。\n", gSaveContext.horseData.scene);
+            osSyncPrintf("Horse_SetNormal():%d セットスポットまずいです。\n", ZMP_HORSE_DATA.scene);
             osSyncPrintf(VT_RST);
             Horse_ResetHorseData(play);
         }
@@ -168,7 +167,7 @@ void Horse_SetupInCutscene(PlayState* play, Player* player) {
 
         Actor_MountHorse(play, player, player->rideActor);
         Actor_RequestHorseCameraSetting(play, player);
-        gSaveContext.horseData.scene = play->sceneNum;
+        ZMP_HORSE_DATA.scene = play->sceneNum;
     } else if ((play->sceneNum == SCENE_LON_LON_RANCH) && ((gSaveContext.eventInf[0] & 0xF) == 6) &&
                (Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED) == 0) && (DREG(1) == 0)) {
         player->rideActor =
@@ -177,7 +176,7 @@ void Horse_SetupInCutscene(PlayState* play, Player* player) {
 
         Actor_MountHorse(play, player, player->rideActor);
         Actor_RequestHorseCameraSetting(play, player);
-        gSaveContext.horseData.scene = play->sceneNum;
+        ZMP_HORSE_DATA.scene = play->sceneNum;
 
         if (play->sceneNum == SCENE_GERUDOS_FORTRESS) {
             player->rideActor->room = -1;
@@ -250,10 +249,10 @@ void Horse_SetupInCutscene(PlayState* play, Player* player) {
 
 void Horse_InitPlayerHorse(PlayState* play, Player* player) {
     if (LINK_IS_ADULT) {
-        if (!Horse_CanSpawn(gSaveContext.horseData.scene)) {
+        if (!Horse_CanSpawn(ZMP_HORSE_DATA.scene)) {
             osSyncPrintf(VT_COL(RED, WHITE));
             // "Horse_Set_Check():%d set spot is no good."
-            osSyncPrintf("Horse_Set_Check():%d セットスポットまずいです。\n", gSaveContext.horseData.scene);
+            osSyncPrintf("Horse_Set_Check():%d セットスポットまずいです。\n", ZMP_HORSE_DATA.scene);
             osSyncPrintf(VT_RST);
             Horse_ResetHorseData(play);
         }

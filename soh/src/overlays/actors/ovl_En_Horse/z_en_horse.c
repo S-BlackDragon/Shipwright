@@ -752,10 +752,11 @@ void EnHorse_Init(Actor* thisx, PlayState* play2) {
     EnHorse* this = (EnHorse*)thisx;
     PlayState* play = play2;
 
-    AREG(6) = 0;
+    Zmp_SetHorseEnter(0); // ZMP (D-233): AREG(6) of the player in context
     Actor_ProcessInitChain(&this->actor, sInitChain);
     EnHorse_ClearDustFlags(&this->dustFlags);
     DREG(53) = 0;
+    this->zmpOwner = 0; // ZMP (D-233): set below once the type is known
     this->riderPos = this->actor.world.pos;
     this->noInputTimer = 0;
     this->noInputTimerMax = 0;
@@ -899,6 +900,12 @@ void EnHorse_Init(Actor* thisx, PlayState* play2) {
         }
     }
     this->actor.home.rot.z = this->actor.world.rot.z = this->actor.shape.rot.z = 0;
+    // ZMP (D-233): an Epona spawned for a Link (in its context: Zmp_InitPlayerHorses, a riding entry, the race's end)
+    // is that Link's; it runs with it, its song calls her and only it mounts her. Nobody's in the mutant
+    // epona_de_todos.
+    if (this->type == HORSE_EPONA && Zmp_MultiActive() && !Zmp_TestMutant("epona_de_todos")) {
+        this->zmpOwner = (s8)(Zmp_SlotOfPlayer(GET_PLAYER(play)) + 1);
+    }
 }
 
 void EnHorse_Destroy(Actor* thisx, PlayState* play) {
@@ -1747,13 +1754,12 @@ void EnHorse_SetFollowAnimation(EnHorse* this, PlayState* play);
 void EnHorse_Inactive(EnHorse* this, PlayState* play2) {
     PlayState* play = play2;
 
-    if (DREG(53) != 0 && this->type == HORSE_EPONA) {
-        DREG(53) = 0;
+    if (this->type == HORSE_EPONA && Zmp_EponaCallFor(&this->actor)) { // ZMP (D-233): its owner's song
         if (EnHorse_Spawn(this, play) != 0) {
             Audio_PlaySfxGeneral(NA_SE_EV_HORSE_NEIGH, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,
                                  &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
             this->stateFlags &= ~ENHORSE_INACTIVE;
-            gSaveContext.horseData.scene = play->sceneNum;
+            ZMP_HORSE_DATA.scene = play->sceneNum;
 
             // Focus the camera on Epona
             Camera_SetParam(play->cameraPtrs[0], 8, this);
@@ -1822,8 +1828,7 @@ void EnHorse_Idle(EnHorse* this, PlayState* play) {
     this->actor.speedXZ = 0.0f;
     EnHorse_IdleAnimSounds(this, play);
 
-    if (DREG(53) && this->type == HORSE_EPONA) {
-        DREG(53) = 0;
+    if (this->type == HORSE_EPONA && Zmp_EponaCallFor(&this->actor)) { // ZMP (D-233): its owner's song
         if (!func_80A5BBBC(play, this, &this->actor.world.pos)) {
             if (EnHorse_Spawn(this, play)) {
                 Audio_PlaySfxGeneral(NA_SE_EV_HORSE_NEIGH, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,

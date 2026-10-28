@@ -125,6 +125,8 @@
 //                          back
 //   agarre_al_mas_cercano  an actor that holds a Link acts on the Link nearest to it on every tick (family T1, D-134):
 //                          Morpha's tentacle drags and shakes a partner by its base and leaves the grabbed one held
+//   epona_de_todos         one Epona for the whole group, as before D-233: the first Link's song brings the one horse
+//                          to it, another Link mounts it, where it was left is the group's (not one Epona per Link)
 //   hielo_al_mas_cercano   Kotake's ice freezes, hurts and thaws the Link in context on each tick, the nearest, not the
 //                          one it hit (row 2 of Twinrova, D-231): a partner that comes nearer during the freeze is frozen
 //                          without being hit and the first one stays paused for ever

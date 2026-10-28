@@ -21,6 +21,7 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 #include "overlays/actors/ovl_En_Ru2/z_en_ru2.h"
+#include "overlays/actors/ovl_En_Horse/z_en_horse.h"           // D-233
 #include "overlays/actors/ovl_En_Du/z_en_du.h"                 // S7-A, V8 (D-177)
 #include "overlays/actors/ovl_En_Ossan/z_en_ossan.h"           // B8b-B (D-184)
 #include "overlays/actors/ovl_En_Heishi1/z_en_heishi1.h"       // D-210
@@ -591,6 +592,13 @@ int ContextSlot(const Actor* actor) {
     for (int j = 0; j < ZMP_MAX_PLAYERS; j++) {
         if (Present(j) && Slot(j).player->talkActor == actor && (Slot(j).player->stateFlags1 & PLAYER_STATE1_TALKING)) {
             return j;
+        }
+    }
+    // D-233: a Link's own Epona runs with that Link when nobody rides it (its song calls her, only it can mount her).
+    if (actor->id == ACTOR_EN_HORSE && !Zmp_TestMutant("epona_de_todos")) {
+        int o = ((const EnHorse*)actor)->zmpOwner - 1;
+        if (Present(o)) {
+            return o;
         }
     }
     // D-219: a character (an NPC) that holds a Link in a cutscene action it set (Zelda halts the Link she tells the
@@ -2182,6 +2190,91 @@ extern "C" Player* Zmp_HeldPlayer(PlayState* play, s32 slot) {
     return Slot(slot).player;
 }
 
+// D-233: one Epona per player. The original keeps one horse for its one player: gSaveContext.horseData (where she
+// was left), AREG(6) (the player enters the next scene riding) and DREG(53) (Epona's Song heard: she comes). In a group
+// each of those is the player's in context, kept in its block (it travels in the state with the rest of what is the
+// player's). An Epona spawned for a Link is tagged with its slot (EnHorse.zmpOwner) and runs in that Link's context
+// unless somebody rides it: only its owner can mount it and only its owner's song calls it. The possession of Epona
+// (EVENTCHKINF_EPONA_OBTAINED) stays the group's, as Ingo's race is (Alex, 2026-10-28). Mutant epona_de_todos: one
+// horse for everybody, as before.
+static int CtxSlot() {
+    return Zmp_SlotOfPlayer((Player*)gZmpCtxPlayer);
+}
+
+static bool EponaPerPlayer() {
+    return Zmp_MultiActive() && !Zmp_TestMutant("epona_de_todos");
+}
+
+extern "C" HorseData* Zmp_HorseData(void) {
+    int k = EponaPerPlayer() ? CtxSlot() : -1;
+    return (k >= 0) ? &Slot(k).block.horse : &gSaveContext.horseData;
+}
+
+extern "C" s32 Zmp_HorseEnter(void) {
+    int k = EponaPerPlayer() ? CtxSlot() : -1;
+    return (k >= 0) ? Slot(k).block.horseEnter : AREG(6);
+}
+
+extern "C" void Zmp_SetHorseEnter(s32 on) {
+    int k = EponaPerPlayer() ? CtxSlot() : -1;
+    if (k >= 0) {
+        Slot(k).block.horseEnter = on ? 1 : 0;
+    } else {
+        AREG(6) = on;
+    }
+}
+
+extern "C" void Zmp_EponaCalled(PlayState* play) {
+    DREG(53) = 1; // (the cows and the ranch's horses answer the song as before)
+    int k = EponaPerPlayer() ? CtxSlot() : -1;
+    if (k >= 0) {
+        Slot(k).block.eponaCalled = 1;
+    }
+}
+
+extern "C" s32 Zmp_HorseOwner(Actor* horse) {
+    if (horse == nullptr || horse->id != ACTOR_EN_HORSE) {
+        return -1;
+    }
+    int o = ((EnHorse*)horse)->zmpOwner - 1;
+    return Present(o) ? o : -1;
+}
+
+extern "C" s32 Zmp_EponaCallFor(Actor* horse) {
+    int o = Zmp_HorseOwner(horse);
+    if (o < 0 || !EponaPerPlayer()) {
+        if (DREG(53) != 0) {
+            DREG(53) = 0;
+            return 1;
+        }
+        return 0;
+    }
+    if (Slot(o).block.eponaCalled) {
+        Slot(o).block.eponaCalled = 0;
+        return 1;
+    }
+    return 0;
+}
+
+extern "C" void Zmp_InitPlayerHorses(PlayState* play) {
+    // Each present Link's horse, in its own context, the anchor last (its context stays live). Only once Epona is the
+    // group's: before that the original spawns the ranch's rental horse for its one player, and one is enough.
+    if (!EponaPerPlayer() || !Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED)) {
+        Actor_InitPlayerHorse(play, GET_PLAYER(play));
+        return;
+    }
+    int anchor = gZmpSim.anchor;
+    for (int pass = 0; pass < 2; pass++) {
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (!Present(k) || (pass == 0) == (k == anchor)) {
+                continue;
+            }
+            SwitchTo(play, k);
+            Actor_InitPlayerHorse(play, Slot(k).player);
+        }
+    }
+}
+
 extern "C" s32 Zmp_SlotOfPlayer(Player* player) {
     if (!Zmp_MultiActive() || player == nullptr) {
         return -1;
@@ -3637,6 +3730,16 @@ void Spawn(int slot, const std::string& infoText) {
     s.room = (s16)spawnRoom;
     Log("zmp: SPAWN slot " + std::to_string(slot) + (p != nullptr ? " ok" : " FAILED") + " at " + where +
         (info.valid ? " (block from its previous group)" : ""));
+    // D-233: this Link's own Epona (where it left her in this scene, under it if it came riding, or waiting for its
+    // song).
+    if (p != nullptr && EponaPerPlayer() && Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED)) {
+        int back = Zmp_SlotOfPlayer(GET_PLAYER(play));
+        SwitchTo(play, slot);
+        Actor_InitPlayerHorse(play, p);
+        if (Present(back)) {
+            SwitchTo(play, back);
+        }
+    }
 }
 
 void Despawn(int slot) {

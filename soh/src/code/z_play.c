@@ -614,7 +614,7 @@ void Play_Init(GameState* thisx) {
     Environment_PlaySceneSequence(play);
     gSaveContext.seqId = play->sequenceCtx.seqId;
     gSaveContext.natureAmbienceId = play->sequenceCtx.natureAmbienceId;
-    Actor_InitPlayerHorse(play, GET_PLAYER(play));
+    Zmp_InitPlayerHorses(play); // ZMP (D-233): each present Link's own Epona (Actor_InitPlayerHorse for one)
     AnimationContext_Update(play, &play->animationCtx);
     gSaveContext.respawnFlag = 0;
 

@@ -219,6 +219,12 @@ void HorseAtInContext(void* p) {
     a->ok = 1;
 }
 
+// D-233: Epona's Song heard by the player in context (its own Epona comes).
+void EponaCalledInContext(void* p) {
+    Zmp_EponaCalled(gPlayState);
+    ((HammerArg*)p)->ok = 1;
+}
+
 // Morpha (f6_water.py, test_f6_morpha.py): BossMo_ZmpStage in the context of a player.
 struct MorphaArg {
     int what;
@@ -392,10 +398,15 @@ bool ApplyStageEvent(int slot, const std::string& cmd) {
         if (!a.ok) {
             return Bad(cmd, "no free horse in the world");
         }
-    } else if (op == "epona" && w.size() == 2) {
-        // D-208: "zmp_stage epona", Epona's Song heard (what z_message_PAL.c does when it is played): an Epona waiting
-        // in this scene (params 2, inactive) comes running.
-        DREG(53) = 1;
+    } else if (op == "epona" && (w.size() == 2 || w.size() == 3)) {
+        // D-208: "zmp_stage epona [slot]", Epona's Song heard (what z_message_PAL.c does when it is played): an Epona
+        // waiting in this scene (params 2, inactive) comes running. D-233: played by that slot: its own Epona comes.
+        int target = w.size() == 3 ? Num(w[2]) : gZmpSim.anchor;
+        if (target < 0 || target >= ZMP_MAX_PLAYERS || !gZmpSim.slots[target].present) {
+            return Bad(cmd, "no such player");
+        }
+        HammerArg a{ 0 };
+        Zmp::Players::RunInContext(target, EponaCalledInContext, &a);
     } else if (op == "owned" && w.size() == 3) {
         // D-194 (block 9, a new game): "zmp_stage owned <mask>": the equipment the group owns (inventory.equipment).
         gSaveContext.inventory.equipment = (u16)Num(w[2]);

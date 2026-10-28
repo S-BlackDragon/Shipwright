@@ -785,6 +785,7 @@ json ActorsJson(const json& cmd) {
                 // inactive, not in the world: waiting to be called).
                 list.back()["horse_action"] = (int)((const EnHorse*)a)->action;
                 list.back()["horse_flags"] = (uint64_t)((const EnHorse*)a)->stateFlags;
+                list.back()["horse_owner"] = ((const EnHorse*)a)->zmpOwner - 1;    // D-233: slot, -1 nobody's
                 list.back()["horse_boosts"] = (int)((const EnHorse*)a)->numBoosts; // D-220
             }
             if (a->id == ACTOR_EN_HORSE_GAME_CHECK) {

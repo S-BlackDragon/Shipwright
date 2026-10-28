@@ -3782,7 +3782,7 @@ void Message_DrawMain(PlayState* play, Gfx** p) {
                     } else {
                         Message_CloseTextbox(play);
                         if (msgCtx->lastPlayedSong == OCARINA_SONG_EPONAS) {
-                            DREG(53) = 1;
+                            Zmp_EponaCalled(play); // ZMP (D-233): DREG(53) and this player's own call
                         }
                         osSyncPrintf(VT_FGCOL(YELLOW));
                         osSyncPrintf("☆☆☆ocarina=%d   message->ocarina_no=%d  ", msgCtx->lastPlayedSong,
