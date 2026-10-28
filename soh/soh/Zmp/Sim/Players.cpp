@@ -3425,6 +3425,11 @@ bool Found(int slot) {
         return false;
     }
     u32 keepTask = gZmpSim.audioTaskCount;
+    // D-233: the founder keeps its own horse data (the scene loaded with it in its previous slot, horse under it)
+    HorseData keepHorse = {};
+    if (Valid(gZmpSim.anchor) && Present(gZmpSim.anchor)) {
+        keepHorse = Slot(gZmpSim.anchor).block.horse;
+    }
     memset(&gZmpSim, 0, sizeof(gZmpSim));
     gZmpSim.magic = kSimMagic;
     gZmpSim.audioTaskCount = keepTask;
@@ -3443,6 +3448,14 @@ bool Found(int slot) {
     s.spectate = -1;
     s.reviver = -1;
     SaveToBlock(s.block);
+    s.block.horse = keepHorse;
+    // D-233: the horses of this Link (the scene loaded before the group gave it this slot: they were tagged with the
+    // slot it had then; any other Link's horses went with that Link above)
+    for (Actor* a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_EN_HORSE && ((EnHorse*)a)->zmpOwner != 0) {
+            ((EnHorse*)a)->zmpOwner = (s8)(slot + 1);
+        }
+    }
     s.input = play->state.input[0];
     for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
         Slot(k).spectate = -1;
