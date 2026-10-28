@@ -6,7 +6,7 @@
 
 #include "z_en_ge2.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
-#include "soh/Zmp/Test/Mutants.h" // ZMP (Zmp_TestMutant is inline outside the test build)
+#include "soh/Zmp/Test/Mutants.h"   // ZMP (Zmp_TestMutant is inline outside the test build)
 #include "vt.h"
 #include "objects/object_gla/object_gla.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
