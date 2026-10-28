@@ -8,6 +8,7 @@
 #include "overlays/actors/ovl_En_Dh/z_en_dh.h"
 #include "objects/object_dh/object_dh.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP
+#include "soh/Zmp/Test/Mutants.h" // ZMP (Zmp_TestMutant is inline outside the test build)
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 

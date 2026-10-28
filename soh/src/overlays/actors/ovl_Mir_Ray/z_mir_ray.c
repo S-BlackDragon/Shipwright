@@ -9,6 +9,7 @@
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (R2, D-212)
+#include "soh/Zmp/Test/Mutants.h" // ZMP (Zmp_TestMutant is inline outside the test build)
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 

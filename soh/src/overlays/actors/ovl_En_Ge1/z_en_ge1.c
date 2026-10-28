@@ -10,6 +10,7 @@
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-211)
+#include "soh/Zmp/Test/Mutants.h" // ZMP (Zmp_TestMutant is inline outside the test build)
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY)
 
