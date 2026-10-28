@@ -188,6 +188,7 @@ static u8 sTwinrovaBlastType;
 static u8 sFixedBlastType;
 static u8 sFixedBlatSeq;
 static u8 sFreezeState;
+static s8 sZmpFreezeSlot; // ZMP (D-231): slot + 1 of the Link Kotake's ice froze (0 none)
 static Vec3f sShieldHitPos;
 static s16 sShieldHitYaw;
 static u8 sBeamDivertTimer;
@@ -221,6 +222,7 @@ static BossTwEffect sEffects[150];
     F(sFixedBlastType)            \
     F(sFixedBlatSeq)              \
     F(sFreezeState)               \
+    F(sZmpFreezeSlot)             \
     F(sShieldHitPos)              \
     F(sShieldHitYaw)              \
     F(sBeamDivertTimer)           \
@@ -239,6 +241,36 @@ static BossTwEffect sEffects[150];
     R(sTwinrovaPtr)
 
 ZMP_SAVESTATE_DEFINE(BossTw, BOSS_TW_SHIP_SAVESTATE_FIELDS, BOSS_TW_ZMP_NEW_FIELDS, BOSS_TW_ZMP_ACTOR_REFS)
+
+// ZMP (row 2 of Twinrova, D-231): the Link Kotake's ice froze. The original has one player: its freeze effect
+// (TWEFF_PLYR_FRZ with no target) pauses, hurts and thaws "the player", which in a group is the Link in context on each
+// tick, the nearest to Twinrova. When another Link came nearer during the freeze (p29 and p32 of the 0.5.2 closure) the
+// pause flag set on the frozen Link was cleared on the other: the first stayed paused for ever and the second was
+// frozen without being hit. The freeze remembers whom it hit (sZmpFreezeSlot, in the fight's state) and works on that
+// Link.
+static Player* BossTw_ZmpFrozenPlayer(PlayState* play, Player* player) {
+    Player* frozen;
+
+    if (!Zmp_MultiActive() || (sZmpFreezeSlot <= 0) || Zmp_TestMutant("hielo_al_mas_cercano")) {
+        return player; // (mutant: the Link in context, as before)
+    }
+    frozen = Zmp_SlotPlayer(sZmpFreezeSlot - 1);
+    return (frozen != NULL) ? frozen : player;
+}
+
+// ZMP (D-231): the freeze's damage (Play_DamagePlayer hurts the player in context) goes to the frozen Link.
+static void BossTw_ZmpDamageFrozen(PlayState* play, Player* frozen) {
+    s32 back = Zmp_SlotOfPlayer(GET_PLAYER(play));
+    s32 k = Zmp_SlotOfPlayer(frozen);
+
+    if ((k >= 0) && (back >= 0) && (k != back)) {
+        Zmp_SetContext(play, k);
+        play->damagePlayer(play, -1);
+        Zmp_SetContext(play, back);
+    } else {
+        play->damagePlayer(play, -1);
+    }
+}
 
 // ZMP (row 5 of Twinrova, D-162): the blue warp appears on the east pillar (600, 230, 0) while the death cutscene still
 // holds everybody; it takes a Link within 60 of it, and a Link standing there would leave without stepping in. When it
@@ -541,6 +573,7 @@ void BossTw_Init(Actor* thisx, PlayState* play2) {
         D_8094C874 = D_8094C876 = D_8094C878 = D_8094C87A = D_8094C87C = D_8094C87E = D_8094C870 = D_8094C86F =
             D_8094C872 = sBeamDivertTimer = sEnvType = sGroundBlastType = sFreezeState = sTwinrovaBlastType =
                 sFixedBlatSeq = sShieldFireCharge = sShieldIceCharge = 0;
+        sZmpFreezeSlot = 0; // ZMP (D-231)
 
         D_8094C858 = D_8094C854 = 0.0f;
         sFixedBlastType = Rand_ZeroFloat(1.99f);
@@ -859,6 +892,7 @@ s32 BossTw_BeamHitPlayerCheck(BossTw* this, PlayState* play) {
             if (this->actor.params == 0) {
                 if (sFreezeState == 0) {
                     sFreezeState = 1;
+                    sZmpFreezeSlot = Zmp_SlotOfPlayer(player) + 1; // ZMP (D-231): the Link the beam hit
                 }
             } else if (!player->bodyIsBurning) {
                 for (i = 0; i < ARRAY_COUNT(player->bodyFlameTimers); i++) {
@@ -3211,10 +3245,12 @@ void BossTw_TwinrovaUpdate(Actor* thisx, PlayState* play2) {
     BossTw_UpdateEffects(play);
 
     if (sFreezeState == 1) {
+        Player* frozen = BossTw_ZmpFrozenPlayer(play, player); // ZMP (D-231)
+
         sFreezeState = 2;
         BossTw_AddPlayerFreezeEffect(play, NULL);
-        Sfx_PlaySfxAtPos(&player->actor.projectedPos, NA_SE_VO_LI_FREEZE);
-        Sfx_PlaySfxAtPos(&player->actor.projectedPos, NA_SE_PL_FREEZE);
+        Sfx_PlaySfxAtPos(&frozen->actor.projectedPos, NA_SE_VO_LI_FREEZE);
+        Sfx_PlaySfxAtPos(&frozen->actor.projectedPos, NA_SE_PL_FREEZE);
 
         if (sShieldFireCharge != 0) {
             sShieldFireCharge = 4;
@@ -3588,6 +3624,7 @@ void BossTw_Draw(Actor* thisx, PlayState* play2) {
                     (this->workf[UNK_F11] > 200.0f)) {
                     sFreezeState = 1;
                     sTwinrovaPtr->timers[2] = 100;
+                    sZmpFreezeSlot = Zmp_SlotOfPlayer(player) + 1; // ZMP (D-231): the Link on the ground blast
                 }
             }
 
@@ -4837,6 +4874,8 @@ void BossTw_UpdateEffects(PlayState* play) {
                     }
                 }
             } else if (eff->type == TWEFF_PLYR_FRZ) {
+                Player* frozen = BossTw_ZmpFrozenPlayer(play, player); // ZMP (D-231): whom the ice hit, not the context
+
                 if (eff->work[EFF_ARGS] < eff->frame) {
                     phi_f0 = 1.0f;
 
@@ -4849,8 +4888,9 @@ void BossTw_UpdateEffects(PlayState* play) {
                     if (eff->workf[EFF_SCALE] == 0.0f) {
                         eff->type = TWEFF_NONE;
                         if (eff->target == NULL) {
-                            player->stateFlags2 &= ~PLAYER_STATE2_PAUSE_MOST_UPDATING;
+                            frozen->stateFlags2 &= ~PLAYER_STATE2_PAUSE_MOST_UPDATING;
                             sFreezeState = 0;
+                            sZmpFreezeSlot = 0; // ZMP (D-231)
                         }
                     }
                 } else {
@@ -4865,9 +4905,9 @@ void BossTw_UpdateEffects(PlayState* play) {
 
                         if (eff->workf[EFF_ROLL] >= 0.8f) {
                             eff->workf[EFF_ROLL] -= 0.8f;
-                            player->stateFlags2 |= PLAYER_STATE2_PAUSE_MOST_UPDATING;
+                            frozen->stateFlags2 |= PLAYER_STATE2_PAUSE_MOST_UPDATING;
                         } else {
-                            player->stateFlags2 &= ~PLAYER_STATE2_PAUSE_MOST_UPDATING;
+                            frozen->stateFlags2 &= ~PLAYER_STATE2_PAUSE_MOST_UPDATING;
                         }
 
                         if ((sKotakePtr->workf[UNK_F11] > 10.0f) && (sKotakePtr->workf[UNK_F11] < 200.0f)) {
@@ -4875,7 +4915,7 @@ void BossTw_UpdateEffects(PlayState* play) {
                         }
 
                         if (!(play->gameplayFrames & 1)) {
-                            play->damagePlayer(play, -1);
+                            BossTw_ZmpDamageFrozen(play, frozen); // ZMP (D-231)
                         }
                     } else {
                         Math_ApproachF(&eff->workf[EFF_SCALE], 0.042f, 1.0f, 0.002f);
@@ -4885,9 +4925,9 @@ void BossTw_UpdateEffects(PlayState* play) {
                         spA6 = Rand_ZeroFloat(17.9f);
 
                         if (eff->target == NULL) {
-                            spC0.x = player->bodyPartsPos[spA6].x + Rand_CenteredFloat(5.0f);
-                            spC0.y = player->bodyPartsPos[spA6].y + Rand_CenteredFloat(5.0f);
-                            spC0.z = player->bodyPartsPos[spA6].z + Rand_CenteredFloat(5.0f);
+                            spC0.x = frozen->bodyPartsPos[spA6].x + Rand_CenteredFloat(5.0f);
+                            spC0.y = frozen->bodyPartsPos[spA6].y + Rand_CenteredFloat(5.0f);
+                            spC0.z = frozen->bodyPartsPos[spA6].z + Rand_CenteredFloat(5.0f);
                             phi_f22 = 10.0f;
                         } else {
                             unk44 = eff->target;
