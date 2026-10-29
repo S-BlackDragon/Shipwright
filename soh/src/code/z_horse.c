@@ -218,19 +218,26 @@ void Horse_SetupInCutscene(PlayState* play, Player* player) {
                 } else if ((D_8011F9B8[i].type == 5) || (D_8011F9B8[i].type == 6) || (D_8011F9B8[i].type == 8)) {
                     Vec3f sp54;
                     s32 temp = 0;
+                    f32 laneZ = 0.0f;
 
                     if (((gSaveContext.eventInf[0] & 0x10) >> 4) && D_8011F9B8[i].type == 6) {
                         temp = 0x8000;
                     }
+                    // ZMP (D-234): Ingo's race is run by every Link at once: each one's horse in its own lane along the
+                    // start line (lane 0 the Link who accepted, at the original spot; the others 140 and then 95 apart
+                    // towards -z, within the finish line and clear of Ingo's horse at z -1650)
+                    if (D_8011F9B8[i].type == 6 && Zmp_RaceLane() > 0) {
+                        laneZ = -(140.0f + 95.0f * (Zmp_RaceLane() - 1));
+                    }
 
                     player->rideActor =
-                        ZmpHorseSpawn(play, D_8011F9B8[i].pos.x, D_8011F9B8[i].pos.y, D_8011F9B8[i].pos.z, 0,
+                        ZmpHorseSpawn(play, D_8011F9B8[i].pos.x, D_8011F9B8[i].pos.y, D_8011F9B8[i].pos.z + laneZ, 0,
                                       D_8011F9B8[i].angle, 0, D_8011F9B8[i].type | temp);
                     assert(player->rideActor != NULL);
 
                     player->actor.world.pos.x = D_8011F9B8[i].pos.x;
                     player->actor.world.pos.y = D_8011F9B8[i].pos.y;
-                    player->actor.world.pos.z = D_8011F9B8[i].pos.z;
+                    player->actor.world.pos.z = D_8011F9B8[i].pos.z + laneZ;
                     player->actor.shape.rot.x = player->actor.shape.rot.z = 0;
                     player->actor.shape.rot.y = D_8011F9B8[i].angle;
 

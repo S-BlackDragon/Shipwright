@@ -2210,6 +2210,15 @@ extern "C" HorseData* Zmp_HorseData(void) {
     return (k >= 0) ? &Slot(k).block.horse : &gSaveContext.horseData;
 }
 
+// D-234: the save file holds the saving player's own Epona (gSaveContext.horseData, the field the original writes):
+// copied from its block right before the game is written. Its block is not in the players file next to the save (it
+// is the save itself), and the founder of the next group takes gSaveContext.horseData as its own (above).
+extern "C" void Zmp_SyncHorseDataForSave(void) {
+    if (EponaPerPlayer() && Present(sLocalSlot)) {
+        gSaveContext.horseData = Slot(sLocalSlot).block.horse;
+    }
+}
+
 extern "C" s32 Zmp_HorseEnter(void) {
     int k = EponaPerPlayer() ? CtxSlot() : -1;
     return (k >= 0) ? Slot(k).block.horseEnter : AREG(6);
@@ -2343,23 +2352,68 @@ extern "C" Player* Zmp_SlotPlayer(s32 slot) {
 // the Link of that story (D-187/D-219: the player of the actor that changed the scene, Ingo's rider who accepted the
 // race), not to the anchor, and in that Link's context (its main camera is the one set to follow the horse). Before,
 // the anchor was put on the race horse at the start line and the one who paid stood at the ranch gate.
+// D-234 (Alex, 2026-10-29): Ingo's race is run by every Link in the ranch at once. The scene of the race start (the
+// ranch loaded again with cutscene 0xFFF0, the race accepted: eventInf 2) puts a race horse under every present Link,
+// each in its own lane (Zmp_RaceLane, z_horse.c) and its own context; the judge follows every rider
+// (En_Horse_Game_Check) and the first over the line wins for the group (the possession is the group's, D-233). A downed
+// Link stays on foot. Mutant carrera_de_uno: only the Link who accepted rides, as D-222.
+static bool RaceStartScene(PlayState* play) {
+    return play->sceneNum == SCENE_LON_LON_RANCH && gSaveContext.cutsceneIndex == 0xFFF0 &&
+           (gSaveContext.eventInf[0] & 0xF) == 2;
+}
+
 extern "C" void Zmp_StoryHorseSetup(PlayState* play, Player* player, void (*setup)(PlayState*, Player*)) {
     int c = (gZmpSim.enabled && gZmpSim.inPlay && gZmpSim.csCarry != 0 && !Zmp_TestMutant("carrera_del_ancla"))
                 ? gZmpSim.csCarry - 1
                 : -1;
+    int back = gZmpSim.ctx;
+    int story;
+    bool switched = false;
+    gZmpSim.raceLane = 0;
     if (!Present(c) || Slot(c).downed || Slot(c).player == nullptr || Slot(c).player == player) {
         setup(play, player);
-        return;
-    }
-    int back = gZmpSim.ctx;
-    Zmp::Log("zmp: D-222: the scene's story horse goes to slot " + std::to_string(c));
-    gZmpSim.horseGameBy = (u8)(c + 1); // D-223: Ingo talks to this Link after the race
-    SwitchTo(play, c);
-    setup(play, Slot(c).player);
-    if (Present(back)) {
-        SwitchTo(play, back);
+        story = Zmp_SlotOfPlayer(player);
     } else {
-        Zmp_RestoreAnchor(play);
+        Zmp::Log("zmp: D-222: the scene's story horse goes to slot " + std::to_string(c));
+        gZmpSim.horseGameBy = (u8)(c + 1); // D-223: Ingo talks to this Link after the race
+        SwitchTo(play, c);
+        setup(play, Slot(c).player);
+        story = c;
+        switched = true;
+    }
+    if (gZmpSim.enabled && gZmpSim.inPlay && RaceStartScene(play) && !Zmp_TestMutant("carrera_de_uno")) {
+        int lane = 0;
+        for (int k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            if (k == story || !Present(k) || Slot(k).downed || Slot(k).player == nullptr) {
+                continue;
+            }
+            gZmpSim.raceLane = (u8)++lane;
+            SwitchTo(play, k);
+            setup(play, Slot(k).player);
+            switched = true;
+        }
+        gZmpSim.raceLane = 0;
+        if (lane > 0) {
+            Zmp::Log("zmp: D-234: Ingo's race is run by " + std::to_string(lane + 1) + " Links at once (story slot " +
+                     std::to_string(story) + ")");
+        }
+    }
+    if (switched) {
+        if (Present(back)) {
+            SwitchTo(play, back);
+        } else {
+            Zmp_RestoreAnchor(play);
+        }
+    }
+}
+
+extern "C" s32 Zmp_RaceLane(void) {
+    return Zmp_MultiActive() ? gZmpSim.raceLane : 0;
+}
+
+extern "C" void Zmp_SetHorseGameBy(s32 slot) {
+    if (Zmp_MultiActive() && Present(slot)) {
+        gZmpSim.horseGameBy = (u8)(slot + 1);
     }
 }
 
@@ -3425,8 +3479,10 @@ bool Found(int slot) {
         return false;
     }
     u32 keepTask = gZmpSim.audioTaskCount;
-    // D-233: the founder keeps its own horse data (the scene loaded with it in its previous slot, horse under it)
-    HorseData keepHorse = {};
+    // D-233: the founder keeps its own horse data (the scene loaded with it in its previous slot, horse under it).
+    // D-234: with no group before, its horse data is the game's (gSaveContext.horseData: a loaded save, or the
+    // single-player play up to here), so the Epona of the save file is this Link's.
+    HorseData keepHorse = gSaveContext.horseData;
     if (Valid(gZmpSim.anchor) && Present(gZmpSim.anchor)) {
         keepHorse = Slot(gZmpSim.anchor).block.horse;
     }
@@ -3932,15 +3988,16 @@ int SlotHealth(int slot) {
 }
 
 ZmpPlayerBlock SlotBlock(int slot) {
-    ZmpPlayerBlock b{};
     if (!Valid(slot)) {
-        return b;
+        return ZmpPlayerBlock{};
     }
+    // D-234: what is not in gSaveContext (the horse, D-233) lives only in the slot's block, also for the slot in
+    // context: it starts from there and gSaveContext fills in the rest
+    ZmpPlayerBlock b = Slot(slot).block;
     if (slot == gZmpSim.ctx && gZmpSim.inPlay) {
         SaveToBlock(b);
-        return b;
     }
-    return Slot(slot).block;
+    return b;
 }
 
 bool SlotDowned(int slot) {
@@ -4037,6 +4094,12 @@ void ApplyBlockInContext(void* p) {
             b.bottles[i] = a->block.bottles[i];
         }
     }
+    // D-234: where this player left its Epona comes with its saved block (scene -1: a block saved before D-234, or the
+    // mutant epona_sin_memoria, which forgets it as before)
+    bool horse = a->block.horse.scene >= 0 && !Zmp_TestMutant("epona_sin_memoria");
+    if (horse) {
+        Slot(a->slot).block.horse = a->block.horse; // (where Zmp_HorseData reads it: not a gSaveContext field)
+    }
     FixBottleButtons(b);
     b.health = gSaveContext.healthCapacity;
     b.healthAccumulator = 0;
@@ -4044,6 +4107,15 @@ void ApplyBlockInContext(void* p) {
     Player* player = Zmp::Players::SlotPlayer(a->slot);
     if (player != nullptr && gPlayState != nullptr) {
         Player_SetEquipmentData(gPlayState, player);
+    }
+    // D-234: its Epona of this scene's load (spawned at her default spot when the Link appeared) is replaced by the one
+    // where it left her, if that is this scene (Horse_SetupInGameplay, in this slot's context)
+    if (horse && player != nullptr && gPlayState != nullptr && gZmpSim.inPlay && EponaPerPlayer() &&
+        Flags_GetEventChkInf(EVENTCHKINF_EPONA_OBTAINED)) {
+        KillHorsesOf(gPlayState, a->slot);
+        Actor_InitPlayerHorse(gPlayState, player);
+        Zmp::Log("zmp: D-234: slot " + std::to_string(a->slot) + "'s Epona placed from its saved block (scene " +
+                 std::to_string(a->block.horse.scene) + ")");
     }
 }
 } // namespace

@@ -259,6 +259,8 @@ typedef struct {
     // D-223: 1 + the slot of the Link put on the horse of Ingo's race (the one who accepted it, D-222; 0: none). After
     // the race Ingo talks to that Link (his auto-accepted talk: who won, the 50 rupees).
     u8 horseGameBy;
+    // D-234: lane of the race horse being set up at the start of Ingo's race (0 the Link who accepted, 1.. the others)
+    u8 raceLane;
     u8 sharedBase[ZMP_SHARED_MAX];
 } ZmpSimState;
 
@@ -278,6 +280,7 @@ s32 Zmp_MultiActive(void);
 // DREG(53) of the player in context; the owner of a horse (slot, -1 none); each present Link's horse at scene load.
 HorseData* Zmp_HorseData(void);
 #define ZMP_HORSE_DATA (*Zmp_HorseData())
+void Zmp_SyncHorseDataForSave(void); // D-234: the saving player's Epona into gSaveContext.horseData before a save
 s32 Zmp_HorseEnter(void);
 void Zmp_SetHorseEnter(s32 on);
 void Zmp_EponaCalled(PlayState* play);
@@ -285,6 +288,8 @@ s32 Zmp_EponaCallFor(Actor* horse);
 s32 Zmp_HorseOwner(Actor* horse);
 void Zmp_TagHorse(Actor* horse); // at the spawn, in the owner's context
 void Zmp_InitPlayerHorses(PlayState* play);
+s32 Zmp_RaceLane(void);            // D-234: lane of the race horse being set up (z_horse.c spreads them along the line)
+void Zmp_SetHorseGameBy(s32 slot); // D-234: the Link Ingo talks to after the race (the winner, D-223)
 
 // 1 + the slot of the player in context (0: outside a session). For an actor that keeps "whose this is" in a field
 // where zero must mean nobody (A15, D-145).

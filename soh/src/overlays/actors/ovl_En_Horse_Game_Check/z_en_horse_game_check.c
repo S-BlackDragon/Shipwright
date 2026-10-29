@@ -7,6 +7,8 @@
 #include "z_en_horse_game_check.h"
 #include "overlays/actors/ovl_En_Horse/z_en_horse.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Zmp/Sim/ZmpPlayers.h" // ZMP (D-234)
+#include "soh/Zmp/Test/Mutants.h"   // ZMP (D-234)
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -133,20 +135,46 @@ void EnHorseGameCheck_FinishIngoRace(EnHorseGameCheckIngoRace* this, PlayState* 
     gSaveContext.timerState = TIMER_STATE_OFF;
 }
 
+// ZMP (D-234): the Link riding in lane k of Ingo's race (every present Link rides, Zmp_StoryHorseSetup), NULL for an
+// empty lane. With one player, or in the mutant carrera_de_uno, lane 0 is the player and there is no other: the
+// original's judge, which followed "the player".
+static Player* EnHorseGameCheck_ZmpRider(PlayState* play, s32 k) {
+    if (!Zmp_MultiActive() || Zmp_TestMutant("carrera_de_uno")) {
+        return (k == 0) ? GET_PLAYER(play) : NULL;
+    }
+    return Zmp_SlotPlayer(k);
+}
+
+// ZMP (D-234): every rider's horse is let go at the start; answers whether there was one (the original waited for the
+// player's horse)
+static s32 EnHorseGameCheck_ZmpLetGo(PlayState* play) {
+    s32 any = 0;
+    s32 k;
+
+    for (k = 0; k < ZMP_MAX_PLAYERS; k++) {
+        Player* rider = EnHorseGameCheck_ZmpRider(play, k);
+
+        if ((rider != NULL) && (rider->rideActor != NULL)) {
+            ((EnHorse*)rider->rideActor)->inRace = 1;
+            any = 1;
+        }
+    }
+    return any;
+}
+
 s32 EnHorseGameCheck_UpdateIngoRace(EnHorseGameCheckBase* base, PlayState* play) {
     EnHorseGameCheckIngoRace* this = (EnHorseGameCheckIngoRace*)base;
-    Player* player = GET_PLAYER(play);
+    Player* player;
     s32 i;
+    s32 k;
     EnHorse* ingoHorse;
-    EnHorse* horse;
 
     if ((this->startTimer > 50) && !(this->startFlags & INGORACE_SET_TIMER)) {
         this->startFlags |= INGORACE_SET_TIMER;
         Interface_SetTimer(0);
-    } else if ((this->startTimer > 80) && (player->rideActor != NULL) && !(this->startFlags & INGORACE_PLAYER_MOVE)) {
+    } else if ((this->startTimer > 80) && !(this->startFlags & INGORACE_PLAYER_MOVE) &&
+               EnHorseGameCheck_ZmpLetGo(play)) { // ZMP (D-234): every rider, not "the player"
         this->startFlags |= INGORACE_PLAYER_MOVE;
-        horse = (EnHorse*)player->rideActor;
-        horse->inRace = 1;
     } else if ((this->startTimer > 81) && !(this->startFlags & INGORACE_INGO_MOVE)) {
         ingoHorse = (EnHorse*)this->ingoHorse;
 
@@ -159,12 +187,16 @@ s32 EnHorseGameCheck_UpdateIngoRace(EnHorseGameCheckBase* base, PlayState* play)
     this->startTimer++;
 
     for (i = 0; i < 3; i++) {
-        if ((player->rideActor != NULL) &&
-            (Math3D_Vec3f_DistXYZ(&sIngoRaceCheckpoints[i], &player->rideActor->world.pos) < 400.0f)) {
-            if ((i > 0) && (this->playerCheck[i - 1] == 1)) {
-                this->playerCheck[i] = 1;
-            } else if (i == 0) {
-                this->playerCheck[i] = 1;
+        // ZMP (D-234): each rider's own checkpoints (zmpCheck[k], lane k), not one player's
+        for (k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            player = EnHorseGameCheck_ZmpRider(play, k);
+            if ((player != NULL) && (player->rideActor != NULL) &&
+                (Math3D_Vec3f_DistXYZ(&sIngoRaceCheckpoints[i], &player->rideActor->world.pos) < 400.0f)) {
+                if ((i > 0) && (this->zmpCheck[k][i - 1] == 1)) {
+                    this->zmpCheck[k][i] = 1;
+                } else if (i == 0) {
+                    this->zmpCheck[k][i] = 1;
+                }
             }
         }
         if (Math3D_Vec3f_DistXYZ(&sIngoRaceCheckpoints[i], &this->ingoHorse->world.pos) < 400.0f) {
@@ -177,19 +209,25 @@ s32 EnHorseGameCheck_UpdateIngoRace(EnHorseGameCheckBase* base, PlayState* play)
     }
 
     if (this->result == INGORACE_NO_RESULT) {
-        Player* player2 = player;
+        // ZMP (D-234): the first rider over the line, after the three checkpoints, wins for the group; Ingo then talks
+        // to that Link (Zmp_SetHorseGameBy, D-223)
+        for (k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            Player* player2 = EnHorseGameCheck_ZmpRider(play, k);
 
-        if ((player2->rideActor != NULL) && (this->playerCheck[2] == 1) && AT_FINISH_LINE(player2->rideActor)) {
-            this->playerFinish++;
-            if (this->playerFinish > 0) {
-                this->result = INGORACE_PLAYER_WIN;
-                this->finishTimer = 55;
-                Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_HORSE_GOAL);
-                Audio_PlaySfxGeneral(NA_SE_SY_START_SHOT, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                     &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
-            }
-            for (i = 0; i < 3; i++) {
-                this->playerCheck[i] = 0;
+            if ((player2 != NULL) && (player2->rideActor != NULL) && (this->zmpCheck[k][2] == 1) &&
+                AT_FINISH_LINE(player2->rideActor)) {
+                this->playerFinish++;
+                if (this->playerFinish > 0) {
+                    this->result = INGORACE_PLAYER_WIN;
+                    this->finishTimer = 55;
+                    Zmp_SetHorseGameBy(k); // ZMP (D-234)
+                    Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_HORSE_GOAL);
+                    Audio_PlaySfxGeneral(NA_SE_SY_START_SHOT, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                }
+                for (i = 0; i < 3; i++) {
+                    this->zmpCheck[k][i] = 0;
+                }
             }
         }
         if ((this->ingoHorse != NULL) && (this->ingoCheck[2] == 1) && AT_FINISH_LINE(this->ingoHorse)) {
@@ -208,10 +246,17 @@ s32 EnHorseGameCheck_UpdateIngoRace(EnHorseGameCheckBase* base, PlayState* play)
                 this->ingoCheck[i] = 0;
             }
         }
-        if (((player2->rideActor != NULL) && AT_RANCH_EXIT(player2->rideActor)) || AT_RANCH_EXIT(&player2->actor)) {
-            Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_HORSE_GOAL);
-            this->result = INGORACE_INGO_WIN;
-            this->finishTimer = 20;
+        // ZMP (D-234): a rider (or a Link on foot) at the ranch's exit loses the race for the group, as the one player
+        // did
+        for (k = 0; k < ZMP_MAX_PLAYERS; k++) {
+            Player* player2 = EnHorseGameCheck_ZmpRider(play, k);
+
+            if ((player2 != NULL) && (((player2->rideActor != NULL) && AT_RANCH_EXIT(player2->rideActor)) ||
+                                      AT_RANCH_EXIT(&player2->actor))) {
+                Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_HORSE_GOAL);
+                this->result = INGORACE_INGO_WIN;
+                this->finishTimer = 20;
+            }
         }
         if ((gSaveContext.timerSeconds >= 180) && (this->startFlags & 2)) {
             Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_HORSE_GOAL);

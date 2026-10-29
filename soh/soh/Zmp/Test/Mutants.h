@@ -127,9 +127,13 @@
 //                          Morpha's tentacle drags and shakes a partner by its base and leaves the grabbed one held
 //   epona_de_todos         one Epona for the whole group, as before D-233: the first Link's song brings the one horse
 //                          to it, another Link mounts it, where it was left is the group's (not one Epona per Link)
+//   carrera_de_uno         Ingo's race is run by the Link who accepted it alone, as D-222 (not by every Link at once,
+//                          D-234): the others stay on foot at the entrance and the judge follows one rider
+//   epona_sin_memoria      where each Link left its Epona is forgotten when the game is loaded again (the saved block
+//                          carries it since D-234): every Epona is back at her default spot
 //   hielo_al_mas_cercano   Kotake's ice freezes, hurts and thaws the Link in context on each tick, the nearest, not the
-//                          one it hit (row 2 of Twinrova, D-231): a partner that comes nearer during the freeze is frozen
-//                          without being hit and the first one stays paused for ever
+//                          one it hit (row 2 of Twinrova, D-231): a partner that comes nearer during the freeze is
+//                          frozen without being hit and the first one stays paused for ever
 //   sacudida_global        Morpha's tentacle shaking a Link starts a cutscene everybody watches (row A2, D-135): the
 //                          other five stand frozen up to 150 ticks and nobody can free the grabbed one
 //   intro_mo_mas_cercano   Morpha's intro waits for the player nearest to its core, far beyond the door (row A4,

@@ -1350,6 +1350,7 @@ void SaveManager::SaveSection(int fileNum, int sectionID, bool threaded) {
         SPDLOG_ERROR("SaveSection: Section ID not registered.");
         return;
     }
+    Zmp_SyncHorseDataForSave(); // ZMP (D-234): the saving player's own Epona goes in the file
     auto saveContext = new SaveContext;
     memcpy(saveContext, &gSaveContext, sizeof(gSaveContext));
     if (threaded) {

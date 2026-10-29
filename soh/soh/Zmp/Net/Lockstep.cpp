@@ -272,6 +272,10 @@ std::string BlockPayload(const ZmpPlayerBlock& b) {
     for (int i = 0; i < 4; i++) {
         p += " " + std::to_string(b.bottles[i]);
     }
+    // D-234: where this player left its Epona (scene, position, angle), so that she stands there when the game is
+    // loaded
+    p += " " + std::to_string(b.horse.scene) + " " + std::to_string(b.horse.pos.x) + " " +
+         std::to_string(b.horse.pos.y) + " " + std::to_string(b.horse.pos.z) + " " + std::to_string(b.horse.angle);
     return p;
 }
 
@@ -1280,9 +1284,10 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         return true;
     }
     if (cmd.rfind("zmp_block ", 0) == 0) {
-        // "zmp_block target magic b0..b7 c0..c6 equipment ammo0..15 bottle0..3" (saved per-player block)
+        // "zmp_block target magic b0..b7 c0..c6 equipment ammo0..15 bottle0..3 [horse scene x y z angle]" (saved
+        // per-player block; the horse since D-234, a block saved before has 38 numbers)
         std::vector<int> v = ParseInts(cmd, 10);
-        if (v.size() != 38) {
+        if (v.size() != 38 && v.size() != 43) {
             Log("net: malformed block event: " + cmd);
             return true;
         }
@@ -1300,6 +1305,14 @@ bool ApplyGameEvent(int slot, const std::string& cmd) {
         }
         for (int i = 0; i < 4; i++) {
             b.bottles[i] = (u8)v[34 + i];
+        }
+        b.horse.scene = -1; // (no horse in the block: its Epona is not placed, D-234)
+        if (v.size() == 43) {
+            b.horse.scene = (s16)v[38];
+            b.horse.pos.x = (s16)v[39];
+            b.horse.pos.y = (s16)v[40];
+            b.horse.pos.z = (s16)v[41];
+            b.horse.angle = (s16)v[42];
         }
         Players::ApplySavedBlock(v[0], b);
         return true;

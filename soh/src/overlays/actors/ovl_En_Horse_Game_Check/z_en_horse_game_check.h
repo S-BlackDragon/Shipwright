@@ -24,7 +24,9 @@ typedef struct EnHorseGameCheckIngoRace {
     /* 0x0178 */ s32 finishTimer;
     /* 0x017C */ s32 playerFinish;
     /* 0x0180 */ s32 ingoFinish;
-} EnHorseGameCheckIngoRace; // size = 0x0184
+    /* ZMP (D-234): each rider's checkpoints (one per lane, ZMP_MAX_PLAYERS = 6); the original followed one player */
+    s32 zmpCheck[6][3];
+} EnHorseGameCheckIngoRace; // size = 0x0184 + 0x48
 
 typedef struct EnHorseGameCheckGerudoArchery {
     /* 0x0000 */ EnHorseGameCheckBase base;
